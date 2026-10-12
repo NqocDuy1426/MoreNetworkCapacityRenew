@@ -177,10 +177,61 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
                 }
+                EnsureRenderManagerCapacity();
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureCoreActive error: " + ex);
+            }
+        }
+
+        public static void EnsureRenderManagerCapacity()
+        {
+            try
+            {
+                Assembly mnc = EnsureCoreLoaded();
+                if (mnc != null)
+                {
+                    Type rmap = mnc.GetType("MoreNetworkCapacity.Patches.RenderManagerAwakePatch");
+                    if (rmap != null)
+                    {
+                        MethodInfo mEnsure = rmap.GetMethod("EnsureCapacity", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mEnsure != null)
+                        {
+                            mEnsure.Invoke(null, null);
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RenderManagerAwakePatch.EnsureCapacity invoked.");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureCapacity invoke warning: " + ex.Message);
+            }
+
+            try
+            {
+                var rm = Singleton<RenderManager>.instance;
+                if (rm != null)
+                {
+                    const int targetSize = 262144;
+                    if (rm.m_indices == null || rm.m_indices.Length < targetSize)
+                    {
+                        ushort[] oldArr = rm.m_indices;
+                        ushort[] newArr = new ushort[targetSize];
+                        for (int i = 0; i < newArr.Length; i++) newArr[i] = ushort.MaxValue;
+                        if (oldArr != null)
+                        {
+                            Array.Copy(oldArr, newArr, Math.Min(oldArr.Length, newArr.Length));
+                        }
+                        rm.m_indices = newArr;
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Guaranteed RenderManager.m_indices capacity: {0} (was {1}).", targetSize, oldArr != null ? oldArr.Length : 0));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Guaranteed RenderManager capacity error: " + ex);
             }
         }
 
@@ -1321,6 +1372,62 @@ namespace MoreNetworkCapacityRenew
         }
     }
 
+    [HarmonyPatch(typeof(RenderManager), "UpdateInstance", new Type[] { typeof(uint) })]
+    public static class RenderManagerUpdateInstancePatch
+    {
+        public static bool Prefix(RenderManager __instance, uint holder)
+        {
+            try
+            {
+                if (__instance == null) return false;
+                if (__instance.m_indices == null || holder >= (uint)__instance.m_indices.Length)
+                {
+                    int newSize = (int)Math.Max(holder + 4096, 262144);
+                    ushort[] oldArr = __instance.m_indices;
+                    ushort[] newArr = new ushort[newSize];
+                    for (int i = 0; i < newArr.Length; i++) newArr[i] = ushort.MaxValue;
+                    if (oldArr != null)
+                    {
+                        Array.Copy(oldArr, newArr, Math.Min(oldArr.Length, newArr.Length));
+                    }
+                    __instance.m_indices = newArr;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Dynamically expanded RenderManager.m_indices to {0} for holder {1}", newSize, holder));
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RenderManagerUpdateInstancePatch error: " + ex);
+                return false;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(RenderManager), "GetInstanceIndex")]
+    public static class RenderManagerGetInstanceIndexPatch
+    {
+        public static bool Prefix(RenderManager __instance, uint holder, ref uint index, ref bool __result)
+        {
+            try
+            {
+                if (__instance == null || __instance.m_indices == null || holder >= (uint)__instance.m_indices.Length)
+                {
+                    index = 0;
+                    __result = false;
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RenderManagerGetInstanceIndexPatch error: " + ex);
+                index = 0;
+                __result = false;
+                return false;
+            }
+        }
+    }
+
     // ============================================================================
     // MAIN LOADING EXTENSION
     // ============================================================================
@@ -1426,6 +1533,7 @@ namespace MoreNetworkCapacityRenew
                 }
                 
                 TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnCreated");
+                RenewMod.EnsureRenderManagerCapacity();
             }
         }
 
@@ -1435,6 +1543,7 @@ namespace MoreNetworkCapacityRenew
             
             try
             {
+                RenewMod.EnsureRenderManagerCapacity();
                 // Synchronize TM:PE buffers on level load
                 TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnLevelLoaded");
                 TMPECompatibility.EnsurePathFindCapacity();

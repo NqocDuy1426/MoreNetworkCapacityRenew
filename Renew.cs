@@ -566,7 +566,7 @@ namespace MoreNetworkCapacityRenew
                 Type tlsm = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
                 if (tlsm != null)
                 {
-                    MethodInfo simStep = tlsm.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    MethodInfo simStep = tlsm.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
                     if (simStep != null)
                     {
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficLightSimulationManager_SimulationStep_Postfix));
@@ -817,9 +817,12 @@ namespace MoreNetworkCapacityRenew
                         {
                             Type elemType = arr.GetType().GetElementType();
                             Array newArr = Array.CreateInstance(elemType, 130048);
-                            Array.Copy(arr, newArr, arr.Length);
+                            int oldCap = arr.Length / 2;
+                            int newCap = 65024;
+                            Array.Copy(arr, 0, newArr, 0, oldCap);
+                            Array.Copy(arr, oldCap, newArr, newCap, oldCap);
                             f.SetValue(inst, newArr);
-                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded SegmentEndManager.SegmentEnds: {0} -> 130048", arr.Length));
+                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded Split SegmentEndManager.SegmentEnds: {0} -> 130048 (offset {1} -> {2})", arr.Length, oldCap, newCap));
                         }
                     }
                 }
@@ -859,6 +862,10 @@ namespace MoreNetworkCapacityRenew
                             if (arr == null) continue;
 
                             int newSize = 0;
+                            bool isSplit = false;
+                            int splitOldCap = 0;
+                            int splitNewCap = 0;
+
                             // Only resize original node/segment arrays (32768, 36864) to 65024
                             if ((arr.Length == 32768 || arr.Length == 36864 || arr.Length == 32767 || arr.Length == 36863) && arr.Length < 65024)
                             {
@@ -868,6 +875,12 @@ namespace MoreNetworkCapacityRenew
                             else if ((arr.Length == 73728 || arr.Length == 73727) && arr.Length < 130048)
                             {
                                 newSize = 130048;
+                                if (t.Name != "ExtSegmentEndManager")
+                                {
+                                    isSplit = true;
+                                    splitOldCap = arr.Length / 2;
+                                    splitNewCap = 65024;
+                                }
                             }
                             // Spatial / Geometry buckets (512, 576) to 1024
                             else if ((arr.Length == 512 || arr.Length == 576) && arr.Length < 1024)
@@ -879,21 +892,32 @@ namespace MoreNetworkCapacityRenew
                             {
                                 newSize = 524288;
                             }
-                            // LaneEnd backward/forward routings in RoutingManager (524288) to 1048576
+                            // LaneEnd backward/forward routings in RoutingManager (524288 = 262144 * 2) to 1048576 (524288 * 2)
                             else if (arr.Length == 524288 && (f.Name.Contains("LaneEnd") || t.Name.Contains("RoutingManager")))
                             {
                                 newSize = 1048576;
+                                isSplit = true;
+                                splitOldCap = 262144;
+                                splitNewCap = 524288;
                             }
 
                             if (newSize > 0)
                             {
                                 Type elemType = arr.GetType().GetElementType();
                                 Array newArr = Array.CreateInstance(elemType, newSize);
-                                Array.Copy(arr, newArr, arr.Length);
+                                if (isSplit)
+                                {
+                                    Array.Copy(arr, 0, newArr, 0, splitOldCap);
+                                    Array.Copy(arr, splitOldCap, newArr, splitNewCap, splitOldCap);
+                                }
+                                else
+                                {
+                                    Array.Copy(arr, 0, newArr, 0, arr.Length);
+                                }
 
                                 // Instantiate element objects if constructor exists (e.g. TrafficLightSimulation(ushort), ExtLane(uint))
                                 ConstructorInfo ctorUshort = elemType.GetConstructor(new Type[] { typeof(ushort) });
-                                if (ctorUshort != null)
+                                if (ctorUshort != null && !isSplit)
                                 {
                                     for (int i = arr.Length; i < newSize; i++)
                                     {
@@ -902,7 +926,7 @@ namespace MoreNetworkCapacityRenew
                                 }
 
                                 ConstructorInfo ctorUint = elemType.GetConstructor(new Type[] { typeof(uint) });
-                                if (ctorUint != null)
+                                if (ctorUint != null && !isSplit)
                                 {
                                     for (int i = arr.Length; i < newSize; i++)
                                     {
@@ -918,16 +942,24 @@ namespace MoreNetworkCapacityRenew
                                     {
                                         object defaultVal = Activator.CreateInstance(elemType);
                                         msf.SetValue(defaultVal, (ushort)10000);
-                                        for (int i = arr.Length; i < newSize; i++)
+                                        if (isSplit)
                                         {
-                                            newArr.SetValue(defaultVal, i);
+                                            for (int i = splitOldCap; i < splitNewCap; i++)
+                                                newArr.SetValue(defaultVal, i);
+                                            for (int i = splitNewCap + splitOldCap; i < newSize; i++)
+                                                newArr.SetValue(defaultVal, i);
+                                        }
+                                        else
+                                        {
+                                            for (int i = arr.Length; i < newSize; i++)
+                                                newArr.SetValue(defaultVal, i);
                                         }
                                     }
                                 }
 
                                 if (f.IsStatic) f.SetValue(null, newArr);
                                 else if (inst != null) f.SetValue(inst, newArr);
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized TM:PE Array {0}.{1}: {2} -> {3}", t.Name, f.Name, arr.Length, newSize));
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized TM:PE Array {0}.{1}: {2} -> {3}{4}", t.Name, f.Name, arr.Length, newSize, isSplit ? " (split)" : ""));
                             }
                         }
                     }
@@ -1178,7 +1210,7 @@ namespace MoreNetworkCapacityRenew
                 {
                     tmpePostfixInitDone = true;
                     Type elemType = rawArray.GetType().GetElementType();
-                    fallbackStepMethod = elemType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    fallbackStepMethod = elemType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
                     if (fallbackStepMethod != null)
                     {
                         try

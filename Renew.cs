@@ -489,6 +489,14 @@ namespace MoreNetworkCapacityRenew
                             break;
                         }
                     }
+
+                    MethodInfo loadDataM = prm.GetMethod("LoadData", BindingFlags.Public | BindingFlags.Instance);
+                    if (loadDataM != null)
+                    {
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.ParkingRestrictionsManager_LoadData_Postfix));
+                        harmony.Patch(loadDataM, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ParkingRestrictionsManager.LoadData");
+                    }
                 }
 
                 // 3. SegmentEndManager.GetIndex & GetSegmentAndNodeFromIndex
@@ -611,11 +619,11 @@ namespace MoreNetworkCapacityRenew
                 {
                     ResizeStaticArray(flagsType, "laneArrowFlags", 524288);
                     ResizeStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                    ResizeStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
+                    ResizeStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
                 }
 
                 // 3. ParkingRestrictionsManager
-                EnsureParkingRestrictionsCapacity(65024);
+                EnsureParkingRestrictionsCapacity(65536);
 
                 // 4. ExtSegmentEndManager & SegmentEndManager
                 EnsureSegmentEndManagersCapacity(tmpe);
@@ -711,11 +719,25 @@ namespace MoreNetworkCapacityRenew
                 object inst = GetManagerInstance(mgrType);
                 if (inst == null) return;
 
+                EnsureParkingRestrictionsCapacity(inst, minSize);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureParkingRestrictionsCapacity error: " + ex);
+            }
+        }
+
+        public static void EnsureParkingRestrictionsCapacity(object inst, int minSize)
+        {
+            try
+            {
+                if (inst == null) return;
+                Type mgrType = inst.GetType();
                 FieldInfo f = mgrType.GetField("parkingAllowed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (f == null) return;
 
                 bool[][] current = f.GetValue(inst) as bool[][];
-                int targetSize = Math.Max(minSize, 65024);
+                int targetSize = Math.Max(minSize, 65536);
                 if (current == null || current.Length < targetSize)
                 {
                     bool[][] newArr = new bool[targetSize][];
@@ -743,7 +765,7 @@ namespace MoreNetworkCapacityRenew
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureParkingRestrictionsCapacity error: " + ex);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureParkingRestrictionsCapacity instance error: " + ex);
             }
         }
 
@@ -1063,14 +1085,33 @@ namespace MoreNetworkCapacityRenew
             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TM:PE Save completed: all timed traffic lights and node data saved.");
         }
 
-        public static void ParkingRestrictionsManager_OnBeforeLoadData_Postfix()
+        public static void ParkingRestrictionsManager_OnBeforeLoadData_Postfix(object __instance)
         {
-            TMPECompatibility.EnsureParkingRestrictionsCapacity(65024);
+            TMPECompatibility.EnsureParkingRestrictionsCapacity(__instance, 65536);
         }
 
-        public static void ParkingRestrictionsManager_SetParkingAllowed_Prefix(ushort segmentId)
+        public static bool ParkingRestrictionsManager_SetParkingAllowed_Prefix(object __instance, ushort segmentId, ref bool __result)
         {
-            TMPECompatibility.EnsureParkingRestrictionsCapacity(segmentId + 1);
+            try
+            {
+                TMPECompatibility.EnsureParkingRestrictionsCapacity(__instance, Math.Max((int)segmentId + 1, 65536));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SetParkingAllowed_Prefix error: " + ex);
+                __result = false;
+                return false;
+            }
+        }
+
+        public static void ParkingRestrictionsManager_LoadData_Postfix(ref bool __result)
+        {
+            if (!__result)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TM:PE ParkingRestrictionsManager.LoadData reported false. Overriding to true to prevent save load abortion.");
+                __result = true;
+            }
         }
 
         public static bool SegmentEndManager_GetIndex_Prefix(ushort segmentId, bool startNode, ref int __result)
@@ -1406,13 +1447,13 @@ namespace MoreNetworkCapacityRenew
     [HarmonyPatch(typeof(RenderManager), "GetInstanceIndex")]
     public static class RenderManagerGetInstanceIndexPatch
     {
-        public static bool Prefix(RenderManager __instance, uint holder, ref uint index, ref bool __result)
+        public static bool Prefix(RenderManager __instance, uint holder, ref uint instanceIndex, ref bool __result)
         {
             try
             {
                 if (__instance == null || __instance.m_indices == null || holder >= (uint)__instance.m_indices.Length)
                 {
-                    index = 0;
+                    instanceIndex = 0;
                     __result = false;
                     return false;
                 }
@@ -1421,7 +1462,7 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RenderManagerGetInstanceIndexPatch error: " + ex);
-                index = 0;
+                instanceIndex = 0;
                 __result = false;
                 return false;
             }
@@ -1482,18 +1523,40 @@ namespace MoreNetworkCapacityRenew
             
             if (!patchApplied)
             {
+                var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.Comprehensive");
+
                 try
                 {
-                    var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.Comprehensive");
-                    
                     harmony.PatchAll(Assembly.GetExecutingAssembly());
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Static Harmony patches applied successfully.");
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Static Harmony patches error: " + ex);
+                }
 
+                try
+                {
                     // Dynamic IL transpiler for constants
                     DynamicPatcher.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] DynamicPatcher error: " + ex);
+                }
 
+                try
+                {
                     // Dynamic hooks for TM:PE
                     TMPECompatibility.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPECompatibility error: " + ex);
+                }
 
+                try
+                {
                     // Patch KianCommons limits
                     int patchedCount = 0;
                     foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -1507,30 +1570,30 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully patched " + patchedCount + " KianCommons limits to prevent Mac freeze!");
-
-                    // Patch NetManager.SimulationStepImpl for expanded nodes and segments simulation
-                    try
-                    {
-                        MethodInfo simStepImpl = typeof(NetManager).GetMethod("SimulationStepImpl", BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (simStepImpl != null)
-                        {
-                            MethodInfo postfix = typeof(NetManagerSimulationPatches).GetMethod(nameof(NetManagerSimulationPatches.Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(simStepImpl, postfix: new HarmonyMethod(postfix));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.SimulationStepImpl for expanded nodes and segments simulation!");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] NetManager.SimulationStepImpl patch error: " + ex);
-                    }
-
-                    patchApplied = true;
-                    DiagnosticLogger.Checkpoint("OnCreated.AllPatchesApplied");
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] OnCreated patch error: " + ex);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] KianCommons patching error: " + ex);
                 }
+
+                try
+                {
+                    // Patch NetManager.SimulationStepImpl for expanded nodes and segments simulation
+                    MethodInfo simStepImpl = typeof(NetManager).GetMethod("SimulationStepImpl", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (simStepImpl != null)
+                    {
+                        MethodInfo postfix = typeof(NetManagerSimulationPatches).GetMethod(nameof(NetManagerSimulationPatches.Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(simStepImpl, postfix: new HarmonyMethod(postfix));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.SimulationStepImpl for expanded nodes and segments simulation!");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] NetManager.SimulationStepImpl patch error: " + ex);
+                }
+
+                patchApplied = true;
+                DiagnosticLogger.Checkpoint("OnCreated.AllPatchesApplied");
                 
                 TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnCreated");
                 RenewMod.EnsureRenderManagerCapacity();

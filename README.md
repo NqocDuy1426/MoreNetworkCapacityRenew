@@ -151,10 +151,7 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 
 1. Khởi động **Cities: Skylines** -> Vào **Quản lý nội dung (Content Manager)** -> **Mods**.
 2. Tìm và **BẬT (ON)**: `More Network Capacity Renew by NgocDuy`.
-3. **TẮT (OFF)** hoặc gỡ bỏ các bản cũ:
-   - `More Network Capacity` *(bản gốc cũ)*
-   - `More Network Capacity Fix` *(bản fix rời trước đây)*
-4. Vào game và tải bản lưu thành phố bình thường!
+3. Vào game và tải bản lưu thành phố bình thường!
 
 ---
 

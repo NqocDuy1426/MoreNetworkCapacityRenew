@@ -702,6 +702,19 @@ namespace MoreNetworkCapacityRenew
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TMPELifecycle.Load");
                     }
                 }
+
+                // 9. SpeedLimitManager.GetGameSpeedLimit
+                Type slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                if (slm != null)
+                {
+                    MethodInfo getSpeedM = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(NetInfo.Lane) }, null);
+                    if (getSpeedM != null)
+                    {
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Postfix));
+                        harmony.Patch(getSpeedM, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -758,6 +771,9 @@ namespace MoreNetworkCapacityRenew
 
                 // 5. Manager arrays
                 ResizeAllManagerArrays(tmpe);
+
+                // 5b. SpeedLimitManager capacity & initialize default speeds
+                EnsureSpeedLimitManagerCapacity(tmpe);
 
                 // 6. GenericArrayCache
                 ResizeGenericArrayCaches(tmpe);
@@ -917,6 +933,105 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureParkingRestrictionsCapacity instance error: " + ex);
+            }
+        }
+
+        public static void EnsureSpeedLimitManagerCapacity(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type slmType = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                if (slmType == null) return;
+
+                object inst = GetManagerInstance(slmType);
+                if (inst == null) return;
+
+                FieldInfo fCache = slmType.GetField("cachedLaneSpeedLimits_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fCache == null) return;
+
+                float[] arr = fCache.GetValue(inst) as float[];
+                int targetSize = 524288;
+                if (arr == null || arr.Length < targetSize)
+                {
+                    float[] newArr = new float[targetSize];
+                    if (arr != null)
+                    {
+                        Array.Copy(arr, newArr, arr.Length);
+                    }
+                    fCache.SetValue(inst, newArr);
+                    arr = newArr;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded SpeedLimitManager.cachedLaneSpeedLimits_: {0} -> {1}", arr != null ? arr.Length : 0, targetSize));
+                }
+
+                // Populate all lanes with valid positive speed limits so NO vehicle ever stops dead
+                if (NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null)
+                {
+                    NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
+                    NetLane[] laneBuffer = NetManager.instance.m_lanes.m_buffer;
+                    int filledCount = 0;
+
+                    int maxSeg = Math.Min(segBuffer.Length, 65024);
+                    for (ushort segId = 1; segId < maxSeg; segId++)
+                    {
+                        if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
+                        NetInfo info = segBuffer[segId].Info;
+                        if (info == null || info.m_lanes == null) continue;
+
+                        uint curLane = segBuffer[segId].m_lanes;
+                        int laneIndex = 0;
+                        while (curLane != 0 && curLane < (uint)arr.Length && laneIndex < info.m_lanes.Length)
+                        {
+                            NetInfo.Lane lInfo = info.m_lanes[laneIndex];
+                            float defSpeed = (lInfo != null && lInfo.m_speedLimit > 0.001f) ? lInfo.m_speedLimit : 1.25f;
+
+                            if (arr[curLane] <= 0.001f)
+                            {
+                                arr[curLane] = defSpeed;
+                                filledCount++;
+                            }
+
+                            curLane = laneBuffer[curLane].m_nextLane;
+                            laneIndex++;
+                        }
+                    }
+
+                    int maxLane = Math.Min(laneBuffer.Length, arr.Length);
+                    for (uint laneId = 1; laneId < (uint)maxLane; laneId++)
+                    {
+                        if (arr[laneId] <= 0.001f && laneBuffer[laneId].m_segment != 0)
+                        {
+                            ushort sId = laneBuffer[laneId].m_segment;
+                            if (sId < (ushort)segBuffer.Length && (segBuffer[sId].m_flags & NetSegment.Flags.Created) != 0)
+                            {
+                                NetInfo sInfo = segBuffer[sId].Info;
+                                if (sInfo != null && sInfo.m_lanes != null)
+                                {
+                                    float fallback = 1.25f;
+                                    for (int li = 0; li < sInfo.m_lanes.Length; li++)
+                                    {
+                                        if (sInfo.m_lanes[li] != null && sInfo.m_lanes[li].m_speedLimit > 0.001f)
+                                        {
+                                            fallback = sInfo.m_lanes[li].m_speedLimit;
+                                            break;
+                                        }
+                                    }
+                                    arr[laneId] = fallback;
+                                    filledCount++;
+                                }
+                            }
+                        }
+                    }
+
+                    if (filledCount > 0)
+                    {
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized {0} lane speed limits in TM:PE cache", filledCount));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureSpeedLimitManagerCapacity error: " + ex);
             }
         }
 
@@ -1530,6 +1645,12 @@ namespace MoreNetworkCapacityRenew
 
                 for (int i = start; i < end; i++)
                 {
+                    if (NetManager.instance != null && NetManager.instance.m_nodes != null && NetManager.instance.m_nodes.m_buffer != null && i < NetManager.instance.m_nodes.m_buffer.Length)
+                    {
+                        if ((NetManager.instance.m_nodes.m_buffer[i].m_flags & NetNode.Flags.Created) == 0)
+                            continue;
+                    }
+
                     try
                     {
                         if (simOneDel != null)
@@ -1571,6 +1692,53 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPELifecycle_Load_Postfix error: " + ex);
             }
         }
+
+        public static void SpeedLimitManager_GetGameSpeedLimit_Postfix(uint laneId, NetInfo.Lane laneInfo, ref float __result)
+        {
+            if (__result <= 0.001f)
+            {
+                if (laneInfo != null && laneInfo.m_speedLimit > 0.001f)
+                {
+                    __result = laneInfo.m_speedLimit;
+                }
+                else
+                {
+                    try
+                    {
+                        if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId < (uint)NetManager.instance.m_lanes.m_buffer.Length)
+                        {
+                            ushort segId = NetManager.instance.m_lanes.m_buffer[laneId].m_segment;
+                            if (segId != 0 && segId < NetManager.instance.m_segments.m_buffer.Length)
+                            {
+                                NetInfo segInfo = NetManager.instance.m_segments.m_buffer[segId].Info;
+                                if (segInfo != null && segInfo.m_lanes != null)
+                                {
+                                    uint curLane = NetManager.instance.m_segments.m_buffer[segId].m_lanes;
+                                    int laneIdx = 0;
+                                    while (curLane != 0 && laneIdx < segInfo.m_lanes.Length)
+                                    {
+                                        if (curLane == laneId)
+                                        {
+                                            float defSpeed = segInfo.m_lanes[laneIdx].m_speedLimit;
+                                            if (defSpeed > 0.001f)
+                                            {
+                                                __result = defSpeed;
+                                                return;
+                                            }
+                                            break;
+                                        }
+                                        curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane;
+                                        laneIdx++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                    __result = 1.25f; // Safe 50-60 km/h fallback so vehicles NEVER dead-stop on highways or avenues
+                }
+            }
+        }
     }
 
     // ============================================================================
@@ -1579,6 +1747,7 @@ namespace MoreNetworkCapacityRenew
     public static class NetManagerSimulationPatches
     {
         private static bool loggedOnce = false;
+        private static uint lastSimulatedFrameIndex = uint.MaxValue;
 
         public static void Postfix(NetManager __instance, int subStep)
         {
@@ -1588,7 +1757,12 @@ namespace MoreNetworkCapacityRenew
             SimulationManager sm = Singleton<SimulationManager>.instance;
             if (sm == null) return;
 
-            int frameIndex = (int)(sm.m_currentFrameIndex & 255u);
+            // Only simulate once per frame index to avoid wasteful duplicate simulation across substeps
+            uint currentFrame = sm.m_currentFrameIndex;
+            if (currentFrame == lastSimulatedFrameIndex) return;
+            lastSimulatedFrameIndex = currentFrame;
+
+            int frameIndex = (int)(currentFrame & 255u);
 
             if (!loggedOnce)
             {
@@ -1627,19 +1801,6 @@ namespace MoreNetworkCapacityRenew
                         if (nodes[i].m_problems != problems)
                         {
                             try { __instance.UpdateNodeNotifications((ushort)i, problems, nodes[i].m_problems); } catch { }
-                            __instance.UpdateNodeRenderer((ushort)i, false);
-                        }
-                    }
-                }
-
-                if (Singleton<InfoManager>.exists)
-                {
-                    var mode = Singleton<InfoManager>.instance.CurrentMode;
-                    if (mode != InfoManager.InfoMode.None || __instance.m_wetnessChanged != 0)
-                    {
-                        if (nodeStart < maxNode)
-                        {
-                            __instance.UpdateNodeColors((ushort)nodeStart, (ushort)(maxNode - 1));
                         }
                     }
                 }
@@ -1674,11 +1835,11 @@ namespace MoreNetworkCapacityRenew
                         if (segments[i].m_problems != problems)
                         {
                             try { __instance.UpdateSegmentNotifications((ushort)i, problems, segments[i].m_problems); } catch { }
-                            __instance.UpdateSegmentRenderer((ushort)i, false);
                         }
                     }
                 }
 
+                // Exactly like vanilla: only update segment colors when InfoManager mode != None or wetness changed
                 if (Singleton<InfoManager>.exists)
                 {
                     var mode = Singleton<InfoManager>.instance.CurrentMode;
@@ -1700,7 +1861,10 @@ namespace MoreNetworkCapacityRenew
         public static void Postfix(NetManager __instance)
         {
             if (__instance == null || __instance.m_segments.m_buffer == null) return;
-            __instance.UpdateSegmentColors(0, (ushort)(__instance.m_segments.m_buffer.Length - 1));
+            if (__instance.m_segments.m_buffer.Length > 36864)
+            {
+                __instance.UpdateSegmentColors(36864, (ushort)(__instance.m_segments.m_buffer.Length - 1));
+            }
         }
     }
 
@@ -1710,7 +1874,10 @@ namespace MoreNetworkCapacityRenew
         public static void Postfix(NetManager __instance)
         {
             if (__instance == null || __instance.m_nodes.m_buffer == null) return;
-            __instance.UpdateNodeColors(0, (ushort)(__instance.m_nodes.m_buffer.Length - 1));
+            if (__instance.m_nodes.m_buffer.Length > 32768)
+            {
+                __instance.UpdateNodeColors(32768, (ushort)(__instance.m_nodes.m_buffer.Length - 1));
+            }
         }
     }
 

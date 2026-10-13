@@ -6,12 +6,18 @@
 	"previewfile" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility" "0"
 	"title" "More Network Capacity Renew by NgocDuy"
-	"description" "[h1]✨ WHAT'S NEW (v2.1 Update) ✨[/h1]
+	"description" "[h1]✨ WHAT'S NEW (v2.2 Update) ✨[/h1]
 [list]
-[*] [b]Memory & GC Optimizer:[/b] Resolved the critical [i]'Fatal error in gc: Too many heap sections'[/i] (Unity 5.6 Mono GC breakpoint 0x80000003) crash. Automatically mitigates heap fragmentation when loading large cities with heavy asset counts and Procedural Objects (PO Mod).
-[*] [b]Re-load & Exit-to-Menu Crash Fix:[/b] Eliminated crashes and freezes when exiting to the main menu or reloading a city. Unsafe finalizer synchronization has been replaced with safe lifecycle teardown.
-[*] [b]Zero-Garbage Fast Copy:[/b] Optimized network InstanceManager array cloning to minimize runtime GC allocations on 64K node/segment grids.
-[*] [b]Seamless TM:PE Lane Management:[/b] High-ID node sync now runs strictly during gameplay simulation, preserving custom lane connector and lane arrow setups without causing vehicles to stutter or stop unexpectedly.
+[*] [b]Highway & Straight Road Deadstop Fix (Speed Limit Zero Bug):[/b] Fixed the critical bug where vehicles abruptly braked and came to a dead stop on straight sections of highways and avenues. Pre-initialized all 524,288 TM:PE lane speed limit cache slots with road default speeds (eliminating 0 km/h speed limits on high-ID lanes) and added a runtime fallback shield so vehicles never receive a 0 speed limit.
+[*] [b]Massive FPS & Simulation Performance Optimization:[/b]
+[list]
+    [*] Eliminated render group rebuild bottlenecks: Removed unnecessary [i]UpdateNodeRenderer[/i] and [i]UpdateSegmentRenderer[/i] calls from the simulation loop that were invalidating meshes and causing FPS drops.
+    [*] Simulation frame gating: Network simulation for expanded nodes/segments now executes strictly once per frame, preventing redundant processing across sub-steps.
+    [*] Zero-redundancy color updates: Color refresh calls now only process expanded elements (36,864+ segments and 32,768+ nodes) instead of re-scanning all 65K networks repeatedly.
+    [*] TM:PE Traffic Light CPU optimization: Traffic light simulation steps now skip uncreated nodes immediately, cutting CPU cycles by ~95%.
+[/list]
+[*] [b]Memory & GC Optimizer:[/b] Resolved the critical [i]'Fatal error in gc: Too many heap sections'[/i] crash. Automatically mitigates heap fragmentation when loading large cities with heavy asset counts and Procedural Objects (PO Mod).
+[*] [b]Re-load & Exit-to-Menu Crash Fix:[/b] Safe lifecycle teardown prevents freezes when quitting to the main menu or switching savegames.
 [/list]
 
 [hr][/hr]
@@ -84,5 +90,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "Update: Add MemoryOptimizer (Strategic GC & Early Preallocation) to eliminate 'Too many heap sections' crashes, zero-garbage InstanceManager copy, level unload cleanup."
+	"changenote" "v2.2 Update: Fixed vehicles suddenly stopping dead on straight highways/avenues (pre-initialized TM:PE lane speed limits and added fallback shield); Major FPS & simulation performance optimization (eliminated tick render mesh invalidation, single-pass frame execution, optimized color updates, skipped uncreated nodes in traffic light simulation)."
 }

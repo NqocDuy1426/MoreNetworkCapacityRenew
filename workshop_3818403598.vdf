@@ -1,0 +1,88 @@
+"workshopitem"
+{
+	"appid" "255710"
+	"publishedfileid" "3818403598"
+	"contentfolder" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/content"
+	"previewfile" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
+	"visibility" "0"
+	"title" "More Network Capacity Renew by NgocDuy"
+	"description" "[h1]✨ WHAT'S NEW (v2.1 Update) ✨[/h1]
+[list]
+[*] [b]Memory & GC Optimizer:[/b] Resolved the critical [i]'Fatal error in gc: Too many heap sections'[/i] (Unity 5.6 Mono GC breakpoint 0x80000003) crash. Automatically mitigates heap fragmentation when loading large cities with heavy asset counts and Procedural Objects (PO Mod).
+[*] [b]Re-load & Exit-to-Menu Crash Fix:[/b] Eliminated crashes and freezes when exiting to the main menu or reloading a city. Unsafe finalizer synchronization has been replaced with safe lifecycle teardown.
+[*] [b]Zero-Garbage Fast Copy:[/b] Optimized network InstanceManager array cloning to minimize runtime GC allocations on 64K node/segment grids.
+[*] [b]Seamless TM:PE Lane Management:[/b] High-ID node sync now runs strictly during gameplay simulation, preserving custom lane connector and lane arrow setups without causing vehicles to stutter or stop unexpectedly.
+[/list]
+
+[hr][/hr]
+
+[h1]MORE NETWORK CAPACITY RENEW[/h1]
+[b]The Definitive 64K Network Limit Breaker for Cities: Skylines[/b]
+[i]Fully rewritten, optimized, and stabilized by NgocDuy[/i]
+
+[hr][/hr]
+
+[h1]WHAT IS THIS MOD?[/h1]
+Have you ever hit the infamous [b]'Cannot create more objects of this type'[/b] limit while building your dream metropolis?
+Vanilla Cities: Skylines caps your road and transit networks at ~32,000 nodes and segments.
+
+[b]More Network Capacity Renew[/b] safely expands your game internal network limits to [b]65,536 (64K) Nodes and Segments[/b] - giving you double the building freedom!
+
+Unlike unstable or abandoned experimental versions that caused fatal crashes and corrupted traffic, [b]Renew[/b] is engineered from the ground up for [b]maximum stability, accurate traffic simulation, and zero data loss.[/b]
+
+[hr][/hr]
+
+[h1]KEY ADVANTAGES & SUPERIOR FEATURES[/h1]
+[list]
+[*] [b]64K Expanded Capacity:[/b] Doubles the maximum network node and segment limits (up to 65,536). Build massive regional transit grids, hyper-detailed highway interchanges, and expansive subway networks without restriction.
+[*] [b]Native Apple Silicon & Intel Mac Stability:[/b] Fixed deep engine crash loops, memory boundary overflows, and native crashes that plagued previous limit mods on macOS (M1/M2/M3/M4 & Intel).
+[*] [b]Complete TM:PE Compatibility:[/b]
+[list]
+    [*] Timed Traffic Lights (TTL) are 100% operational on expanded nodes (> 32,768).
+    [*] Custom lane connections, lane arrows, speed limits, and priority rules are fully respected.
+    [*] Node data and timed phases persist cleanly through save/load cycles without missing references.
+[/list]
+[*] [b]Accurate Traffic Flow & Real-Time Heatmaps:[/b]
+[list]
+    [*] Full traffic flow color refresh across all extended segments.
+    [*] Active simulation loop prevents the notorious 'frozen vehicles' or phantom deadlock bug at high-ID junctions.
+[/list]
+[*] [b]Safe Persistence Guarantee:[/b] Implements clean savegame serialization to ensure your custom traffic setups, timed nodes, and networks reload perfectly with zero data loss.
+[*] [b]All-In-One Standalone Mod:[/b] Clean, self-contained architecture. No messy patches, no secondary 'hotfix' mods required.
+[/list]
+
+[hr][/hr]
+
+[h1]COMPATIBILITY[/h1]
+Tested and fully compatible with the standard modern modding ecosystem:
+[list]
+[*] [b]Harmony 2.2+[/b] (Required dependency)
+[*] [b]TM:PE (Traffic Manager: President Edition)[/b] (STABLE & LABS)
+[*] [b]81 Tiles 2[/b]
+[*] [b]Move It[/b]
+[*] [b]Node Controller Renewal[/b]
+[*] [b]Intersection Marking Tool (IMT)[/b]
+[*] [b]Network Multitool[/b]
+[*] [b]Adaptive Roads (ADR)[/b]
+[*] [b]Network Skins[/b]
+[/list]
+
+[hr][/hr]
+
+[h1]REQUIREMENTS[/h1]
+[list]
+[*] [url=https://steamcommunity.com/workshop/filedetails/?id=2040656402]Harmony 2.2.2-0 (CitiesHarmony)[/url]
+[/list]
+
+[hr][/hr]
+
+[h1]BEST PRACTICES & RECOMMENDATIONS[/h1]
+[list]
+[*] [b]Backup Your Saves:[/b] As with any mod altering foundational game limits, always keep regular backup copies of your favorite cities.
+[*] [b]Persistent Saves:[/b] Once a city exceeds vanilla network limits (> 32,768 nodes/segments), this mod must remain enabled to load and manage those extended networks properly.
+[/list]
+
+[hr][/hr]
+[i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
+	"changenote" "Update: Add MemoryOptimizer (Strategic GC & Early Preallocation) to eliminate 'Too many heap sections' crashes, zero-garbage InstanceManager copy, level unload cleanup."
+}

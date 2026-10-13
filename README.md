@@ -24,6 +24,14 @@ Unlike previous experimental or unmaintained releases that suffered from severe 
 
 ---
 
+### 🚨 What's New in v2.1 (Stability & Memory Optimization)
+- **Memory & Garbage Collection Optimizer (`MemoryOptimizer`):** Resolves the critical `"Fatal error in gc: Too many heap sections"` (Unity 5.6 Mono GC breakpoint 0x80000003) crash. Automatically mitigates heap fragmentation when loading large cities with heavy asset counts and Procedural Objects (PO Mod).
+- **Reload & Exit-to-Menu Crash Fix:** Eliminated crashes and freezes when exiting to the main menu or reloading a city. Unsafe finalizer synchronization has been replaced with safe lifecycle teardown.
+- **Zero-Garbage Fast Copy:** Optimized network InstanceManager array cloning to minimize runtime GC allocations on 64K node/segment grids.
+- **Seamless TM:PE Lane Management:** High-ID node sync now runs strictly during gameplay simulation, preserving custom lane connector and lane arrow setups without causing vehicles to stutter or stop unexpectedly.
+
+---
+
 ### ⚡ Key Advantages & Superior Features
 
 1. **True 64K Expanded Capacity:**
@@ -102,6 +110,14 @@ Mặc định *Cities: Skylines* giới hạn số lượng hạ tầng mạng l
 **More Network Capacity Renew** phá vỡ rào cản này một cách an toàn, nâng tổng sức chứa lên **65,536 (64K) Node & Segment** - nhân đôi không gian xây dựng để bạn thỏa sức kiến thiết các siêu đô thị triệu dân.
 
 Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập game và lỗi mô phỏng giao thông, phiên bản **Renew** được xây dựng lại toàn diện với tiêu chí: **độ ổn định tuyệt đối, mô phỏng giao thông chuẩn xác và không mất dữ liệu savegame.**
+
+---
+
+### 🚨 Điểm mới trong bản cập nhật v2.1 (Tối ưu Bộ nhớ & Ổn định)
+- **Tối ưu hóa Bộ nhớ & Bộ thu gom rác (`MemoryOptimizer`):** Khắc phục triệt để lỗi sập game `"Fatal error in gc: Too many heap sections"` (Unity 5.6 Mono GC breakpoint 0x80000003) khi tải thành phố lớn có nhiều tài nguyên (Assets) hoặc dùng mod Procedural Objects (PO).
+- **Khắc phục lỗi văng game khi Thoát ra Menu / Tải lại Save:** Loại bỏ hoàn toàn lỗi crash khi quay lại menu chính hoặc nạp lại bản lưu, đảm bảo giải phóng bộ nhớ an toàn.
+- **Sao chép bộ nhớ Zero-Garbage:** Tối ưu hóa bộ đệm InstanceManager, giảm thiểu phân mảnh bộ nhớ RAM trên lưới 64K Node & Segment.
+- **Tương thích mượt mà với TM:PE:** Đồng bộ dữ liệu phân làn và mũi tên chuyển làn an toàn trong quá trình mô phỏng, chấm dứt hiện tượng xe bị giật hoặc dừng khựng bất thường.
 
 ---
 

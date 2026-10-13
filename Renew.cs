@@ -29,6 +29,99 @@ namespace MoreNetworkCapacityRenew
     }
 
     // ============================================================================
+    // MEMORY OPTIMIZER & GC SECTION GUARDIAN
+    // ============================================================================
+    public static class MemoryOptimizer
+    {
+        public static bool EnableStrategicGC = true;
+        public static bool EnableEarlyPreallocation = true;
+
+        public static void StrategicGarbageCollect(string phase)
+        {
+            if (!EnableStrategicGC) return;
+            try
+            {
+                long beforeBytes = GC.GetTotalMemory(false);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long afterBytes = GC.GetTotalMemory(false);
+                double freedMB = (beforeBytes - afterBytes) / (1024.0 * 1024.0);
+                double totalMB = afterBytes / (1024.0 * 1024.0);
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] [MemoryGuard] Strategic GC at [{0}]: Freed {1:F2} MB. Managed Heap: {2:F2} MB", phase, freedMB, totalMB));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] StrategicGarbageCollect warning: " + ex.Message);
+            }
+        }
+
+        public static void LogMemoryStatus(string phase)
+        {
+            try
+            {
+                long totalBytes = GC.GetTotalMemory(false);
+                double totalMB = totalBytes / (1024.0 * 1024.0);
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] [MemoryGuard] Heap Status [{0}]: {1:F2} MB managed memory allocated.", phase, totalMB));
+            }
+            catch {}
+        }
+
+        public static void CheckProceduralObjectsPresence()
+        {
+            try
+            {
+                bool poFound = false;
+                foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (a.GetName().Name == "ProceduralObjects")
+                    {
+                        poFound = true;
+                        break;
+                    }
+                }
+                if (poFound)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] [MemoryGuard] Procedural Objects (PO) detected! Aggressive memory prewarming and GC section protection active.");
+                }
+            }
+            catch {}
+        }
+
+        public static void PrewarmHeap()
+        {
+            if (!EnableEarlyPreallocation) return;
+            try
+            {
+                DiagnosticLogger.Checkpoint("MemoryOptimizer.PrewarmHeap.Start");
+                
+                // Flush temporary objects before preallocating large contiguous buffers
+                StrategicGarbageCollect("PrewarmHeap.Start");
+
+                // 1. Pre-allocate RenderManager indices early while virtual memory is clean
+                RenewMod.EnsureRenderManagerCapacity();
+
+                // 2. Pre-allocate InstanceManager buffer
+                InstanceManagerCompatibility.EnsureCompatibility();
+
+                // 3. Prewarm TM:PE buffers if loaded
+                try
+                {
+                    TMPECompatibility.SynchronizeTMPEBuffersAndArrays("PrewarmHeap");
+                }
+                catch {}
+
+                StrategicGarbageCollect("PrewarmHeap.Complete");
+                DiagnosticLogger.Checkpoint("MemoryOptimizer.PrewarmHeap.Complete");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PrewarmHeap error: " + ex);
+            }
+        }
+    }
+
+    // ============================================================================
     // MOD INFO (IUserMod)
     // ============================================================================
     public class RenewMod : IUserMod
@@ -74,11 +167,39 @@ namespace MoreNetworkCapacityRenew
                 };
             }
             catch {}
+
+            try
+            {
+                MemoryOptimizer.CheckProceduralObjectsPresence();
+                MemoryOptimizer.PrewarmHeap();
+            }
+            catch {}
         }
 
         public void OnDisabled()
         {
             DisableCore();
+        }
+
+        public void OnSettingsUI(UIHelperBase helper)
+        {
+            try
+            {
+                UIHelperBase group = helper.AddGroup("Memory & GC Section Optimization (NgocDuy)");
+                group.AddCheckbox("Strategic Garbage Collection (Reduces 'Too many heap sections')", MemoryOptimizer.EnableStrategicGC, (b) => {
+                    MemoryOptimizer.EnableStrategicGC = b;
+                });
+                group.AddCheckbox("Pre-allocate Large Buffers Early (Prevents heap fragmentation)", MemoryOptimizer.EnableEarlyPreallocation, (b) => {
+                    MemoryOptimizer.EnableEarlyPreallocation = b;
+                });
+                group.AddButton("Run Garbage Collection Now", () => {
+                    MemoryOptimizer.StrategicGarbageCollect("ManualTrigger");
+                });
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] OnSettingsUI error: " + ex);
+            }
         }
 
         public static Assembly EnsureCoreLoaded()
@@ -178,6 +299,7 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
                 EnsureRenderManagerCapacity();
+                InstanceManagerCompatibility.EnsureCompatibility();
             }
             catch (Exception ex)
             {
@@ -302,12 +424,7 @@ namespace MoreNetworkCapacityRenew
                         {
                             Type elementType = currentArray.GetType().GetElementType();
                             Array expandedArray = Array.CreateInstance(elementType, EXPANDED_SIZE);
-                            
-                            for (int i = 0; i < currentLength; i++)
-                            {
-                                expandedArray.SetValue(currentArray.GetValue(i), i);
-                            }
-                            
+                            Array.Copy(currentArray, expandedArray, currentLength);
                             instancesField.SetValue(manager, expandedArray);
                             UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded InstanceManager.m_instances: {0} -> {1}", currentLength, EXPANDED_SIZE));
                         }
@@ -323,12 +440,7 @@ namespace MoreNetworkCapacityRenew
                     {
                         Type elementType = currentFree.GetType().GetElementType();
                         Array expandedFree = Array.CreateInstance(elementType, EXPANDED_SIZE);
-                        
-                        for (int i = 0; i < currentFree.Length; i++)
-                        {
-                            expandedFree.SetValue(currentFree.GetValue(i), i);
-                        }
-                        
+                        Array.Copy(currentFree, expandedFree, currentFree.Length);
                         freeField.SetValue(manager, expandedFree);
                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded InstanceManager.m_free to {0}", EXPANDED_SIZE));
                     }
@@ -503,10 +615,13 @@ namespace MoreNetworkCapacityRenew
                 Type sem = tmpe.GetType("TrafficManager.Manager.Impl.SegmentEndManager");
                 if (sem != null)
                 {
-                    MethodInfo getIndex = sem.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
+                    MethodInfo getIndex = sem.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(bool) }, null)
+                                       ?? sem.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
                     if (getIndex != null)
                     {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetIndex_Prefix));
+                        var pre = getIndex.GetParameters()[0].ParameterType == typeof(uint)
+                            ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetIndex_Prefix))
+                            : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetIndex_ushort_Prefix));
                         harmony.Patch(getIndex, prefix: new HarmonyMethod(pre));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.GetIndex");
                     }
@@ -514,7 +629,11 @@ namespace MoreNetworkCapacityRenew
                     MethodInfo getSegNode = sem.GetMethod("GetSegmentAndNodeFromIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     if (getSegNode != null)
                     {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetSegmentAndNodeFromIndex_Prefix));
+                        var prms = getSegNode.GetParameters();
+                        bool isUint = prms.Length >= 2 && prms[1].ParameterType == typeof(uint).MakeByRefType();
+                        var pre = isUint
+                            ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetSegmentAndNodeFromIndex_Prefix))
+                            : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetSegmentAndNodeFromIndex_ushort_Prefix));
                         harmony.Patch(getSegNode, prefix: new HarmonyMethod(pre));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.GetSegmentAndNodeFromIndex");
                     }
@@ -524,10 +643,13 @@ namespace MoreNetworkCapacityRenew
                 Type torm = tmpe.GetType("TrafficManager.Manager.Impl.TurnOnRedManager");
                 if (torm != null)
                 {
-                    MethodInfo getIndex = torm.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
+                    MethodInfo getIndex = torm.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(bool) }, null)
+                                       ?? torm.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
                     if (getIndex != null)
                     {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TurnOnRedManager_GetIndex_Prefix));
+                        var pre = getIndex.GetParameters()[0].ParameterType == typeof(uint)
+                            ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TurnOnRedManager_GetIndex_Prefix))
+                            : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TurnOnRedManager_GetIndex_ushort_Prefix));
                         harmony.Patch(getIndex, prefix: new HarmonyMethod(pre));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TurnOnRedManager.GetIndex");
                     }
@@ -541,7 +663,9 @@ namespace MoreNetworkCapacityRenew
                     {
                         if (m.Name == "GetDirIndex" && m.GetParameters().Length == 2)
                         {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_GetDirIndex_Prefix));
+                            var pre = m.GetParameters()[0].ParameterType == typeof(uint)
+                                ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_GetDirIndex_Prefix))
+                                : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_GetDirIndex_ushort_Prefix));
                             harmony.Patch(m, prefix: new HarmonyMethod(pre));
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficMeasurementManager.GetDirIndex");
                             break;
@@ -572,6 +696,19 @@ namespace MoreNetworkCapacityRenew
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficLightSimulationManager_SimulationStep_Postfix));
                         harmony.Patch(simStep, postfix: new HarmonyMethod(post));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficLightSimulationManager.SimulationStep");
+                    }
+                }
+
+                // 8. TMPELifecycle.Load
+                Type lifecycleType = tmpe.GetType("TrafficManager.Lifecycle.TMPELifecycle");
+                if (lifecycleType != null)
+                {
+                    MethodInfo loadMethod = lifecycleType.GetMethod("Load", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (loadMethod != null)
+                    {
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TMPELifecycle_Load_Postfix));
+                        harmony.Patch(loadMethod, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TMPELifecycle.Load");
                     }
                 }
             }
@@ -703,6 +840,29 @@ namespace MoreNetworkCapacityRenew
                     object val = m.Invoke(null, null);
                     if (val != null) return val;
                 }
+
+                // Fallback: Constants.ManagerFactory
+                Assembly asm = t.Assembly;
+                Type constType = asm.GetType("TrafficManager.Constants");
+                if (constType != null)
+                {
+                    PropertyInfo mfProp = constType.GetProperty("ManagerFactory", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (mfProp != null)
+                    {
+                        object mf = mfProp.GetValue(null, null);
+                        if (mf != null)
+                        {
+                            foreach (var prop in mf.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                            {
+                                if (prop.PropertyType == t || t.IsAssignableFrom(prop.PropertyType))
+                                {
+                                    object val = prop.GetValue(mf, null);
+                                    if (val != null) return val;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             catch { }
             return null;
@@ -782,25 +942,116 @@ namespace MoreNetworkCapacityRenew
                     {
                         var f = esmType.GetField("<ExtSegmentEnds>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance)
                              ?? esmType.GetField("ExtSegmentEnds", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (f != null && f.GetValue(inst) is Array arr && arr.Length < 130048)
+                        if (f != null && f.GetValue(inst) is Array arr)
                         {
+                            Array targetArr = arr;
                             Type elemType = arr.GetType().GetElementType();
-                            Array newArr = Array.CreateInstance(elemType, 130048);
-                            Array.Copy(arr, newArr, arr.Length);
+                            if (arr.Length < 130048)
+                            {
+                                Array newArr = Array.CreateInstance(elemType, 130048);
+                                Array.Copy(arr, newArr, arr.Length);
+                                f.SetValue(inst, newArr);
+                                targetArr = newArr;
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 130048", arr.Length));
+                            }
 
-                            var ctor = elemType.GetConstructor(new Type[] { typeof(ushort), typeof(bool) });
+                            // Ensure all 65,024 segment ends are properly constructed
+                            var ctor = elemType.GetConstructor(new Type[] { typeof(uint), typeof(bool) })
+                                    ?? elemType.GetConstructor(new Type[] { typeof(ushort), typeof(bool) });
                             if (ctor != null)
                             {
-                                for (ushort segId = (ushort)(arr.Length / 2); segId < 65024; segId++)
+                                bool isUint = ctor.GetParameters()[0].ParameterType == typeof(uint);
+                                FieldInfo fSegId = elemType.GetField("segmentId");
+                                int countFixed = 0;
+                                for (uint segId = 0; segId < 65024u; segId++)
                                 {
-                                    int idxStart = segId * 2;
+                                    int idxStart = (int)(segId * 2);
                                     int idxEnd = idxStart + 1;
-                                    newArr.SetValue(ctor.Invoke(new object[] { segId, true }), idxStart);
-                                    newArr.SetValue(ctor.Invoke(new object[] { segId, false }), idxEnd);
+                                    object argId = isUint ? (object)segId : (object)(ushort)segId;
+
+                                    object s0 = targetArr.GetValue(idxStart);
+                                    if (s0 == null || (segId > 0 && fSegId != null && Convert.ToUInt32(fSegId.GetValue(s0)) != segId))
+                                    {
+                                        targetArr.SetValue(ctor.Invoke(new object[] { argId, true }), idxStart);
+                                        countFixed++;
+                                    }
+
+                                    object s1 = targetArr.GetValue(idxEnd);
+                                    if (s1 == null || (segId > 0 && fSegId != null && Convert.ToUInt32(fSegId.GetValue(s1)) != segId))
+                                    {
+                                        targetArr.SetValue(ctor.Invoke(new object[] { argId, false }), idxEnd);
+                                        countFixed++;
+                                    }
+                                }
+                                if (countFixed > 0)
+                                {
+                                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized {0} ExtSegmentEnd slots", countFixed));
+                                }
+
+                                // If live game is active, recalculate existing segments >= 36864 to unfreeze current traffic!
+                                try
+                                {
+                                    if (NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null)
+                                    {
+                                        MethodInfo recalc = esmType.GetMethod("Recalculate", new Type[] { typeof(ushort) })
+                                                           ?? esmType.GetMethod("Recalculate", new Type[] { typeof(uint) });
+                                        if (recalc != null)
+                                        {
+                                            int recalcCount = 0;
+                                            for (uint segId = 36864u; segId < (uint)Math.Min(NetManager.instance.m_segments.m_buffer.Length, 65024); segId++)
+                                            {
+                                                if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
+                                                {
+                                                    recalc.Invoke(inst, new object[] { (ushort)segId });
+                                                    recalcCount++;
+                                                }
+                                            }
+                                            if (recalcCount > 0)
+                                            {
+                                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated {0} existing segments >= 36864 in TM:PE ExtSegmentEndManager", recalcCount));
+                                            }
+                                        }
+
+                                        // Recalculate RoutingManager lane transitions for all existing segments >= 36864
+                                        try
+                                        {
+                                            Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+                                            if (rmType != null)
+                                            {
+                                                object rmInst = GetManagerInstance(rmType);
+                                                if (rmInst != null)
+                                                {
+                                                    MethodInfo rmRecalc = rmType.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
+                                                    if (rmRecalc != null)
+                                                    {
+                                                        int rmCount = 0;
+                                                        for (uint segId = 36864u; segId < (uint)Math.Min(NetManager.instance.m_segments.m_buffer.Length, 65024); segId++)
+                                                        {
+                                                            if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
+                                                            {
+                                                                rmRecalc.Invoke(rmInst, new object[] { (ushort)segId });
+                                                                rmCount++;
+                                                            }
+                                                        }
+                                                        if (rmCount > 0)
+                                                        {
+                                                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated {0} existing segments >= 36864 in TM:PE RoutingManager", rmCount));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch (Exception exRm)
+                                        {
+                                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RoutingManager recalc error: " + exRm);
+                                        }
+                                    }
+                                }
+                                catch (Exception exRecalc)
+                                {
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Recalc segments error: " + exRecalc);
                                 }
                             }
-                            f.SetValue(inst, newArr);
-                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 130048", arr.Length));
                         }
                     }
                 }
@@ -1092,12 +1343,14 @@ namespace MoreNetworkCapacityRenew
     {
         public static void SerializableDataExtension_Load_Prefix()
         {
+            MemoryOptimizer.StrategicGarbageCollect("TMPE.Load.Prefix");
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Prefix");
         }
 
         public static void SerializableDataExtension_Load_Postfix()
         {
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Postfix");
+            MemoryOptimizer.StrategicGarbageCollect("TMPE.Load.Postfix");
         }
 
         public static void SerializableDataExtension_DeserializeData_Prefix()
@@ -1146,13 +1399,32 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool SegmentEndManager_GetIndex_Prefix(ushort segmentId, bool startNode, ref int __result)
+        public static bool SegmentEndManager_GetIndex_Prefix(uint segmentId, bool startNode, ref int __result)
         {
             __result = startNode ? (int)segmentId : ((int)segmentId + 65024);
             return false;
         }
 
-        public static bool SegmentEndManager_GetSegmentAndNodeFromIndex_Prefix(int index, out ushort segmentId, out bool startNode)
+        public static bool SegmentEndManager_GetIndex_ushort_Prefix(ushort segmentId, bool startNode, ref int __result)
+        {
+            __result = startNode ? (int)segmentId : ((int)segmentId + 65024);
+            return false;
+        }
+
+        public static bool SegmentEndManager_GetSegmentAndNodeFromIndex_Prefix(int index, out uint segmentId, out bool startNode)
+        {
+            if (index < 0 || index >= 130048)
+            {
+                segmentId = 0u;
+                startNode = false;
+                return false;
+            }
+            startNode = index < 65024;
+            segmentId = (uint)(startNode ? index : (index - 65024));
+            return false;
+        }
+
+        public static bool SegmentEndManager_GetSegmentAndNodeFromIndex_ushort_Prefix(int index, out ushort segmentId, out bool startNode)
         {
             if (index < 0 || index >= 130048)
             {
@@ -1165,13 +1437,25 @@ namespace MoreNetworkCapacityRenew
             return false;
         }
 
-        public static bool TurnOnRedManager_GetIndex_Prefix(ushort segmentId, bool startNode, ref int __result)
+        public static bool TurnOnRedManager_GetIndex_Prefix(uint segmentId, bool startNode, ref int __result)
         {
             __result = startNode ? (int)segmentId : ((int)segmentId + 65024);
             return false;
         }
 
-        public static bool TrafficMeasurementManager_GetDirIndex_Prefix(ushort segmentId, NetInfo.Direction dir, ref int __result)
+        public static bool TurnOnRedManager_GetIndex_ushort_Prefix(ushort segmentId, bool startNode, ref int __result)
+        {
+            __result = startNode ? (int)segmentId : ((int)segmentId + 65024);
+            return false;
+        }
+
+        public static bool TrafficMeasurementManager_GetDirIndex_Prefix(uint segmentId, NetInfo.Direction dir, ref int __result)
+        {
+            __result = (int)segmentId + (dir == NetInfo.Direction.Backward ? 65024 : 0);
+            return false;
+        }
+
+        public static bool TrafficMeasurementManager_GetDirIndex_ushort_Prefix(ushort segmentId, NetInfo.Direction dir, ref int __result)
         {
             __result = (int)segmentId + (dir == NetInfo.Direction.Backward ? 65024 : 0);
             return false;
@@ -1200,7 +1484,8 @@ namespace MoreNetworkCapacityRenew
                 {
                     Type t = __instance.GetType();
                     propSimulations = t.GetProperty("TrafficLightSimulations", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    removeNodeMethod = t.GetMethod("RemoveNodeFromSimulation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    removeNodeMethod = t.GetMethod("RemoveNodeFromSimulation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null)
+                                       ?? t.GetMethod("RemoveNodeFromSimulation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint) }, null);
                 }
 
                 Array rawArray = propSimulations != null ? propSimulations.GetValue(__instance, null) as Array : null;
@@ -1282,6 +1567,19 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TrafficLightSimulationManager Postfix error: " + ex);
+            }
+        }
+
+        public static void TMPELifecycle_Load_Postfix()
+        {
+            try
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPELifecycle.Load completed! Synchronizing all manager arrays and recalculating segments...");
+                TMPECompatibility.SynchronizeTMPEBuffersAndArrays("TMPELifecycle.Load.Postfix");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPELifecycle_Load_Postfix error: " + ex);
             }
         }
     }
@@ -1550,7 +1848,10 @@ namespace MoreNetworkCapacityRenew
         public override void OnCreated(ILoading loading)
         {
             base.OnCreated(loading);
+            MemoryOptimizer.LogMemoryStatus("OnCreated.PreLoad");
+            MemoryOptimizer.StrategicGarbageCollect("OnCreated (Pre-Save Loading)");
             RenewMod.EnsureCoreActive();
+            MemoryOptimizer.PrewarmHeap();
             DiagnosticLogger.Checkpoint("OnCreated.Start");
             
             if (!patchApplied)
@@ -1629,16 +1930,19 @@ namespace MoreNetworkCapacityRenew
                 
                 TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnCreated");
                 RenewMod.EnsureRenderManagerCapacity();
+                InstanceManagerCompatibility.EnsureCompatibility();
             }
         }
 
         public override void OnLevelLoaded(LoadMode mode)
         {
             DiagnosticLogger.Checkpoint("OnLevelLoaded.Start");
+            MemoryOptimizer.LogMemoryStatus("OnLevelLoaded.Start");
             
             try
             {
                 RenewMod.EnsureRenderManagerCapacity();
+                InstanceManagerCompatibility.EnsureCompatibility();
                 // Synchronize TM:PE buffers on level load
                 TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnLevelLoaded");
                 TMPECompatibility.EnsurePathFindCapacity();
@@ -1687,11 +1991,27 @@ namespace MoreNetworkCapacityRenew
                 }
                 
                 DiagnosticLogger.Checkpoint("OnLevelLoaded.Complete");
+                MemoryOptimizer.StrategicGarbageCollect("OnLevelLoaded (Post-Save Cleanup)");
+                MemoryOptimizer.LogMemoryStatus("Gameplay Ready");
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] OnLevelLoaded error: " + ex);
             }
+        }
+
+        public override void OnLevelUnloading()
+        {
+            base.OnLevelUnloading();
+            MemoryOptimizer.LogMemoryStatus("OnLevelUnloading");
+            MemoryOptimizer.StrategicGarbageCollect("LevelUnloading (Free City Resources)");
+        }
+
+        public override void OnReleased()
+        {
+            base.OnReleased();
+            MemoryOptimizer.LogMemoryStatus("OnReleased");
+            MemoryOptimizer.StrategicGarbageCollect("OnReleased (Flush Heap)");
         }
 
         private void SanitizeNetwork()

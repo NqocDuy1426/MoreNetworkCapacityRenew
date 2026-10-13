@@ -43,8 +43,6 @@ namespace MoreNetworkCapacityRenew
             {
                 long beforeBytes = GC.GetTotalMemory(false);
                 GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
                 long afterBytes = GC.GetTotalMemory(false);
                 double freedMB = (beforeBytes - afterBytes) / (1024.0 * 1024.0);
                 double totalMB = afterBytes / (1024.0 * 1024.0);
@@ -103,13 +101,6 @@ namespace MoreNetworkCapacityRenew
 
                 // 2. Pre-allocate InstanceManager buffer
                 InstanceManagerCompatibility.EnsureCompatibility();
-
-                // 3. Prewarm TM:PE buffers if loaded
-                try
-                {
-                    TMPECompatibility.SynchronizeTMPEBuffersAndArrays("PrewarmHeap");
-                }
-                catch {}
 
                 StrategicGarbageCollect("PrewarmHeap.Complete");
                 DiagnosticLogger.Checkpoint("MemoryOptimizer.PrewarmHeap.Complete");
@@ -1343,14 +1334,12 @@ namespace MoreNetworkCapacityRenew
     {
         public static void SerializableDataExtension_Load_Prefix()
         {
-            MemoryOptimizer.StrategicGarbageCollect("TMPE.Load.Prefix");
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Prefix");
         }
 
         public static void SerializableDataExtension_Load_Postfix()
         {
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Postfix");
-            MemoryOptimizer.StrategicGarbageCollect("TMPE.Load.Postfix");
         }
 
         public static void SerializableDataExtension_DeserializeData_Prefix()
@@ -1998,20 +1987,6 @@ namespace MoreNetworkCapacityRenew
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] OnLevelLoaded error: " + ex);
             }
-        }
-
-        public override void OnLevelUnloading()
-        {
-            base.OnLevelUnloading();
-            MemoryOptimizer.LogMemoryStatus("OnLevelUnloading");
-            MemoryOptimizer.StrategicGarbageCollect("LevelUnloading (Free City Resources)");
-        }
-
-        public override void OnReleased()
-        {
-            base.OnReleased();
-            MemoryOptimizer.LogMemoryStatus("OnReleased");
-            MemoryOptimizer.StrategicGarbageCollect("OnReleased (Flush Heap)");
         }
 
         private void SanitizeNetwork()

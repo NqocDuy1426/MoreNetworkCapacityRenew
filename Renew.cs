@@ -848,9 +848,25 @@ namespace MoreNetworkCapacityRenew
                     MethodInfo getSpeedM = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(NetInfo.Lane) }, null);
                     if (getSpeedM != null)
                     {
-                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Postfix));
-                        harmony.Patch(getSpeedM, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (Postfix)");
+                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Prefix));
+                        harmony.Patch(getSpeedM, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (Prefix)");
+                    }
+
+                    MethodInfo getSpeedM4 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(byte), typeof(uint), typeof(NetInfo.Lane) }, null);
+                    if (getSpeedM4 != null)
+                    {
+                        var pre4 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
+                        harmony.Patch(getSpeedM4, prefix: new HarmonyMethod(pre4));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (4-arg Prefix)");
+                    }
+
+                    MethodInfo getSpeedM1 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint) }, null);
+                    if (getSpeedM1 != null)
+                    {
+                        var pre1 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit1_Prefix));
+                        harmony.Patch(getSpeedM1, prefix: new HarmonyMethod(pre1));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (1-arg Prefix)");
                     }
                 }
 
@@ -3334,51 +3350,74 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static void SpeedLimitManager_GetGameSpeedLimit_Postfix(uint laneId, NetInfo.Lane laneInfo, ref float __result)
+        public static bool SpeedLimitManager_GetGameSpeedLimit_Prefix(uint laneId, NetInfo.Lane laneInfo, ref float __result)
         {
-            if (__result <= 0.001f)
+            try
             {
+                // 1. Check custom speed limits from TM:PE cache
+                float[] cache = TMPECompatibility.s_cachedLaneSpeedLimits;
+                if (cache != null && laneId < (uint)cache.Length)
+                {
+                    float cached = cache[laneId];
+                    if (cached > 0.001f)
+                    {
+                        __result = cached;
+                        return false;
+                    }
+                }
+
+                // 2. Fall back to laneInfo default speed limit
                 if (laneInfo != null && laneInfo.m_speedLimit > 0.001f)
                 {
                     __result = laneInfo.m_speedLimit;
+                    return false;
                 }
-                else
+
+                // 3. Fall back to NetSegment Info lane speed limit if laneInfo was null
+                if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId < (uint)NetManager.instance.m_lanes.m_buffer.Length)
                 {
-                    try
+                    ushort segId = NetManager.instance.m_lanes.m_buffer[laneId].m_segment;
+                    if (segId != 0 && segId < NetManager.instance.m_segments.m_buffer.Length)
                     {
-                        if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId < (uint)NetManager.instance.m_lanes.m_buffer.Length)
+                        NetInfo segInfo = NetManager.instance.m_segments.m_buffer[segId].Info;
+                        if (segInfo != null && segInfo.m_lanes != null)
                         {
-                            ushort segId = NetManager.instance.m_lanes.m_buffer[laneId].m_segment;
-                            if (segId != 0 && segId < NetManager.instance.m_segments.m_buffer.Length)
+                            uint curLane = NetManager.instance.m_segments.m_buffer[segId].m_lanes;
+                            int laneIdx = 0;
+                            while (curLane != 0 && laneIdx < segInfo.m_lanes.Length)
                             {
-                                NetInfo segInfo = NetManager.instance.m_segments.m_buffer[segId].Info;
-                                if (segInfo != null && segInfo.m_lanes != null)
+                                if (curLane == laneId)
                                 {
-                                    uint curLane = NetManager.instance.m_segments.m_buffer[segId].m_lanes;
-                                    int laneIdx = 0;
-                                    while (curLane != 0 && laneIdx < segInfo.m_lanes.Length)
+                                    NetInfo.Lane l = segInfo.m_lanes[laneIdx];
+                                    if (l != null && l.m_speedLimit > 0.001f)
                                     {
-                                        if (curLane == laneId)
-                                        {
-                                            float defSpeed = segInfo.m_lanes[laneIdx].m_speedLimit;
-                                            if (defSpeed > 0.001f)
-                                            {
-                                                __result = defSpeed;
-                                                return;
-                                            }
-                                            break;
-                                        }
-                                        curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane;
-                                        laneIdx++;
+                                        __result = l.m_speedLimit;
+                                        return false;
                                     }
+                                    break;
                                 }
+                                curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane;
+                                laneIdx++;
                             }
                         }
                     }
-                    catch { }
-                    __result = 1.25f; // Safe 50-60 km/h fallback so vehicles NEVER dead-stop on highways or avenues
                 }
             }
+            catch { }
+
+            // 4. Safe highway/road fallback so vehicles NEVER dead-stop
+            __result = 1.25f;
+            return false;
+        }
+
+        public static bool SpeedLimitManager_GetGameSpeedLimit4_Prefix(ushort segmentId, byte laneIndex, uint laneId, NetInfo.Lane laneInfo, ref float __result)
+        {
+            return SpeedLimitManager_GetGameSpeedLimit_Prefix(laneId, laneInfo, ref __result);
+        }
+
+        public static bool SpeedLimitManager_GetGameSpeedLimit1_Prefix(uint laneId, ref float __result)
+        {
+            return SpeedLimitManager_GetGameSpeedLimit_Prefix(laneId, null, ref __result);
         }
 
 

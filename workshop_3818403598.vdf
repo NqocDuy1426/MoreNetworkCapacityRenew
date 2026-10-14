@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.8.4: Critical Traffic & Pathfinding Fix: 1) Auto-despawn floating vehicles on demolished roads: Vehicles stranded on destroyed/bulldozed bridges or segments are now automatically released and vanished instead of remaining stuck floating in mid-air. 2) Fixed city-wide vehicle spawning stoppage: Removed intrusive pathfinding worker thread intercepts and reflection overhead that previously congested the PathManager queue, restoring normal, rapid vehicle spawning for all citizens, industry, and services."
+	"changenote" "v3.8.5: Traffic Simulation Stabilization (Aligned with Golden Oct 13 Build): 1) Fixed vehicle count decreasing continuously: Completely removed background vehicle scanning/deletion loops (RepairRunner). Vehicles now run entirely on natural game physics and TM:PE AI with zero artificial despawning. 2) Restored rock-solid speed limit engine: Reinstated the proven v2.2 SpeedLimitManager Postfix fallback shield to eliminate highway deadstops without overriding TM:PE native speed calculations. 3) Full 16-mod ecosystem compatibility preserved."
 }

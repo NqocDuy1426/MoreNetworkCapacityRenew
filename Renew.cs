@@ -848,25 +848,9 @@ namespace MoreNetworkCapacityRenew
                     MethodInfo getSpeedM = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(NetInfo.Lane) }, null);
                     if (getSpeedM != null)
                     {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Prefix));
-                        harmony.Patch(getSpeedM, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (Prefix)");
-                    }
-
-                    MethodInfo getSpeedM4 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(byte), typeof(uint), typeof(NetInfo.Lane) }, null);
-                    if (getSpeedM4 != null)
-                    {
-                        var pre4 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
-                        harmony.Patch(getSpeedM4, prefix: new HarmonyMethod(pre4));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (4-arg Prefix)");
-                    }
-
-                    MethodInfo getSpeedM1 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint) }, null);
-                    if (getSpeedM1 != null)
-                    {
-                        var pre1 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit1_Prefix));
-                        harmony.Patch(getSpeedM1, prefix: new HarmonyMethod(pre1));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (1-arg Prefix)");
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Postfix));
+                        harmony.Patch(getSpeedM, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (Postfix)");
                     }
                 }
 
@@ -3350,57 +3334,51 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool SpeedLimitManager_GetGameSpeedLimit_Prefix(uint laneId, NetInfo.Lane laneInfo, ref float __result)
+        public static void SpeedLimitManager_GetGameSpeedLimit_Postfix(uint laneId, NetInfo.Lane laneInfo, ref float __result)
         {
-            float speed = 0f;
-            if (TMPECompatibility.s_cachedLaneSpeedLimits != null && laneId < (uint)TMPECompatibility.s_cachedLaneSpeedLimits.Length)
+            if (__result <= 0.001f)
             {
-                speed = TMPECompatibility.s_cachedLaneSpeedLimits[laneId];
+                if (laneInfo != null && laneInfo.m_speedLimit > 0.001f)
+                {
+                    __result = laneInfo.m_speedLimit;
+                }
+                else
+                {
+                    try
+                    {
+                        if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId < (uint)NetManager.instance.m_lanes.m_buffer.Length)
+                        {
+                            ushort segId = NetManager.instance.m_lanes.m_buffer[laneId].m_segment;
+                            if (segId != 0 && segId < NetManager.instance.m_segments.m_buffer.Length)
+                            {
+                                NetInfo segInfo = NetManager.instance.m_segments.m_buffer[segId].Info;
+                                if (segInfo != null && segInfo.m_lanes != null)
+                                {
+                                    uint curLane = NetManager.instance.m_segments.m_buffer[segId].m_lanes;
+                                    int laneIdx = 0;
+                                    while (curLane != 0 && laneIdx < segInfo.m_lanes.Length)
+                                    {
+                                        if (curLane == laneId)
+                                        {
+                                            float defSpeed = segInfo.m_lanes[laneIdx].m_speedLimit;
+                                            if (defSpeed > 0.001f)
+                                            {
+                                                __result = defSpeed;
+                                                return;
+                                            }
+                                            break;
+                                        }
+                                        curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane;
+                                        laneIdx++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                    __result = 1.25f; // Safe 50-60 km/h fallback so vehicles NEVER dead-stop on highways or avenues
+                }
             }
-            if (speed <= 0.001f && laneInfo != null)
-            {
-                speed = laneInfo.m_speedLimit;
-            }
-            if (speed <= 0.001f)
-            {
-                speed = 1.25f;
-            }
-            __result = speed;
-            return false;
-        }
-
-        public static bool SpeedLimitManager_GetGameSpeedLimit4_Prefix(ushort segmentId, byte laneIndex, uint laneId, NetInfo.Lane laneInfo, ref float __result)
-        {
-            float speed = 0f;
-            if (TMPECompatibility.s_cachedLaneSpeedLimits != null && laneId < (uint)TMPECompatibility.s_cachedLaneSpeedLimits.Length)
-            {
-                speed = TMPECompatibility.s_cachedLaneSpeedLimits[laneId];
-            }
-            if (speed <= 0.001f && laneInfo != null)
-            {
-                speed = laneInfo.m_speedLimit;
-            }
-            if (speed <= 0.001f)
-            {
-                speed = 1.25f;
-            }
-            __result = speed;
-            return false;
-        }
-
-        public static bool SpeedLimitManager_GetGameSpeedLimit1_Prefix(uint laneId, ref float __result)
-        {
-            float speed = 0f;
-            if (TMPECompatibility.s_cachedLaneSpeedLimits != null && laneId < (uint)TMPECompatibility.s_cachedLaneSpeedLimits.Length)
-            {
-                speed = TMPECompatibility.s_cachedLaneSpeedLimits[laneId];
-            }
-            if (speed <= 0.001f)
-            {
-                speed = 1.25f;
-            }
-            __result = speed;
-            return false;
         }
 
 
@@ -4200,10 +4178,7 @@ namespace MoreNetworkCapacityRenew
                 // Report missing asset stats
                 MissingAssetProtection.ReportFinalStats();
 
-                // Initialize vehicle & transport repair runner (accessible via Ctrl+Shift+R / Ctrl+Shift+V hotkeys)
-                VehicleAndTransportRepair.Initialize();
-
-                // Automatically restore valid lines, purge ghost lines & unstick stranded vehicles
+                // Automatically restore valid lines, purge ghost lines & unstick stranded citizens
                 try
                 {
                     int restored = VehicleAndTransportRepair.RestoreAllTransportLines(out int deactivated);
@@ -4213,11 +4188,6 @@ namespace MoreNetworkCapacityRenew
                     }
                     VehicleAndTransportRepair.UnstickCitizens();
                     TransportLineCompatibility.SanitizeCitizenUnits();
-                    int releasedOrphans = VehicleAndTransportRepair.CleanOrphanedFloatingVehicles();
-                    if (releasedOrphans > 0)
-                    {
-                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Cleaned {0} orphaned/floating vehicles from demolished roads.", releasedOrphans));
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -5689,31 +5659,6 @@ namespace MoreNetworkCapacityRenew
 
     public static class VehicleAndTransportRepair
     {
-        private static UnityEngine.GameObject _runnerGo = null;
-
-        public static void Initialize()
-        {
-            try
-            {
-                if (_runnerGo == null)
-                {
-                    _runnerGo = new UnityEngine.GameObject("MNC_RepairRunner");
-                    UnityEngine.Object.DontDestroyOnLoad(_runnerGo);
-                    _runnerGo.AddComponent<RepairRunner>();
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialized RepairRunner GameObject.");
-                }
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialize RepairRunner error: " + ex);
-            }
-        }
-
-        public static int CleanOrphanedFloatingVehicles()
-        {
-            return RepairRunner.CleanOrphanedFloatingVehicles();
-        }
-
         public static int ClearAllVehicles()
         {
             int freed = 0;
@@ -6888,230 +6833,6 @@ namespace MoreNetworkCapacityRenew
         {
             data.m_flags &= ~NetSegment.Flags.PathFailed;
             return true;
-        }
-
-        public static bool IsWaitingAtRedLightOrYield(ref Vehicle vehicleData)
-        {
-            try
-            {
-                // 1. Vehicle is yielding at junction/stop sign/traffic light
-                if ((vehicleData.m_flags2 & Vehicle.Flags2.Yielding) != 0)
-                {
-                    return true;
-                }
-
-                // 2. Check if stopped at an active red traffic light
-                PathManager pm = Singleton<PathManager>.instance;
-                NetManager nm = Singleton<NetManager>.instance;
-                SimulationManager sm = Singleton<SimulationManager>.instance;
-                if (pm == null || nm == null || sm == null || vehicleData.m_path == 0) return false;
-
-                uint pathId = vehicleData.m_path;
-                byte pathIndex = vehicleData.m_pathPositionIndex;
-                if (pathId >= pm.m_pathUnits.m_buffer.Length) return false;
-
-                PathUnit.Position pathPos;
-                if (pm.m_pathUnits.m_buffer[pathId].GetPosition(pathIndex, out pathPos))
-                {
-                    ushort segId = pathPos.m_segment;
-                    if (segId != 0 && segId < nm.m_segments.m_buffer.Length)
-                    {
-                        NetSegment seg = nm.m_segments.m_buffer[segId];
-                        if ((seg.m_flags & NetSegment.Flags.Created) != 0)
-                        {
-                            // Check target node towards endNode or startNode
-                            ushort targetNode = (pathPos.m_offset > 128) ? seg.m_endNode : seg.m_startNode;
-                            if (targetNode != 0 && targetNode < nm.m_nodes.m_buffer.Length)
-                            {
-                                NetNode node = nm.m_nodes.m_buffer[targetNode];
-                                if ((node.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0)
-                                {
-                                    RoadBaseAI.TrafficLightState vLight, pLight;
-                                    bool veh, ped;
-                                    RoadBaseAI.GetTrafficLightState(targetNode, ref nm.m_segments.m_buffer[segId], sm.m_currentFrameIndex - 256u, out vLight, out pLight, out veh, out ped);
-                                    if (vLight == RoadBaseAI.TrafficLightState.Red || vLight == RoadBaseAI.TrafficLightState.RedToGreen)
-                                    {
-                                        return true; // Vehicle is waiting at a valid RED LIGHT
-                                    }
-                                }
-                            }
-                            // Also check alternate end of segment in case of reverse traversal
-                            ushort altNode = (targetNode == seg.m_endNode) ? seg.m_startNode : seg.m_endNode;
-                            if (altNode != 0 && altNode < nm.m_nodes.m_buffer.Length)
-                            {
-                                NetNode altNetNode = nm.m_nodes.m_buffer[altNode];
-                                if ((altNetNode.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0)
-                                {
-                                    RoadBaseAI.TrafficLightState vLight2, pLight2;
-                                    bool veh2, ped2;
-                                    RoadBaseAI.GetTrafficLightState(altNode, ref nm.m_segments.m_buffer[segId], sm.m_currentFrameIndex - 256u, out vLight2, out pLight2, out veh2, out ped2);
-                                    if (vLight2 == RoadBaseAI.TrafficLightState.Red || vLight2 == RoadBaseAI.TrafficLightState.RedToGreen)
-                                    {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch { }
-            return false;
-        }
-
-        public static void CarAI_SimulationStep_Prefix(ushort vehicleID, ref Vehicle vehicleData, UnityEngine.Vector3 physicsLodRefPos, out bool __state)
-        {
-            __state = false;
-        }
-
-        public static void CarAI_SimulationStep_Postfix(ushort vehicleID, ref Vehicle vehicleData, UnityEngine.Vector3 physicsLodRefPos, bool __state)
-        {
-        }
-    }
-
-    public class RepairRunner : UnityEngine.MonoBehaviour
-    {
-        private int tickCount = 0;
-
-        void Update()
-        {
-            tickCount++;
-            // Clean orphaned/floating vehicles every 60 frames (~2 seconds)
-            if (tickCount % 60 == 0)
-            {
-                CleanOrphanedFloatingVehicles();
-            }
-            // Ensure transport stops are clean and connected every 90 frames (~3 seconds)
-            if (tickCount % 90 == 0)
-            {
-                EnsureTransportStopsClean();
-            }
-        }
-
-        public static int CleanOrphanedFloatingVehicles()
-        {
-            int released = 0;
-            try
-            {
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                NetManager nm = Singleton<NetManager>.instance;
-                PathManager pm = Singleton<PathManager>.instance;
-                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || nm == null) return 0;
-
-                int vCount = vm.m_vehicles.m_buffer.Length;
-                for (int i = 1; i < vCount; i++)
-                {
-                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
-                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
-                        continue;
-
-                    VehicleInfo info = vm.m_vehicles.m_buffer[i].Info;
-                    if (info == null || info.m_vehicleAI == null) continue;
-
-                    // Skip aircraft, boats, rockets, meteors
-                    if ((info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
-                        continue;
-
-                    // Only process lead vehicles (sub-vehicles/trailers are unspawned with lead)
-                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
-                        continue;
-
-                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
-                    byte pathIndex = vm.m_vehicles.m_buffer[i].m_pathPositionIndex;
-                    bool orphaned = false;
-
-                    if (pathId != 0 && pm != null && pathId < pm.m_pathUnits.m_buffer.Length)
-                    {
-                        PathUnit.Position pPos;
-                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(pathIndex, out pPos))
-                        {
-                            // If the segment on the vehicle's active path has been demolished/uncreated
-                            if (pPos.m_segment == 0 || pPos.m_segment >= nm.m_segments.m_buffer.Length ||
-                                (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) == 0)
-                            {
-                                orphaned = true;
-                            }
-                        }
-                    }
-                    else if (pathId == 0 && (flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
-                    {
-                        UnityEngine.Vector3 vel = vm.m_vehicles.m_buffer[i].GetLastFrameVelocity();
-                        if (vel.sqrMagnitude < 0.001f && ((flags & Vehicle.Flags.WaitingPath) != 0 || vm.m_vehicles.m_buffer[i].m_blockCounter >= 10))
-                        {
-                            orphaned = true;
-                        }
-                    }
-
-                    if (orphaned)
-                    {
-                        if (pathId != 0 && pm != null)
-                        {
-                            try { pm.ReleasePath(pathId); } catch { }
-                            vm.m_vehicles.m_buffer[i].m_path = 0;
-                        }
-                        vm.ReleaseVehicle((ushort)i);
-                        released++;
-                    }
-                }
-            }
-            catch { }
-            return released;
-        }
-
-        public static void EnsureTransportStopsClean()
-        {
-            try
-            {
-                TransportManager tm = Singleton<TransportManager>.instance;
-                NetManager nm = Singleton<NetManager>.instance;
-                if (tm == null || tm.m_lines == null || tm.m_lines.m_buffer == null || nm == null || nm.m_nodes == null) return;
-
-                int nodeLimit = nm.m_nodes.m_buffer.Length;
-                int lineCount = tm.m_lines.m_buffer.Length;
-
-                for (int lid = 1; lid < lineCount; lid++)
-                {
-                    if ((tm.m_lines.m_buffer[lid].m_flags & TransportLine.Flags.Created) == 0) continue;
-
-                    tm.m_lines.m_buffer[lid].m_flags &= ~((TransportLine.Flags)64 | TransportLine.Flags.Hidden);
-                    tm.m_lines.m_buffer[lid].m_flags |= TransportLine.Flags.Complete;
-
-                    ushort stops = tm.m_lines.m_buffer[lid].m_stops;
-                    ushort currStop = stops;
-                    int iter = 0;
-
-                    while (currStop != 0 && currStop < nodeLimit && iter < 500)
-                    {
-                        iter++;
-                        if ((nm.m_nodes.m_buffer[currStop].m_flags & NetNode.Flags.Created) != 0)
-                        {
-                            nm.m_nodes.m_buffer[currStop].m_transportLine = (ushort)lid;
-                            Notification.ProblemStruct oldProb = nm.m_nodes.m_buffer[currStop].m_problems;
-                            Notification.ProblemStruct newProb = Notification.RemoveProblems(oldProb, (Notification.Problem1)131072);
-                            newProb = Notification.RemoveProblems(newProb, (Notification.Problem1)Notification.Problem1.FatalProblem);
-                            if (oldProb != newProb)
-                            {
-                                nm.m_nodes.m_buffer[currStop].m_problems = newProb;
-                                nm.UpdateNodeNotifications(currStop, oldProb, newProb);
-                            }
-                        }
-
-                        for (int s = 0; s < 8; s++)
-                        {
-                            ushort segId = nm.m_nodes.m_buffer[currStop].GetSegment(s);
-                            if (segId != 0 && segId < nm.m_segments.m_buffer.Length && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
-                            {
-                                nm.m_segments.m_buffer[segId].m_flags &= ~NetSegment.Flags.PathFailed;
-                            }
-                        }
-
-                        ushort nextStop = TransportLine.GetNextStop(currStop);
-                        if (nextStop == 0 || nextStop == stops || nextStop >= nodeLimit) break;
-                        currStop = nextStop;
-                    }
-                }
-            }
-            catch { }
         }
     }
 }

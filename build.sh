@@ -50,6 +50,11 @@ if [ -d "$WORKSHOP_DIR" ]; then
     [ -f preview-image.png ] && cp preview-image.png "$WORKSHOP_DIR/PreviewImage.png"
 fi
 
+echo "📦 Deploying to SteamCMD content staging ($SCRIPT_DIR/content)..."
+mkdir -p "$SCRIPT_DIR/content"
+cp MoreNetworkCapacityRenew.dll "$SCRIPT_DIR/content/"
+cp MoreNetworkCapacity.Core.dll "$SCRIPT_DIR/content/"
+
 echo "=========================================================="
 echo "🎉 DEPLOYMENT COMPLETE!"
 echo "Files in $MOD_DIR:"

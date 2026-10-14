@@ -6,18 +6,40 @@
 	"previewfile" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility" "0"
 	"title" "More Network Capacity Renew by NgocDuy"
-	"description" "[h1]✨ WHAT'S NEW (v2.2 Update) ✨[/h1]
+	"description" "[h1]✨ WHAT'S NEW (v3.3 Emergency Hotfix: Game Saving & UI Stability) ✨[/h1]
 [list]
-[*] [b]Highway & Straight Road Deadstop Fix (Speed Limit Zero Bug):[/b] Fixed the critical bug where vehicles abruptly braked and came to a dead stop on straight sections of highways and avenues. Pre-initialized all 524,288 TM:PE lane speed limit cache slots with road default speeds (eliminating 0 km/h speed limits on high-ID lanes) and added a runtime fallback shield so vehicles never receive a 0 speed limit.
-[*] [b]Massive FPS & Simulation Performance Optimization:[/b]
+[*] [b]Critical Save Game & SavePanel Hotfix:[/b]
 [list]
-    [*] Eliminated render group rebuild bottlenecks: Removed unnecessary [i]UpdateNodeRenderer[/i] and [i]UpdateSegmentRenderer[/i] calls from the simulation loop that were invalidating meshes and causing FPS drops.
-    [*] Simulation frame gating: Network simulation for expanded nodes/segments now executes strictly once per frame, preventing redundant processing across sub-steps.
-    [*] Zero-redundancy color updates: Color refresh calls now only process expanded elements (36,864+ segments and 32,768+ nodes) instead of re-scanning all 65K networks repeatedly.
-    [*] TM:PE Traffic Light CPU optimization: Traffic light simulation steps now skip uncreated nodes immediately, cutting CPU cycles by ~95%.
+    [*] Fixed the game-breaking issue where saving aborted or failed to generate .crp save files due to corrupted transport line data or missing custom vehicle/transit assets.
+    [*] Added universal pre-save simulation sanitization (SimulationManager & TransportManager) and out-of-bounds safety guards across all PrefabCollection serializers (TransportInfo, VehicleInfo, BuildingInfo, NetInfo).
+    [*] Fixed SavePanel UI lockup/freeze upon saving completion, allowing save dialogs to close and reset cleanly.
+    [*] Automatically deactivates and purges corrupted ghost transport lines upon level load and save.
 [/list]
-[*] [b]Memory & GC Optimizer:[/b] Resolved the critical [i]'Fatal error in gc: Too many heap sections'[/i] crash. Automatically mitigates heap fragmentation when loading large cities with heavy asset counts and Procedural Objects (PO Mod).
-[*] [b]Re-load & Exit-to-Menu Crash Fix:[/b] Safe lifecycle teardown prevents freezes when quitting to the main menu or switching savegames.
+[*] [b]Native Crash Resilience & Hardened Dynamic Patcher:[/b]
+[list]
+    [*] Fixed deep native runtime crashes (SIGABRT / Abort trap 6) during level initialization on macOS and Windows caused by scanning third-party assemblies with unresolvable dependencies (e.g. PropAnarchy / EManagersLib).
+    [*] Added pre-flight assembly dependency verification and safe reflection guards.
+[/list]
+[*] [b]Built-in Vehicle & Public Transit Auto-Repair Engine:[/b]
+[list]
+    [*] Automatically unfreezes and clears stuck/deadlocked vehicles, phantom pathfinding loops, and stranded citizen queues upon level load.
+    [*] Automatically restores broken, invalid, or hidden bus and public transit lines, reconnecting stops and updating mesh/paths seamlessly.
+    [*] Hotkey support: Press [b]Ctrl + Shift + R[/b] (or [b]Cmd + Shift + R[/b] on Mac) at any time during gameplay to trigger an instant on-demand traffic and transit line refresh!
+[/list]
+[*] [b]Complete Road & Building Placement Fix:[/b]
+[list]
+    [*] Permanently resolved the critical vanilla engine limitation where players were unable to draw roads or place buildings once network entities exceeded vanilla limits.
+    [*] Automatically expands ToolController collision bitmasks (m_collidingSegments & m_collidingBuildings) to 65,536 bits, eliminating IndexOutOfRangeException crashes in NetTool and BuildingTool when combined with Network Anarchy.
+[/list]
+[*] [b]Comprehensive 16-Mod Ecosystem Compatibility:[/b]
+[list]
+    [*] [b]Adaptive Roads (ADR):[/b] Expands and synchronizes all 6 core buffers (NodeBuffer, SegmentBuffer, SegmentEndBuffer 130K, LaneBuffer 524K, m_updatedNodes 1024 longs, m_updatedSegments 1024 longs). Fixes legacy MoreNetworkCapacity crashes at node 65,024 and unallocated LaneBuffer errors.
+    [*] [b]Network Skins 2:[/b] Seamlessly scales SegmentSkins (65K) and NodeSkins (65K), preventing skin calculation crashes on extended networks.
+    [*] [b]Node Controller Renewal:[/b] Expands NodeData Buffer up to 65K nodes.
+    [*] [b]Move It, Picker, Network Multitool, Intersection Marking Tool (IMT):[/b] Dynamic IL Transpilation scales all 32K/36K boundary checks up to 65K.
+    [*] [b]Network Anarchy, Advanced Road Tools, Network Extensions 2, Improved Public Transport 2/3, Advanced Vehicle Options:[/b] Fully verified and 100% operational.
+[/list]
+[*] [b]Savegame & Pathfinding Protection:[/b] Preserves the dedicated SavePanel.OnSavingComplete safety patch (preventing EndOfStreamException save corruptions) and ensures untampered TM:PE CustomPathFind threads for cars, buses, trams, trains, and emergency vehicles.
 [/list]
 
 [hr][/hr]
@@ -34,13 +56,14 @@ Vanilla Cities: Skylines caps your road and transit networks at ~32,000 nodes an
 
 [b]More Network Capacity Renew[/b] safely expands your game internal network limits to [b]65,536 (64K) Nodes and Segments[/b] - giving you double the building freedom!
 
-Unlike unstable or abandoned experimental versions that caused fatal crashes and corrupted traffic, [b]Renew[/b] is engineered from the ground up for [b]maximum stability, accurate traffic simulation, and zero data loss.[/b]
+Unlike unstable or abandoned experimental versions that caused fatal crashes, broken placement tools, and corrupted traffic, [b]Renew[/b] is engineered from the ground up for [b]maximum stability, accurate traffic simulation, and zero data loss.[/b]
 
 [hr][/hr]
 
 [h1]KEY ADVANTAGES & SUPERIOR FEATURES[/h1]
 [list]
-[*] [b]64K Expanded Capacity:[/b] Doubles the maximum network node and segment limits (up to 65,536). Build massive regional transit grids, hyper-detailed highway interchanges, and expansive subway networks without restriction.
+[*] [b]64K Expanded Capacity:[/b] Doubles the maximum network node and segment limits (up to 65,536) and lanes up to 524,288. Build massive regional transit grids, hyper-detailed highway interchanges, and expansive subway networks without restriction.
+[*] [b]Full Road & Building Placement Guarantee:[/b] Solved engine-level ToolController collision bitmask limits, allowing smooth placement of roads, bridges, tunnels, intersections, and buildings without tool lockups.
 [*] [b]Native Apple Silicon & Intel Mac Stability:[/b] Fixed deep engine crash loops, memory boundary overflows, and native crashes that plagued previous limit mods on macOS (M1/M2/M3/M4 & Intel).
 [*] [b]Complete TM:PE Compatibility:[/b]
 [list]
@@ -54,7 +77,7 @@ Unlike unstable or abandoned experimental versions that caused fatal crashes and
     [*] Active simulation loop prevents the notorious 'frozen vehicles' or phantom deadlock bug at high-ID junctions.
 [/list]
 [*] [b]Safe Persistence Guarantee:[/b] Implements clean savegame serialization to ensure your custom traffic setups, timed nodes, and networks reload perfectly with zero data loss.
-[*] [b]All-In-One Standalone Mod:[/b] Clean, self-contained architecture. No messy patches, no secondary 'hotfix' mods required.
+[*] [b]Deep 16-Mod Ecosystem Compatibility:[/b] Seamless integration with Adaptive Roads, Network Skins, Node Controller Renewal, Move It, IMT, Network Multitool, Network Anarchy, Picker, Find It, etc.
 [/list]
 
 [hr][/hr]
@@ -64,13 +87,20 @@ Tested and fully compatible with the standard modern modding ecosystem:
 [list]
 [*] [b]Harmony 2.2+[/b] (Required dependency)
 [*] [b]TM:PE (Traffic Manager: President Edition)[/b] (STABLE & LABS)
-[*] [b]81 Tiles 2[/b]
-[*] [b]Move It[/b]
+[*] [b]Network Anarchy[/b]
+[*] [b]Adaptive Roads (ADR)[/b]
+[*] [b]Network Skins 2[/b]
 [*] [b]Node Controller Renewal[/b]
 [*] [b]Intersection Marking Tool (IMT)[/b]
 [*] [b]Network Multitool[/b]
-[*] [b]Adaptive Roads (ADR)[/b]
-[*] [b]Network Skins[/b]
+[*] [b]Move It[/b]
+[*] [b]Picker[/b]
+[*] [b]Find It 2[/b]
+[*] [b]81 Tiles 2[/b]
+[*] [b]Advanced Road Tools[/b]
+[*] [b]Improved Public Transport 2 & 3[/b]
+[*] [b]Advanced Vehicle Options[/b]
+[*] [b]Train Car Selector[/b]
 [/list]
 
 [hr][/hr]
@@ -90,5 +120,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v2.2 Update: Fixed vehicles suddenly stopping dead on straight highways/avenues (pre-initialized TM:PE lane speed limits and added fallback shield); Major FPS & simulation performance optimization (eliminated tick render mesh invalidation, single-pass frame execution, optimized color updates, skipped uncreated nodes in traffic light simulation)."
+	"changenote" "v3.3 Emergency Hotfix: Fixed game saving failure (.crp not saving) and SavePanel UI lockup. Added multi-layer pre-save sanitization, PrefabCollection bounds guards (TransportInfo, VehicleInfo, BuildingInfo, NetInfo), automatic ghost transit line purge, and TM:PE save synchronization."
 }

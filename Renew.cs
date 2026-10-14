@@ -1230,6 +1230,14 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemMain");
                         }
 
+                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pfiM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
+                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (Prefix safety guard)");
+                        }
+
                     }
                 }
                 catch (Exception ex)
@@ -3503,12 +3511,61 @@ namespace MoreNetworkCapacityRenew
             return false;
         }
 
-        public static bool CustomPathFind_ProcessItemMain_Prefix(ref NetSegment prevSegment)
+        public static bool CustomPathFind_ProcessItemMain_Prefix(
+            ref NetSegment prevSegment,
+            ushort nextNodeId,
+            ref NetNode nextNode)
         {
-            if (prevSegment.Info == null || prevSegment.Info.m_lanes == null)
+            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null)
             {
                 return false;
             }
+            if (nextNodeId == 0 || (nextNode.m_flags & NetNode.Flags.Created) == 0 || nextNode.Info == null || nextNode.Info.m_class == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
+        {
+            if (unit == 0) return false;
+            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                return true;
+
+            NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
+            int segCount = segBuffer.Length;
+
+            ushort startSeg = data.m_position00.m_segment;
+            if (startSeg != 0)
+            {
+                if (startSeg >= segCount)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+                if ((segBuffer[startSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[startSeg].Info == null || segBuffer[startSeg].Info.m_lanes == null)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+            }
+
+            ushort endSeg = data.m_position01.m_segment;
+            if (endSeg != 0)
+            {
+                if (endSeg >= segCount)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+                if ((segBuffer[endSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[endSeg].Info == null || segBuffer[endSeg].Info.m_lanes == null)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+            }
+
             return true;
         }
 
@@ -3517,7 +3574,7 @@ namespace MoreNetworkCapacityRenew
             uint laneId,
             ref float maxSpeed)
         {
-            if (info == null || laneId == 0 || laneId >= 262144)
+            if (info == null || laneId == 0 || laneId >= 524288)
             {
                 maxSpeed = 1f;
                 return false;
@@ -3974,6 +4031,22 @@ namespace MoreNetworkCapacityRenew
                 if (errorOnSaving)
                 {
                     UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SavePanel reported errorOnSaving = true.");
+                }
+
+                if (quitAfterSaving && !errorOnSaving)
+                {
+                    try
+                    {
+                        if (Singleton<LoadingManager>.exists)
+                        {
+                            Singleton<LoadingManager>.instance.QuitApplication();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] QuitApplication error: " + ex);
+                    }
+                    return false;
                 }
             }
             catch (Exception ex)
@@ -6099,11 +6172,9 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 3. Patch PrefabCollection<T>.Serialize bounds guards
-                PatchPrefabCollectionSerialize<TransportInfo>(harmony, nameof(PrefabCollection_TransportInfo_Serialize_Prefix));
-                PatchPrefabCollectionSerialize<VehicleInfo>(harmony, nameof(PrefabCollection_VehicleInfo_Serialize_Prefix));
-                PatchPrefabCollectionSerialize<BuildingInfo>(harmony, nameof(PrefabCollection_BuildingInfo_Serialize_Prefix));
-                PatchPrefabCollectionSerialize<NetInfo>(harmony, nameof(PrefabCollection_NetInfo_Serialize_Prefix));
+                // 3. PreSaveSanitization in SimulationManager.Data.Serialize already sanitizes all Prefab indices before saving.
+                // Do NOT patch PrefabCollection<T>.Serialize directly with Harmony because Mono generic sharing causes
+                // cross-type trampoline collision where PrefabCollection<NetInfo>.m_encodedArray is null during BuildingManager serialization.
 
                 // 4. Patch TransportLine.GetNextStop
                 MethodInfo getNextStop = typeof(TransportLine).GetMethod("GetNextStop", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(ushort) }, null);

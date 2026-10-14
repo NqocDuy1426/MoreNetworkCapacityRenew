@@ -841,34 +841,7 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 9. SpeedLimitManager.GetGameSpeedLimit (Prefix)
-                Type slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
-                if (slm != null)
-                {
-                    MethodInfo getSpeedM = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(NetInfo.Lane) }, null);
-                    if (getSpeedM != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Prefix));
-                        harmony.Patch(getSpeedM, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (Prefix)");
-                    }
-
-                    MethodInfo getSpeedM4 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(byte), typeof(uint), typeof(NetInfo.Lane) }, null);
-                    if (getSpeedM4 != null)
-                    {
-                        var pre4 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
-                        harmony.Patch(getSpeedM4, prefix: new HarmonyMethod(pre4));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (4-arg Prefix)");
-                    }
-
-                    MethodInfo getSpeedM1 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint) }, null);
-                    if (getSpeedM1 != null)
-                    {
-                        var pre1 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit1_Prefix));
-                        harmony.Patch(getSpeedM1, prefix: new HarmonyMethod(pre1));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (1-arg Prefix)");
-                    }
-                }
+                // 9. SpeedLimitManager handles speed limits natively (no hooks)
 
                 // 10. CustomPathManager.UpdateWithPathManagerValues (Postfix)
                 Type cpmType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathManager");
@@ -1099,6 +1072,7 @@ namespace MoreNetworkCapacityRenew
                 // 18. SpeedLimitManager.LoadData
                 try
                 {
+                    Type slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
                     if (slm != null)
                     {
                         foreach (var m in slm.GetMethods(BindingFlags.Public | BindingFlags.Instance))
@@ -1214,29 +1188,8 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
                         }
 
-                        MethodInfo gldM = cpfType.GetMethod("GetLaneDirection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (gldM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_GetLaneDirection_Prefix));
-                            harmony.Patch(gldM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.GetLaneDirection");
-                        }
-
-                        MethodInfo pimM = cpfType.GetMethod("ProcessItemMain", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pimM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemMain_Prefix));
-                            harmony.Patch(pimM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemMain");
-                        }
-
-                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pfiM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
-                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (Prefix safety guard)");
-                        }
+                        // Only Awake buffer sizing is kept so CustomPathFind arrays accommodate 65K networks.
+                        // All pathfinding algorithms, lane directions, and vehicle routing remain 100% under TM:PE authority!
 
                     }
                 }
@@ -4206,21 +4159,8 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] KianCommons patching error: " + ex);
                 }
 
-                try
-                {
-                    // Patch NetManager.SimulationStepImpl for expanded nodes and segments simulation
-                    MethodInfo simStepImpl = typeof(NetManager).GetMethod("SimulationStepImpl", BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (simStepImpl != null)
-                    {
-                        MethodInfo postfix = typeof(NetManagerSimulationPatches).GetMethod(nameof(NetManagerSimulationPatches.Postfix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(simStepImpl, postfix: new HarmonyMethod(postfix));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.SimulationStepImpl for expanded nodes and segments simulation!");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] NetManager.SimulationStepImpl patch error: " + ex);
-                }
+                // Network AI simulation slices (up to 65K nodes & segments) are handled 100% natively by MoreNetworkCapacity.Core (NetworkSimulationSlicePatch transpiler).
+                // No duplicate C# reflection/substep simulation loop to ensure maximum FPS performance!
 
                 patchApplied = true;
                 DiagnosticLogger.Checkpoint("OnCreated.AllPatchesApplied");

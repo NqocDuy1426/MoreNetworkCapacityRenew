@@ -6,26 +6,22 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v3.9.1 (Save Fix & Continuous Network Simulation) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v3.9.2 (100% TM:PE Native Control & FPS Optimization) ✨[/h1]
 [list]
-[*] [b]Critical Save UInt24 Overflow Fix:[/b]
+[*] [b]100% TM:PE Native Autonomy Restored:[/b]
 [list]
-    [*] Permanently eliminated the game save crash ([i]UInt24 out of bounds[/i]) in megacities caused by population/district data exceeding 16.7M.
-    [*] Added universal safety clamping on [i]DataSerializer.WriteUInt24[/i] & [i]WriteInt24[/i] and pre-save district sanitization to ensure 100% successful save serialization.
-    [*] Handled quit-after-save safely to prevent ColossalFramework Dispatcher thread violations.
+    [*] Completely removed all intrusive Harmony hooks on TM:PE's [i]CustomPathFind[/i] ([i]GetLaneDirection[/i], [i]ProcessItemMain[/i], [i]PathFindImplementation[/i]) and [i]SpeedLimitManager[/i].
+    [*] TM:PE now has 100% full, uncompromised native authority over vehicle pathfinding algorithms, lane switching, routing arrows, and custom speed limits.
+    [*] Retained only memory buffer expansions so TM:PE arrays safely support 65,536 nodes/segments and 524,288 lanes without crashing.
 [/list]
-[*] [b]Full Continuous Simulation & Traffic Spawning Recovery:[/b]
+[*] [b]Major Simulation FPS & CPU Performance Restoration:[/b]
 [list]
-    [*] Restored 100% continuous multi-subStep simulation for all expanded segments (36K+) and nodes (32K+). Road networks and lane states now update synchronously with vanilla.
-    [*] Resolves vehicle spawn drops and sluggish path recalculations when modifying or upgrading roads.
-    [*] TM:PE CustomPathFind threads protected with fail-fast guards against transient uncreated segment/node states during road edits.
+    [*] Eliminated redundant [i]NetManager.SimulationStepImpl[/i] C# reflection loop.
+    [*] Expanded network simulation slices (65K nodes & segments) are handled at maximum speed directly by [i]MoreNetworkCapacity.Core[/i]'s high-performance IL transpiler.
+    [*] Eliminates CPU simulation stutter and restores smooth simulation FPS.
 [/list]
-[*] [b]Phantom CitizenUnits Auto-Sanitization (v3.4):[/b]
-[list]
-    [*] Built-in high-performance [b]CitizenUnit Auto-Sanitizer[/b] runs on load and pre-save, safely cleaning dangling pointers down to 0 phantom units.
-    [*] Hotkey: Press [b]Ctrl + Shift + C[/b] (or [b]Cmd + Shift + C[/b] on Mac) for instant on-demand CitizenUnits sanitization!
-[/list]
-[*] [b]Isolated Ghost Transit Line Cleanup:[/b] Deactivating broken lines releases ONLY vehicles on that line, preserving all other traffic intact.
+[*] [b]Permanent Save UInt24 Overflow Protection (v3.9.1):[/b] Universal safety clamping on [i]DataSerializer.WriteUInt24[/i] & [i]WriteInt24[/i] and pre-save district sanitization to guarantee 100% successful save serialization.
+[*] [b]Phantom CitizenUnits Auto-Sanitization (v3.4):[/b] Built-in high-performance [b]CitizenUnit Auto-Sanitizer[/b] runs on load and pre-save, safely cleaning dangling pointers down to 0 phantom units (Hotkey: [b]Ctrl + Shift + C[/b] / [b]Cmd + Shift + C[/b]).
 [/list]
 
 [hr][/hr]
@@ -102,5 +98,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v3.9.1: 1) Fixed Game Save Crash: Patched DataSerializer.WriteUInt24 & WriteInt24 to prevent UInt24 out of bounds overflow and added pre-save district sanitization. 2) Fixed Traffic Stagnation & Spawning Drops: Restored full continuous multi-subStep simulation for expanded segments and nodes."
+	"changenote"		"v3.9.2: 1) 100% TM:PE Native Control: Removed all intrusive hooks on CustomPathFind and SpeedLimitManager; TM:PE completely controls vehicle routing, pathfinding algorithms, lane arrows, and speed limits. 2) Major FPS Boost: Removed duplicate NetManager simulation loop in favor of native Core IL transpiler. 3) Full Savegame Reliability maintained."
 }

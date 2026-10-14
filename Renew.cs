@@ -1244,6 +1244,26 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CustomPathFind: " + ex);
                 }
 
+                // 24. VehicleBehaviorManager (Continuous flow across junctions and bridges)
+                try
+                {
+                    Type vbmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleBehaviorManager");
+                    if (vbmType != null)
+                    {
+                        MethodInfo mcsM = vbmType.GetMethod("MustCheckSpace", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (mcsM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MustCheckSpace_Prefix));
+                            harmony.Patch(mcsM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MustCheckSpace (continuous flow)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
+                }
+
                 // 25. ThreadingExtension.OnBeforeSimulationFrame
                 try
                 {
@@ -2551,9 +2571,15 @@ namespace MoreNetworkCapacityRenew
                             }
 
                             FieldInfo fQueue = cpmType.GetField("QueueItems", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                            if (fQueue != null && fQueue.GetValue(cpmInst) is Array qArr && qArr.Length < 262144)
+                            int reqQueueLen = 524288;
+                            PathManager pmInst = Singleton<PathManager>.instance;
+                            if (pmInst != null && pmInst.m_pathUnits != null && pmInst.m_pathUnits.m_buffer != null)
                             {
-                                Array newQ = Array.CreateInstance(qArr.GetType().GetElementType(), 262144);
+                                reqQueueLen = Math.Max(reqQueueLen, pmInst.m_pathUnits.m_buffer.Length);
+                            }
+                            if (fQueue != null && fQueue.GetValue(cpmInst) is Array qArr && qArr.Length < reqQueueLen)
+                            {
+                                Array newQ = Array.CreateInstance(qArr.GetType().GetElementType(), reqQueueLen);
                                 Array.Copy(qArr, newQ, qArr.Length);
                                 fQueue.SetValue(cpmInst, newQ);
                             }
@@ -2859,7 +2885,7 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool JunctionRestrictionsTool_RefreshCurrentRestrictedNodeIds_Prefix(object __instance, ushort nodeId)
+        public static bool JunctionRestrictionsTool_RefreshCurrentRestrictedNodeIds_Prefix(object __instance, ushort forceNodeId)
         {
             try
             {
@@ -2870,9 +2896,9 @@ namespace MoreNetworkCapacityRenew
                 var set = fNodes.GetValue(__instance) as HashSet<ushort>;
                 if (set == null) return true;
 
-                if (nodeId != 0)
+                if (forceNodeId != 0)
                 {
-                    set.Remove(nodeId);
+                    set.Remove(forceNodeId);
                 }
                 else
                 {
@@ -2888,8 +2914,8 @@ namespace MoreNetworkCapacityRenew
                 MethodInfo hasRestr = jrmType.GetMethod("HasJunctionRestrictions", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
                 if (hasRestr == null) return true;
 
-                int minNode = (nodeId == 0 ? 1 : (int)nodeId);
-                int maxNode = (nodeId == 0 ? 65024 : (int)nodeId + 1);
+                int minNode = (forceNodeId == 0 ? 1 : (int)forceNodeId);
+                int maxNode = (forceNodeId == 0 ? 65024 : (int)forceNodeId + 1);
                 if (NetManager.instance != null && NetManager.instance.m_nodes != null && NetManager.instance.m_nodes.m_buffer != null)
                     maxNode = Math.Min(maxNode, NetManager.instance.m_nodes.m_buffer.Length);
 
@@ -3092,7 +3118,7 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
-        public static bool Flags_SetLaneAllowedVehicleTypes_Prefix(ushort segmentId)
+        public static bool Flags_SetLaneAllowedVehicleTypes_Prefix()
         {
             try
             {
@@ -3418,25 +3444,18 @@ namespace MoreNetworkCapacityRenew
 
         public static bool CustomPathFind_PathFindImplementation_Prefix(object __instance, uint unit)
         {
-            if (unit == 0 || unit >= 524288) return false;
+            if (unit == 0 || unit >= 2097152) return false;
             try
             {
-                if (__instance != null)
+                // Ensure TM:PE SavedGameOptions is initialized so pathfinder never hits NullReferenceException
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
                 {
-                    NetManager nm = Singleton<NetManager>.instance;
-                    if (nm != null && nm.m_segments != null && nm.m_nodes != null && nm.m_lanes != null)
+                    Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
+                    if (sgoType != null)
                     {
-                        Type t = __instance.GetType();
-                        FieldInfo fs = t.GetField("segmentBuffer_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (fs != null && fs.GetValue(__instance) == null)
-                        {
-                            fs.SetValue(__instance, nm.m_segments.m_buffer);
-                        }
-                        FieldInfo fn = t.GetField("nodeBuffer_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (fn != null && fn.GetValue(__instance) == null)
-                        {
-                            fn.SetValue(__instance, nm.m_nodes.m_buffer);
-                        }
+                        MethodInfo ensureM = sgoType.GetMethod("Ensure", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (ensureM != null) ensureM.Invoke(null, null);
                     }
                 }
             }
@@ -3446,12 +3465,16 @@ namespace MoreNetworkCapacityRenew
 
         public static Exception CustomPathFind_PathFindImplementation_Finalizer(Exception __exception)
         {
-            if (__exception != null)
-            {
-                // Silently absorb any pathfinding crash so the pathfind worker thread doesn't die and UIView.ForwardException modal isn't triggered
-                return null;
-            }
+            // Silently absorb any pathfinding crash so the pathfind worker thread never dies
             return null;
+        }
+
+        public static bool VehicleBehaviorManager_MustCheckSpace_Prefix(ref bool __result)
+        {
+            // By returning false, vehicles do not wait for an empty space before entering a bridge/junction.
+            // This prevents endless stop lines on bridges and highways, allowing continuous flowing motion.
+            __result = false;
+            return false;
         }
 
         public static bool CustomPathFind_GetLaneDirection_Prefix(
@@ -5780,45 +5803,10 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 3. Flush PathFind pending queues so worker threads instantly stop processing broken queries
-                try
-                {
-                    FieldInfo pfArrayField = typeof(PathManager).GetField("m_pathfinds", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-                    Array pfArray = (pm != null && pfArrayField != null) ? pfArrayField.GetValue(pm) as Array : null;
-                    if (pfArray != null)
-                    {
-                        for (int p = 0; p < pfArray.Length; p++)
-                        {
-                            object pf = pfArray.GetValue(p);
-                            if (pf == null) continue;
-                            Type pfType = pf.GetType();
-                            FieldInfo qlField = pfType.GetField("queueLock_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                                             ?? pfType.GetField("m_queueLock", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                            FieldInfo qfField = pfType.GetField("queueFirst_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                                             ?? pfType.GetField("m_queueFirst", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                            FieldInfo qlLastField = pfType.GetField("queueLast_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                                                 ?? pfType.GetField("m_queueLast", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                            if (qlField != null && qfField != null && qlLastField != null)
-                            {
-                                object lockObj = qlField.GetValue(pf);
-                                if (lockObj != null)
-                                {
-                                    lock (lockObj)
-                                    {
-                                        qfField.SetValue(pf, (uint)0);
-                                        qlLastField.SetValue(pf, (uint)0);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch { }
-
-                // 4. Clean up citizen paths
+                // 3. Clean up citizen paths
                 UnstickCitizens();
 
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ClearAllVehicles completed: Successfully cleared {0} vehicles.", freed));
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ClearAllVehicles completed: Cleared {0} vehicles.", freed));
             }
             catch (Exception ex)
             {
@@ -5831,12 +5819,11 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Starting Full Vehicle & Transport Line Repair...");
-                int cleared = ClearAllVehicles();
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Starting Transport Line Repair (vehicles preserved)...");
                 int restoredLines = RestoreAllTransportLines();
                 int freedUnits = TransportLineCompatibility.SanitizeCitizenUnits();
                 
-                string msg = string.Format("MNC Renew: Repaired & cleared {0} vehicles, restored {1} transport lines, and cleaned {2} phantom citizen units!", cleared, restoredLines, freedUnits);
+                string msg = string.Format("MNC Renew: Restored {0} transport lines and cleaned {1} phantom citizen units (all vehicles preserved)!", restoredLines, freedUnits);
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] " + msg);
             }
             catch (Exception ex)
@@ -5916,22 +5903,16 @@ namespace MoreNetworkCapacityRenew
                     ushort infoIndex = tm.m_lines.m_buffer[lid].m_infoIndex;
                     ushort stops = tm.m_lines.m_buffer[lid].m_stops;
                     float len = tm.m_lines.m_buffer[lid].m_totalLength;
-
-                    // If infoIndex invalid, stop node out of bounds, or length NaN: deactivate ghost line!
-                    if (infoIndex >= prefabCount || PrefabCollection<TransportInfo>.GetPrefab(infoIndex) == null ||
-                        stops >= 65024 || stops >= nodeLimit || float.IsNaN(len) || float.IsInfinity(len))
+                    // Fix NaN / Infinity length so it doesn't cause false line deactivation
+                    if (float.IsNaN(len) || float.IsInfinity(len))
                     {
-                        if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
-                        {
-                            ushort vHead = tm.m_lines.m_buffer[lid].m_vehicles;
-                            int vCount = 0;
-                            while (vHead != 0 && vHead < vm.m_vehicles.m_buffer.Length && ++vCount < 16384)
-                            {
-                                ushort nextV = vm.m_vehicles.m_buffer[vHead].m_nextLineVehicle;
-                                try { vm.ReleaseVehicle(vHead); } catch { }
-                                vHead = nextV;
-                            }
-                        }
+                        tm.m_lines.m_buffer[lid].m_totalLength = 0f;
+                        len = 0f;
+                    }
+
+                    // Only deactivate if prefab is missing/invalid
+                    if (infoIndex >= prefabCount || PrefabCollection<TransportInfo>.GetPrefab(infoIndex) == null)
+                    {
                         tm.m_lines.m_buffer[lid].m_flags = TransportLine.Flags.None;
                         tm.m_lines.m_buffer[lid].m_infoIndex = 0;
                         tm.m_lines.m_buffer[lid].m_stops = 0;
@@ -5941,9 +5922,29 @@ namespace MoreNetworkCapacityRenew
                         continue;
                     }
 
+                    if (stops >= nodeLimit || stops >= 65024)
+                    {
+                        if (stops == ushort.MaxValue)
+                        {
+                            tm.m_lines.m_buffer[lid].m_stops = 0;
+                            stops = 0;
+                        }
+                    }
+
                     // Clean flags: clear Hidden and Invalid (64), set Complete
                     tm.m_lines.m_buffer[lid].m_flags &= ~((TransportLine.Flags)64 | TransportLine.Flags.Hidden);
-                    tm.m_lines.m_buffer[lid].m_flags |= (TransportLine.Flags.Complete | TransportLine.Flags.CustomColor);
+                    tm.m_lines.m_buffer[lid].m_flags |= TransportLine.Flags.Complete;
+
+                    // Fix line colors: if pure black or uninitialized, generate a distinct vibrant color
+                    UnityEngine.Color32 curCol = tm.m_lines.m_buffer[lid].m_color;
+                    bool isBlack = (curCol.r == 0 && curCol.g == 0 && curCol.b == 0);
+                    if (isBlack)
+                    {
+                        float hue = ((float)(lid * 137.508) % 360f) / 360f;
+                        UnityEngine.Color genColor = UnityEngine.Color.HSVToRGB(hue, 0.78f, 0.95f);
+                        tm.m_lines.m_buffer[lid].m_color = (UnityEngine.Color32)genColor;
+                    }
+                    tm.m_lines.m_buffer[lid].m_flags |= TransportLine.Flags.CustomColor;
 
                     // Reset dangling vehicle pointers if head vehicle is non-existent
                     if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
@@ -5966,6 +5967,23 @@ namespace MoreNetworkCapacityRenew
                         if ((nm.m_nodes.m_buffer[currStop].m_flags & NetNode.Flags.Created) != 0)
                         {
                             nm.m_nodes.m_buffer[currStop].m_transportLine = lid;
+                            Notification.ProblemStruct oldProb = nm.m_nodes.m_buffer[currStop].m_problems;
+                            Notification.ProblemStruct newProb = Notification.RemoveProblems(oldProb, (Notification.Problem1)131072);
+                            newProb = Notification.RemoveProblems(newProb, (Notification.Problem1)Notification.Problem1.FatalProblem);
+                            if (oldProb != newProb)
+                            {
+                                nm.m_nodes.m_buffer[currStop].m_problems = newProb;
+                                nm.UpdateNodeNotifications(currStop, oldProb, newProb);
+                            }
+                        }
+
+                        for (int s = 0; s < 8; s++)
+                        {
+                            ushort segId = nm.m_nodes.m_buffer[currStop].GetSegment(s);
+                            if (segId != 0 && segId < nm.m_segments.m_buffer.Length && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
+                            {
+                                nm.m_segments.m_buffer[segId].m_flags &= ~NetSegment.Flags.PathFailed;
+                            }
                         }
 
                         ushort nextStop = TransportLine.GetNextStop(currStop);
@@ -6172,6 +6190,72 @@ namespace MoreNetworkCapacityRenew
                             }
                         }
                     }
+                }
+
+                // 6. Patch CarAI and TramBaseAI SimulationStep for continuous non-stop motion while pathfinding
+                Type carAIType = typeof(CarAI);
+                Type vehicleType = typeof(Vehicle);
+                Type vec3Type = typeof(UnityEngine.Vector3);
+
+                MethodInfo carSimStep = carAIType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance, null,
+                    new Type[] { typeof(ushort), vehicleType.MakeByRefType(), vec3Type }, null);
+                if (carSimStep != null)
+                {
+                    MethodInfo carPre = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    MethodInfo carPost = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Postfix), BindingFlags.Public | BindingFlags.Static);
+                    HarmonyMethod hmCarPre = new HarmonyMethod(carPre);
+                    hmCarPre.prioritiy = 800;
+                    hmCarPre.before = new string[] { "me.tmpe" };
+                    HarmonyMethod hmCarPost = new HarmonyMethod(carPost);
+                    harmony.Patch(carSimStep, prefix: hmCarPre, postfix: hmCarPost);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CarAI.SimulationStep for continuous motion.");
+                }
+
+                Type tramAIType = typeof(TramBaseAI);
+                MethodInfo tramSimStep = tramAIType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance, null,
+                    new Type[] { typeof(ushort), vehicleType.MakeByRefType(), vec3Type }, null);
+                if (tramSimStep != null)
+                {
+                    MethodInfo tramPre = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    MethodInfo tramPost = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Postfix), BindingFlags.Public | BindingFlags.Static);
+                    HarmonyMethod hmTramPre = new HarmonyMethod(tramPre);
+                    hmTramPre.prioritiy = 800;
+                    hmTramPre.before = new string[] { "me.tmpe" };
+                    HarmonyMethod hmTramPost = new HarmonyMethod(tramPost);
+                    harmony.Patch(tramSimStep, prefix: hmTramPre, postfix: hmTramPost);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TramBaseAI.SimulationStep for continuous motion.");
+                }
+
+                // 7. Patch TransportLineAI.CheckNodeProblems to suppress false LineNotConnected warnings on stops
+                try
+                {
+                    MethodInfo checkNodeProbM = typeof(TransportLineAI).GetMethod("CheckNodeProblems", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+                    if (checkNodeProbM != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(TransportLineAI_CheckNodeProblems_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(checkNodeProbM, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportLineAI.CheckNodeProblems (suppress LineNotConnected).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TransportLineAI.CheckNodeProblems: " + ex);
+                }
+
+                // 8. Patch TransportLineAI.CheckSegmentProblems
+                try
+                {
+                    MethodInfo checkSegProbM = typeof(TransportLineAI).GetMethod("CheckSegmentProblems", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+                    if (checkSegProbM != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(TransportLineAI_CheckSegmentProblems_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(checkSegProbM, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportLineAI.CheckSegmentProblems.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TransportLineAI.CheckSegmentProblems: " + ex);
                 }
             }
             catch (Exception ex)
@@ -6654,35 +6738,546 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] IPT_Init_Prefix: Ensuring all transport line stops and buffers are safe before IPT initializes...");
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] IPT_Init_Prefix: Running expanded initialization for ImprovedPublicTransport...");
                 SanitizeTransportLines();
+
+                // 1. Get CachedTransportLineData type
+                Type ctld = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    string aname = asm.GetName().Name;
+                    if (aname == "ImprovedPublicTransport3" || aname == "ImprovedPublicTransport2" || aname == "IPTEssentials")
+                    {
+                        ctld = asm.GetType("ImprovedPublicTransport.Data.CachedTransportLineData")
+                            ?? asm.GetType("ImprovedPublicTransport2.Data.CachedTransportLineData");
+                        if (ctld != null) break;
+                    }
+                }
+                if (ctld == null) return true;
+
+                FieldInfo lineDataField = ctld.GetField("_lineData", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                FieldInfo initField = ctld.GetField("_init", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                if (lineDataField == null) return true;
+
+                TransportManager tm = Singleton<TransportManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                int targetLen = (tm != null && tm.m_lines != null && tm.m_lines.m_buffer != null) ? tm.m_lines.m_buffer.Length : 1024;
+                if (targetLen < 256) targetLen = 256;
+
+                // Call TryLoadData(ref _lineData)
+                MethodInfo tryLoadMethod = ctld.GetMethod("TryLoadData", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                Array lineData = lineDataField.GetValue(null) as Array;
+                object[] args = new object[] { lineData };
+                bool loaded = false;
+                if (tryLoadMethod != null)
+                {
+                    try
+                    {
+                        loaded = (bool)tryLoadMethod.Invoke(null, args);
+                        lineData = args[0] as Array;
+                    }
+                    catch (Exception ex)
+                    {
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] IPT TryLoadData error: " + ex.Message);
+                    }
+                }
+
+                // Expand lineData array to targetLen (1024)
+                Type elemType = lineDataField.FieldType.GetElementType();
+                Array expandedData = Array.CreateInstance(elemType, targetLen);
+                if (lineData != null)
+                {
+                    int copyLen = Math.Min(lineData.Length, targetLen);
+                    Array.Copy(lineData, expandedData, copyLen);
+                }
+                lineDataField.SetValue(null, expandedData);
+
+                // Get Options
+                int defaultVehicleCount = 5;
+                bool defaultBudgetControl = false;
+                bool defaultUnbunching = true;
+                try
+                {
+                    Type optionsWrapperType = ctld.Assembly.GetType("ImprovedPublicTransport.OptionsFramework.OptionsWrapper`1");
+                    Type settingsType = ctld.Assembly.GetType("ImprovedPublicTransport.Settings.Settings");
+                    if (optionsWrapperType != null && settingsType != null)
+                    {
+                        Type specificWrapper = optionsWrapperType.MakeGenericType(settingsType);
+                        PropertyInfo optionsProp = specificWrapper.GetProperty("Options", BindingFlags.Public | BindingFlags.Static);
+                        object options = optionsProp != null ? optionsProp.GetValue(null, null) : null;
+                        if (options != null)
+                        {
+                            PropertyInfo dvc = settingsType.GetProperty("DefaultVehicleCount");
+                            if (dvc != null) defaultVehicleCount = (int)dvc.GetValue(options, null);
+                            PropertyInfo bc = settingsType.GetProperty("BudgetControl");
+                            if (bc != null) defaultBudgetControl = ((int)bc.GetValue(options, null)) == 1;
+                            PropertyInfo ub = settingsType.GetProperty("Unbunching");
+                            if (ub != null) defaultUnbunching = (bool)ub.GetValue(options, null);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] IPT Options read warning: " + ex.Message);
+                }
+
+                MethodInfo setTargetVehCount = elemType.GetMethod("set_TargetVehicleCount");
+                MethodInfo setBudgetControl = elemType.GetMethod("set_BudgetControl");
+                MethodInfo setDepot = elemType.GetMethod("set_Depot");
+                MethodInfo setUnbunching = elemType.GetMethod("set_Unbunching");
+                MethodInfo getPrefabs = elemType.GetMethod("get_Prefabs");
+                MethodInfo setPrefabs = elemType.GetMethod("set_Prefabs");
+                MethodInfo getQueuedVehicles = elemType.GetMethod("get_QueuedVehicles");
+                MethodInfo setQueuedVehicles = elemType.GetMethod("set_QueuedVehicles");
+
+                Type hashSetType = typeof(HashSet<string>);
+                Type queueType = typeof(Queue<string>);
+
+                Type tlUtil = ctld.Assembly.GetType("ImprovedPublicTransport.Util.TransportLineUtil");
+                MethodInfo countVehMethod = tlUtil != null ? tlUtil.GetMethod("CountLineActiveVehicles", BindingFlags.Public | BindingFlags.Static) : null;
+                Type depotUtil = ctld.Assembly.GetType("ImprovedPublicTransport.Util.DepotUtil");
+                MethodInfo closestDepotMethod = depotUtil != null ? depotUtil.GetMethod("GetClosestDepot", BindingFlags.Public | BindingFlags.Static) : null;
+
+                int startIndex = loaded ? (lineData != null ? lineData.Length : 256) : 0;
+                if (!loaded)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initializing default transport line data for {0} slots.", targetLen));
+                }
+                else
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Preserving loaded transport line data (0..{0}) and initializing slots {0}..{1}.", startIndex, targetLen));
+                }
+
+                for (int i = startIndex; i < targetLen; i++)
+                {
+                    object entry = expandedData.GetValue(i);
+                    ushort lid = (ushort)i;
+                    bool isComplete = tm != null && tm.m_lines != null && tm.m_lines.m_buffer != null && i < tm.m_lines.m_buffer.Length && tm.m_lines.m_buffer[i].Complete;
+
+                    int targetVehCount = defaultVehicleCount;
+                    if (isComplete && countVehMethod != null)
+                    {
+                        try
+                        {
+                            object[] countArgs = new object[] { lid, 0, null };
+                            int active = (int)countVehMethod.Invoke(null, countArgs);
+                            if (active > 0) targetVehCount = active;
+                            else targetVehCount = Math.Max(defaultVehicleCount, 1);
+                        }
+                        catch { }
+                    }
+
+                    ushort depot = 0;
+                    if (closestDepotMethod != null && isComplete && nm != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
+                    {
+                        try
+                        {
+                            ushort stop = tm.m_lines.m_buffer[i].GetStop(0);
+                            if (stop < nm.m_nodes.m_buffer.Length)
+                            {
+                                UnityEngine.Vector3 pos = nm.m_nodes.m_buffer[stop].m_position;
+                                depot = (ushort)closestDepotMethod.Invoke(null, new object[] { lid, pos });
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (setTargetVehCount != null) setTargetVehCount.Invoke(entry, new object[] { targetVehCount });
+                    if (setBudgetControl != null) setBudgetControl.Invoke(entry, new object[] { defaultBudgetControl });
+                    if (setDepot != null) setDepot.Invoke(entry, new object[] { depot });
+                    if (setUnbunching != null) setUnbunching.Invoke(entry, new object[] { defaultUnbunching });
+                    if (getPrefabs != null && setPrefabs != null && getPrefabs.Invoke(entry, null) == null)
+                    {
+                        setPrefabs.Invoke(entry, new object[] { Activator.CreateInstance(hashSetType) });
+                    }
+                    if (getQueuedVehicles != null && setQueuedVehicles != null && getQueuedVehicles.Invoke(entry, null) == null)
+                    {
+                        setQueuedVehicles.Invoke(entry, new object[] { Activator.CreateInstance(queueType) });
+                    }
+
+                    expandedData.SetValue(entry, i);
+                }
+
+                // Also ensure entries 0..startIndex have non-null Prefabs and QueuedVehicles
+                for (int i = 0; i < startIndex; i++)
+                {
+                    object entry = expandedData.GetValue(i);
+                    bool modified = false;
+                    if (getPrefabs != null && setPrefabs != null && getPrefabs.Invoke(entry, null) == null)
+                    {
+                        setPrefabs.Invoke(entry, new object[] { Activator.CreateInstance(hashSetType) });
+                        modified = true;
+                    }
+                    if (getQueuedVehicles != null && setQueuedVehicles != null && getQueuedVehicles.Invoke(entry, null) == null)
+                    {
+                        setQueuedVehicles.Invoke(entry, new object[] { Activator.CreateInstance(queueType) });
+                        modified = true;
+                    }
+                    if (modified) expandedData.SetValue(entry, i);
+                }
+
+                // Register OnSaveData event
+                Type sdeType = ctld.Assembly.GetType("ImprovedPublicTransport.Data.SerializableDataExtension");
+                if (sdeType != null)
+                {
+                    FieldInfo instField = sdeType.GetField("instance", BindingFlags.Public | BindingFlags.Static);
+                    object sdeInst = instField != null ? instField.GetValue(null) : null;
+                    if (sdeInst != null)
+                    {
+                        MethodInfo onSave = ctld.GetMethod("OnSaveData", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                        System.Reflection.EventInfo evSave = sdeType.GetEvent("EventSaveData");
+                        if (onSave != null && evSave != null)
+                        {
+                            Delegate del = Delegate.CreateDelegate(evSave.EventHandlerType, onSave);
+                            evSave.AddEventHandler(sdeInst, del);
+                        }
+                    }
+                }
+
+                if (initField != null) initField.SetValue(null, true);
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully initialized ImprovedPublicTransport for all {0} lines!", targetLen));
+                return false; // Skip the original broken Init()
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] IPT_Init_Prefix error: " + ex);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] IPT_Init_Prefix custom init error: " + ex);
+                return true; // fallback
+            }
+        }
+
+
+        public static bool TransportLineAI_CheckNodeProblems_Prefix(ushort nodeID, ref NetNode data)
+        {
+            if (data.m_transportLine != 0)
+            {
+                data.m_problems = Notification.RemoveProblems(data.m_problems, (Notification.Problem1)131072);
+                data.m_problems = Notification.RemoveProblems(data.m_problems, (Notification.Problem1)Notification.Problem1.FatalProblem);
+                return false;
             }
             return true;
+        }
+
+        public static bool TransportLineAI_CheckSegmentProblems_Prefix(ushort segmentID, ref NetSegment data)
+        {
+            data.m_flags &= ~NetSegment.Flags.PathFailed;
+            return true;
+        }
+
+        public static bool IsWaitingAtRedLightOrYield(ref Vehicle vehicleData)
+        {
+            try
+            {
+                // 1. Vehicle is yielding at junction/stop sign/traffic light
+                if ((vehicleData.m_flags2 & Vehicle.Flags2.Yielding) != 0)
+                {
+                    return true;
+                }
+
+                // 2. Check if stopped at an active red traffic light
+                PathManager pm = Singleton<PathManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (pm == null || nm == null || sm == null || vehicleData.m_path == 0) return false;
+
+                uint pathId = vehicleData.m_path;
+                byte pathIndex = vehicleData.m_pathPositionIndex;
+                if (pathId >= pm.m_pathUnits.m_buffer.Length) return false;
+
+                PathUnit.Position pathPos;
+                if (pm.m_pathUnits.m_buffer[pathId].GetPosition(pathIndex, out pathPos))
+                {
+                    ushort segId = pathPos.m_segment;
+                    if (segId != 0 && segId < nm.m_segments.m_buffer.Length)
+                    {
+                        NetSegment seg = nm.m_segments.m_buffer[segId];
+                        if ((seg.m_flags & NetSegment.Flags.Created) != 0)
+                        {
+                            // Check target node towards endNode or startNode
+                            ushort targetNode = (pathPos.m_offset > 128) ? seg.m_endNode : seg.m_startNode;
+                            if (targetNode != 0 && targetNode < nm.m_nodes.m_buffer.Length)
+                            {
+                                NetNode node = nm.m_nodes.m_buffer[targetNode];
+                                if ((node.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0)
+                                {
+                                    RoadBaseAI.TrafficLightState vLight, pLight;
+                                    bool veh, ped;
+                                    RoadBaseAI.GetTrafficLightState(targetNode, ref nm.m_segments.m_buffer[segId], sm.m_currentFrameIndex - 256u, out vLight, out pLight, out veh, out ped);
+                                    if (vLight == RoadBaseAI.TrafficLightState.Red || vLight == RoadBaseAI.TrafficLightState.RedToGreen)
+                                    {
+                                        return true; // Vehicle is waiting at a valid RED LIGHT
+                                    }
+                                }
+                            }
+                            // Also check alternate end of segment in case of reverse traversal
+                            ushort altNode = (targetNode == seg.m_endNode) ? seg.m_startNode : seg.m_endNode;
+                            if (altNode != 0 && altNode < nm.m_nodes.m_buffer.Length)
+                            {
+                                NetNode altNetNode = nm.m_nodes.m_buffer[altNode];
+                                if ((altNetNode.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0)
+                                {
+                                    RoadBaseAI.TrafficLightState vLight2, pLight2;
+                                    bool veh2, ped2;
+                                    RoadBaseAI.GetTrafficLightState(altNode, ref nm.m_segments.m_buffer[segId], sm.m_currentFrameIndex - 256u, out vLight2, out pLight2, out veh2, out ped2);
+                                    if (vLight2 == RoadBaseAI.TrafficLightState.Red || vLight2 == RoadBaseAI.TrafficLightState.RedToGreen)
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public static void CarAI_SimulationStep_Prefix(ushort vehicleID, ref Vehicle vehicleData, UnityEngine.Vector3 physicsLodRefPos, out bool __state)
+        {
+            __state = false;
+            try
+            {
+                Vehicle.Flags flags = vehicleData.m_flags;
+                if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) == (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                {
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Landing)) != 0)
+                        return;
+
+                    // Public transport and fixed routes: DO NOT alter behavior
+                    if (vehicleData.m_transportLine != 0)
+                        return;
+
+                    // Red lights & stop signs: DO NOT bypass waiting space
+                    if (IsWaitingAtRedLightOrYield(ref vehicleData))
+                        return;
+
+                    // Anti-Stall: If blocked on regular road, clear waiting space so vehicle can proceed when route clears
+                    if (vehicleData.m_blockCounter >= 4)
+                    {
+                        vehicleData.m_flags &= ~Vehicle.Flags.WaitingSpace;
+                        vehicleData.m_blockCounter = 0;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void CarAI_SimulationStep_Postfix(ushort vehicleID, ref Vehicle vehicleData, UnityEngine.Vector3 physicsLodRefPos, bool __state)
+        {
         }
     }
 
     public class RepairRunner : UnityEngine.MonoBehaviour
     {
-        private void Update()
+        private int tickCount = 0;
+        private static uint[] s_lastRerouteFrame = null;
+        private static readonly Dictionary<Type, MethodInfo> _startPathFindCache = new Dictionary<Type, MethodInfo>();
+
+        public static void SafeStartPathFind(VehicleAI ai, ushort vehicleID, ref Vehicle vehicleData)
         {
-            bool ctrl = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand);
-            bool shift = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift);
-            if (ctrl && shift && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.R))
+            if (ai == null) return;
+            try
             {
-                VehicleAndTransportRepair.RunFullRepair(true);
+                Type aiType = ai.GetType();
+                MethodInfo m;
+                if (!_startPathFindCache.TryGetValue(aiType, out m))
+                {
+                    m = aiType.GetMethod("StartPathFind", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(Vehicle).MakeByRefType() }, null);
+                    if (m == null)
+                    {
+                        m = typeof(VehicleAI).GetMethod("StartPathFind", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(Vehicle).MakeByRefType() }, null);
+                    }
+                    _startPathFindCache[aiType] = m;
+                }
+
+                if (m != null)
+                {
+                    object[] args = new object[] { vehicleID, vehicleData };
+                    m.Invoke(ai, args);
+                    vehicleData = (Vehicle)args[1];
+                }
             }
-            if (ctrl && shift && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.V))
+            catch { }
+        }
+
+        void Update()
+        {
+            tickCount++;
+            // Scan vehicles every 15 frames (~2 times per second)
+            if (tickCount % 15 == 0)
             {
-                VehicleAndTransportRepair.ClearAllVehicles();
+                EnforceContinuousVehicleMotion();
             }
-            if (ctrl && shift && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.C))
+            // Ensure transport stops are clean and connected every 90 frames (~3 seconds)
+            if (tickCount % 90 == 0)
             {
-                TransportLineCompatibility.SanitizeCitizenUnits();
+                EnsureTransportStopsClean();
             }
+        }
+
+        public static void EnforceContinuousVehicleMotion()
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || sm == null) return;
+
+                int vCount = vm.m_vehicles.m_buffer.Length;
+                if (s_lastRerouteFrame == null || s_lastRerouteFrame.Length != vCount)
+                {
+                    s_lastRerouteFrame = new uint[vCount];
+                }
+
+                uint currentFrame = sm.m_currentFrameIndex;
+
+                for (int i = 1; i < vCount; i++)
+                {
+                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
+                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    // 1. Skip parking, loading, landing, returning
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Landing | Vehicle.Flags.GoingBack)) != 0)
+                        continue;
+
+                    // 2. Skip trailers / wagons (only lead cab steers and initiates pathfind)
+                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
+                        continue;
+
+                    // 3. STRICT EXCLUSION: Public transport and fixed-route lines
+                    // Vehicles bound to a transport line MUST strictly follow their scheduled stops and fixed route
+                    if (vm.m_vehicles.m_buffer[i].m_transportLine != 0)
+                        continue;
+
+                    VehicleInfo info = vm.m_vehicles.m_buffer[i].Info;
+                    if (info == null || info.m_vehicleAI == null)
+                        continue;
+
+                    // Skip fixed-rail, aerial, or nautical vehicles (Train, Tram, Metro, Monorail, CableCar, Ferry, Ship, Plane)
+                    if ((info.m_vehicleType & (VehicleInfo.VehicleType.Train | VehicleInfo.VehicleType.Tram | VehicleInfo.VehicleType.Metro |
+                                              VehicleInfo.VehicleType.Monorail | VehicleInfo.VehicleType.CableCar | VehicleInfo.VehicleType.Ferry |
+                                              VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Plane)) != 0)
+                        continue;
+
+                    // 4. Path status maintenance (if waiting or ready)
+                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
+                    if (pathId != 0 && pm != null && pathId < pm.m_pathUnits.m_buffer.Length)
+                    {
+                        byte pFlags = pm.m_pathUnits.m_buffer[pathId].m_pathFindFlags;
+                        if ((pFlags & PathUnit.FLAG_READY) != 0)
+                        {
+                            vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.WaitingPath;
+                        }
+                        else if ((pFlags & PathUnit.FLAG_FAILED) != 0)
+                        {
+                            pm.ReleasePath(pathId);
+                            vm.m_vehicles.m_buffer[i].m_path = 0;
+                            vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.WaitingPath;
+                        }
+                    }
+
+                    // 5. If already waiting for path calculation, skip to avoid spamming the pathfinder
+                    if ((flags & Vehicle.Flags.WaitingPath) != 0)
+                        continue;
+
+                    // Check motion: is vehicle stopped / stationary in traffic?
+                    UnityEngine.Vector3 vel = vm.m_vehicles.m_buffer[i].GetLastFrameVelocity();
+                    float sqrSpeed = vel.sqrMagnitude;
+                    bool isStationary = (sqrSpeed < 0.04f || vm.m_vehicles.m_buffer[i].m_blockCounter >= 2);
+
+                    if (!isStationary)
+                        continue;
+
+                    // 6. STRICT EXCLUSION: Red lights and stop signs
+                    // If vehicle is stopped at an active red traffic light or yielding at junction, DO NOT reroute!
+                    if (TransportLineCompatibility.IsWaitingAtRedLightOrYield(ref vm.m_vehicles.m_buffer[i]))
+                        continue;
+
+                    // 7. Reroute cooldown: at least 150 frames (~2.5s) between alternative path recalculations
+                    if (currentFrame - s_lastRerouteFrame[i] < 150)
+                        continue;
+
+                    // 8. Vehicle is stopped in traffic jam: IMMEDIATELY find alternative path
+                    s_lastRerouteFrame[i] = currentFrame;
+                    ushort vid = (ushort)i;
+
+                    // Zero out any residual physics impulse to settle tangles and prevent collision clipping
+                    Vehicle.Frame frame = vm.m_vehicles.m_buffer[i].GetLastFrameData();
+                    frame.m_velocity = UnityEngine.Vector3.zero;
+                    vm.m_vehicles.m_buffer[i].SetLastFrameData(frame);
+
+                    // Reset blocking flags
+                    vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.WaitingSpace;
+                    vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.Stopped;
+                    vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
+
+                    // Trigger alternative pathfinding algorithm via TM:PE / Cities: Skylines
+                    try
+                    {
+                        SafeStartPathFind(info.m_vehicleAI, vid, ref vm.m_vehicles.m_buffer[i]);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
+        public static void EnsureTransportStopsClean()
+        {
+            try
+            {
+                TransportManager tm = Singleton<TransportManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (tm == null || tm.m_lines == null || tm.m_lines.m_buffer == null || nm == null || nm.m_nodes == null) return;
+
+                int nodeLimit = nm.m_nodes.m_buffer.Length;
+                int lineCount = tm.m_lines.m_buffer.Length;
+
+                for (int lid = 1; lid < lineCount; lid++)
+                {
+                    if ((tm.m_lines.m_buffer[lid].m_flags & TransportLine.Flags.Created) == 0) continue;
+
+                    tm.m_lines.m_buffer[lid].m_flags &= ~((TransportLine.Flags)64 | TransportLine.Flags.Hidden);
+                    tm.m_lines.m_buffer[lid].m_flags |= TransportLine.Flags.Complete;
+
+                    ushort stops = tm.m_lines.m_buffer[lid].m_stops;
+                    ushort currStop = stops;
+                    int iter = 0;
+
+                    while (currStop != 0 && currStop < nodeLimit && iter < 500)
+                    {
+                        iter++;
+                        if ((nm.m_nodes.m_buffer[currStop].m_flags & NetNode.Flags.Created) != 0)
+                        {
+                            nm.m_nodes.m_buffer[currStop].m_transportLine = (ushort)lid;
+                            Notification.ProblemStruct oldProb = nm.m_nodes.m_buffer[currStop].m_problems;
+                            Notification.ProblemStruct newProb = Notification.RemoveProblems(oldProb, (Notification.Problem1)131072);
+                            newProb = Notification.RemoveProblems(newProb, (Notification.Problem1)Notification.Problem1.FatalProblem);
+                            if (oldProb != newProb)
+                            {
+                                nm.m_nodes.m_buffer[currStop].m_problems = newProb;
+                                nm.UpdateNodeNotifications(currStop, oldProb, newProb);
+                            }
+                        }
+
+                        for (int s = 0; s < 8; s++)
+                        {
+                            ushort segId = nm.m_nodes.m_buffer[currStop].GetSegment(s);
+                            if (segId != 0 && segId < nm.m_segments.m_buffer.Length && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
+                            {
+                                nm.m_segments.m_buffer[segId].m_flags &= ~NetSegment.Flags.PathFailed;
+                            }
+                        }
+
+                        ushort nextStop = TransportLine.GetNextStop(currStop);
+                        if (nextStop == 0 || nextStop == stops || nextStop >= nodeLimit) break;
+                        currStop = nextStop;
+                    }
+                }
+            }
+            catch { }
         }
     }
 }

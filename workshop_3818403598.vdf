@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.4 Hotfix: Resolved Phantom CitizenUnits accumulation (~1,000 down to 0). Added built-in CitizenUnit Auto-Sanitizer on level load, pre-save, and Ctrl+Shift+C hotkey. Isolated ghost transit line vehicle release to prevent disruptive city-wide vehicle wipeouts, and cleanly unspawned stuck waiting citizens."
+	"changenote" "v3.8.2: Overhauled traffic flow dynamics: Completely removed artificial velocity impulses to prevent pileups and restore natural collision braking. When regular vehicles stop in traffic jams or deadlocks, they immediately trigger alternative pathfinding (reroute) via TM:PE/game pathfinder to find open lanes or detour roads. Vehicles waiting at red lights, stop signs/yields, and public transport / fixed-route lines are strictly protected and exempted."
 }

@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.8.5: Traffic Simulation Stabilization (Aligned with Golden Oct 13 Build): 1) Fixed vehicle count decreasing continuously: Completely removed background vehicle scanning/deletion loops (RepairRunner). Vehicles now run entirely on natural game physics and TM:PE AI with zero artificial despawning. 2) Restored rock-solid speed limit engine: Reinstated the proven v2.2 SpeedLimitManager Postfix fallback shield to eliminate highway deadstops without overriding TM:PE native speed calculations. 3) Full 16-mod ecosystem compatibility preserved."
+	"changenote" "v3.8.6: Ultra-Fast Vehicle Spawning & Zero-Lag Pathfinding: 1) Eliminated Pathfinding Freezes: Intercepted TM:PE SpeedLimitManager NullReferenceExceptions that spammed 89,000+ error logs per minute and stalled background pathfinder threads, restoring instantaneous vehicle path calculations and rapid spawning. 2) Zero Road Dead-Stops: Drivable road lanes now reliably receive positive speed limits directly from TM:PE cache or road prefabs, permanently resolving phantom traffic deaths. 3) 100% natural AI & mod ecosystem compatibility preserved."
 }

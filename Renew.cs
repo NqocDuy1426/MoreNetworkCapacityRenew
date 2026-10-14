@@ -3787,8 +3787,6 @@ namespace MoreNetworkCapacityRenew
     public static class NetManagerSimulationPatches
     {
         private static bool loggedOnce = false;
-        private static uint lastSimulatedFrameIndex = uint.MaxValue;
-
         public static void Postfix(NetManager __instance, int subStep)
         {
             if (__instance == null) return;
@@ -3797,11 +3795,7 @@ namespace MoreNetworkCapacityRenew
             SimulationManager sm = Singleton<SimulationManager>.instance;
             if (sm == null) return;
 
-            // Only simulate once per frame index to avoid wasteful duplicate simulation across substeps
             uint currentFrame = sm.m_currentFrameIndex;
-            if (currentFrame == lastSimulatedFrameIndex) return;
-            lastSimulatedFrameIndex = currentFrame;
-
             int frameIndex = (int)(currentFrame & 255u);
 
             if (!loggedOnce)
@@ -3992,6 +3986,28 @@ namespace MoreNetworkCapacityRenew
                 __result = false;
                 return false;
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(ColossalFramework.IO.DataSerializer), "WriteUInt24", new Type[] { typeof(uint) })]
+    public static class DataSerializerWriteUInt24Patch
+    {
+        public static void Prefix(ref uint value)
+        {
+            if (value > 16777215u)
+            {
+                value = 16777215u;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(ColossalFramework.IO.DataSerializer), "WriteInt24", new Type[] { typeof(int) })]
+    public static class DataSerializerWriteInt24Patch
+    {
+        public static void Prefix(ref int value)
+        {
+            if (value > 8388607) value = 8388607;
+            else if (value < -8388608) value = -8388608;
         }
     }
 
@@ -6322,6 +6338,7 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                SanitizeDistricts();
                 SanitizeTransportLines();
                 SanitizeVehicles();
                 SanitizeBuildings();
@@ -6332,6 +6349,48 @@ namespace MoreNetworkCapacityRenew
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSaveSanitization error: " + ex);
             }
+        }
+
+        public static int SanitizeDistricts()
+        {
+            int sanitized = 0;
+            try
+            {
+                DistrictManager dm = Singleton<DistrictManager>.instance;
+                if (dm == null || dm.m_districts == null || dm.m_districts.m_buffer == null) return 0;
+
+                const uint MAX_24 = 16777215u;
+
+                for (int i = 0; i < dm.m_districts.m_buffer.Length; i++)
+                {
+                    if (dm.m_districts.m_buffer[i].m_flags != District.Flags.None)
+                    {
+                        if (dm.m_districts.m_buffer[i].m_childData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_childData.m_tempCount = MAX_24; sanitized++; }
+                        if (dm.m_districts.m_buffer[i].m_childData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_childData.m_finalCount = MAX_24; sanitized++; }
+
+                        if (dm.m_districts.m_buffer[i].m_teenData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_teenData.m_tempCount = MAX_24; sanitized++; }
+                        if (dm.m_districts.m_buffer[i].m_teenData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_teenData.m_finalCount = MAX_24; sanitized++; }
+
+                        if (dm.m_districts.m_buffer[i].m_youngData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_youngData.m_tempCount = MAX_24; sanitized++; }
+                        if (dm.m_districts.m_buffer[i].m_youngData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_youngData.m_finalCount = MAX_24; sanitized++; }
+
+                        if (dm.m_districts.m_buffer[i].m_adultData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_adultData.m_tempCount = MAX_24; sanitized++; }
+                        if (dm.m_districts.m_buffer[i].m_adultData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_adultData.m_finalCount = MAX_24; sanitized++; }
+
+                        if (dm.m_districts.m_buffer[i].m_seniorData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_seniorData.m_tempCount = MAX_24; sanitized++; }
+                        if (dm.m_districts.m_buffer[i].m_seniorData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_seniorData.m_finalCount = MAX_24; sanitized++; }
+                    }
+                }
+                if (sanitized > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeDistricts clamped {0} out-of-bounds UInt24 counters in districts.", sanitized));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeDistricts error: " + ex);
+            }
+            return sanitized;
         }
 
         public static int SanitizeTransportLines()

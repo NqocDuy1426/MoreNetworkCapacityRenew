@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.8.2: Overhauled traffic flow dynamics: Completely removed artificial velocity impulses to prevent pileups and restore natural collision braking. When regular vehicles stop in traffic jams or deadlocks, they immediately trigger alternative pathfinding (reroute) via TM:PE/game pathfinder to find open lanes or detour roads. Vehicles waiting at red lights, stop signs/yields, and public transport / fixed-route lines are strictly protected and exempted."
+	"changenote" "v3.8.3: Precise vehicle state differentiation: Completely eliminated false stops on moving/decelerating cars. Moving vehicles (speed > 0), vehicles stopped at red lights/stop signs, and vehicles queued in traffic jams behind other cars are 100% untouched. Only true 'dead vehicles' (completely motionless for >10s on clear roads with zero obstacles ahead) are unclogged and woken up."
 }

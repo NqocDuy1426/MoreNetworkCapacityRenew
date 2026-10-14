@@ -6192,39 +6192,7 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 6. Patch CarAI and TramBaseAI SimulationStep for continuous non-stop motion while pathfinding
-                Type carAIType = typeof(CarAI);
-                Type vehicleType = typeof(Vehicle);
-                Type vec3Type = typeof(UnityEngine.Vector3);
-
-                MethodInfo carSimStep = carAIType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance, null,
-                    new Type[] { typeof(ushort), vehicleType.MakeByRefType(), vec3Type }, null);
-                if (carSimStep != null)
-                {
-                    MethodInfo carPre = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    MethodInfo carPost = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Postfix), BindingFlags.Public | BindingFlags.Static);
-                    HarmonyMethod hmCarPre = new HarmonyMethod(carPre);
-                    hmCarPre.prioritiy = 800;
-                    hmCarPre.before = new string[] { "me.tmpe" };
-                    HarmonyMethod hmCarPost = new HarmonyMethod(carPost);
-                    harmony.Patch(carSimStep, prefix: hmCarPre, postfix: hmCarPost);
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CarAI.SimulationStep for continuous motion.");
-                }
-
-                Type tramAIType = typeof(TramBaseAI);
-                MethodInfo tramSimStep = tramAIType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance, null,
-                    new Type[] { typeof(ushort), vehicleType.MakeByRefType(), vec3Type }, null);
-                if (tramSimStep != null)
-                {
-                    MethodInfo tramPre = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    MethodInfo tramPost = typeof(TransportLineCompatibility).GetMethod(nameof(CarAI_SimulationStep_Postfix), BindingFlags.Public | BindingFlags.Static);
-                    HarmonyMethod hmTramPre = new HarmonyMethod(tramPre);
-                    hmTramPre.prioritiy = 800;
-                    hmTramPre.before = new string[] { "me.tmpe" };
-                    HarmonyMethod hmTramPost = new HarmonyMethod(tramPost);
-                    harmony.Patch(tramSimStep, prefix: hmTramPre, postfix: hmTramPost);
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TramBaseAI.SimulationStep for continuous motion.");
-                }
+                // 6. CarAI and TramBaseAI SimulationStep: Native vehicle physics, braking, and TM:PE integration are untouched.
 
                 // 7. Patch TransportLineAI.CheckNodeProblems to suppress false LineNotConnected warnings on stops
                 try
@@ -7035,31 +7003,6 @@ namespace MoreNetworkCapacityRenew
         public static void CarAI_SimulationStep_Prefix(ushort vehicleID, ref Vehicle vehicleData, UnityEngine.Vector3 physicsLodRefPos, out bool __state)
         {
             __state = false;
-            try
-            {
-                Vehicle.Flags flags = vehicleData.m_flags;
-                if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) == (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
-                {
-                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Landing)) != 0)
-                        return;
-
-                    // Public transport and fixed routes: DO NOT alter behavior
-                    if (vehicleData.m_transportLine != 0)
-                        return;
-
-                    // Red lights & stop signs: DO NOT bypass waiting space
-                    if (IsWaitingAtRedLightOrYield(ref vehicleData))
-                        return;
-
-                    // Anti-Stall: If blocked on regular road, clear waiting space so vehicle can proceed when route clears
-                    if (vehicleData.m_blockCounter >= 4)
-                    {
-                        vehicleData.m_flags &= ~Vehicle.Flags.WaitingSpace;
-                        vehicleData.m_blockCounter = 0;
-                    }
-                }
-            }
-            catch { }
         }
 
         public static void CarAI_SimulationStep_Postfix(ushort vehicleID, ref Vehicle vehicleData, UnityEngine.Vector3 physicsLodRefPos, bool __state)
@@ -7070,7 +7013,6 @@ namespace MoreNetworkCapacityRenew
     public class RepairRunner : UnityEngine.MonoBehaviour
     {
         private int tickCount = 0;
-        private static uint[] s_lastRerouteFrame = null;
         private static readonly Dictionary<Type, MethodInfo> _startPathFindCache = new Dictionary<Type, MethodInfo>();
 
         public static void SafeStartPathFind(VehicleAI ai, ushort vehicleID, ref Vehicle vehicleData)
@@ -7100,11 +7042,79 @@ namespace MoreNetworkCapacityRenew
             catch { }
         }
 
+        public static bool HasVehicleAhead(ushort vehicleID, ref Vehicle vehicleData, float maxDistance)
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || vm.m_vehicleGrid == null) return false;
+
+                UnityEngine.Vector3 pos = vehicleData.GetLastFramePosition();
+                UnityEngine.Vector3 forward = (UnityEngine.Vector3)vehicleData.m_targetPos3 - pos;
+                if (forward.sqrMagnitude < 0.1f)
+                {
+                    forward = vehicleData.GetLastFrameData().m_rotation * UnityEngine.Vector3.forward;
+                }
+                forward.y = 0f;
+                float fwdLen = forward.magnitude;
+                if (fwdLen < 0.001f) return false;
+                forward /= fwdLen;
+
+                int gridX = UnityEngine.Mathf.Clamp((int)(pos.x / 32f + 270f), 0, 539);
+                int gridZ = UnityEngine.Mathf.Clamp((int)(pos.z / 32f + 270f), 0, 539);
+
+                int minX = Math.Max(0, gridX - 1);
+                int maxX = Math.Min(539, gridX + 1);
+                int minZ = Math.Max(0, gridZ - 1);
+                int maxZ = Math.Min(539, gridZ + 1);
+
+                for (int z = minZ; z <= maxZ; z++)
+                {
+                    for (int x = minX; x <= maxX; x++)
+                    {
+                        ushort otherID = vm.m_vehicleGrid[z * 540 + x];
+                        int safety = 0;
+                        while (otherID != 0 && safety++ < 16384)
+                        {
+                            if (otherID != vehicleID && 
+                                otherID != vehicleData.m_leadingVehicle && 
+                                otherID != vehicleData.m_trailingVehicle)
+                            {
+                                Vehicle.Flags otherFlags = vm.m_vehicles.m_buffer[otherID].m_flags;
+                                if ((otherFlags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) == (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                                {
+                                    UnityEngine.Vector3 otherPos = vm.m_vehicles.m_buffer[otherID].GetLastFramePosition();
+                                    UnityEngine.Vector3 diff = otherPos - pos;
+                                    diff.y = 0f;
+
+                                    float dot = UnityEngine.Vector3.Dot(diff, forward);
+                                    // Must be in front (dot > 0.5m) and within maxDistance (e.g. 16m)
+                                    if (dot > 0.5f && dot <= maxDistance)
+                                    {
+                                        // Lateral offset perpendicular to forward direction
+                                        float lateralSqr = diff.sqrMagnitude - dot * dot;
+                                        // Within same lane width (~3.5m, squared = 12.25m)
+                                        if (lateralSqr < 12.25f)
+                                        {
+                                            return true; // There is a vehicle ahead blocking this lane
+                                        }
+                                    }
+                                }
+                            }
+                            otherID = vm.m_vehicles.m_buffer[otherID].m_nextGridVehicle;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         void Update()
         {
             tickCount++;
-            // Scan vehicles every 15 frames (~2 times per second)
-            if (tickCount % 15 == 0)
+            // Scan vehicles every 30 frames (~1 time per second)
+            if (tickCount % 30 == 0)
             {
                 EnforceContinuousVehicleMotion();
             }
@@ -7121,16 +7131,9 @@ namespace MoreNetworkCapacityRenew
             {
                 VehicleManager vm = Singleton<VehicleManager>.instance;
                 PathManager pm = Singleton<PathManager>.instance;
-                SimulationManager sm = Singleton<SimulationManager>.instance;
-                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || sm == null) return;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return;
 
                 int vCount = vm.m_vehicles.m_buffer.Length;
-                if (s_lastRerouteFrame == null || s_lastRerouteFrame.Length != vCount)
-                {
-                    s_lastRerouteFrame = new uint[vCount];
-                }
-
-                uint currentFrame = sm.m_currentFrameIndex;
 
                 for (int i = 1; i < vCount; i++)
                 {
@@ -7138,16 +7141,15 @@ namespace MoreNetworkCapacityRenew
                     if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
                         continue;
 
-                    // 1. Skip parking, loading, landing, returning
+                    // 1. Bỏ qua xe đang đỗ, đang bốc dỡ hàng, đang hạ cánh, hoặc đang quay về
                     if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Landing | Vehicle.Flags.GoingBack)) != 0)
                         continue;
 
-                    // 2. Skip trailers / wagons (only lead cab steers and initiates pathfind)
+                    // 2. Bỏ qua rơ-moóc / toa kéo (chỉ xe đầu kéo điều khiển đường)
                     if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
                         continue;
 
-                    // 3. STRICT EXCLUSION: Public transport and fixed-route lines
-                    // Vehicles bound to a transport line MUST strictly follow their scheduled stops and fixed route
+                    // 3. MIỄN TRỪ TUYỆT ĐỐI: Phương tiện công cộng & xe chạy tuyến cố định (bus, tram, metro, tàu hỏa...)
                     if (vm.m_vehicles.m_buffer[i].m_transportLine != 0)
                         continue;
 
@@ -7155,70 +7157,75 @@ namespace MoreNetworkCapacityRenew
                     if (info == null || info.m_vehicleAI == null)
                         continue;
 
-                    // Skip fixed-rail, aerial, or nautical vehicles (Train, Tram, Metro, Monorail, CableCar, Ferry, Ship, Plane)
+                    // Bỏ qua phương tiện đường ray, đường hàng không, hoặc đường thủy
                     if ((info.m_vehicleType & (VehicleInfo.VehicleType.Train | VehicleInfo.VehicleType.Tram | VehicleInfo.VehicleType.Metro |
                                               VehicleInfo.VehicleType.Monorail | VehicleInfo.VehicleType.CableCar | VehicleInfo.VehicleType.Ferry |
                                               VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Plane)) != 0)
                         continue;
 
-                    // 4. Path status maintenance (if waiting or ready)
-                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
-                    if (pathId != 0 && pm != null && pathId < pm.m_pathUnits.m_buffer.Length)
+                    // 4. TRẠNG THÁI 1: XE ĐANG CHẠY BÌNH THƯỜNG HOẶC ĐANG GIẢM TỐC (Speed > 0)
+                    // Tuyệt đối KHÔNG can thiệp, KHÔNG đổi hướng, KHÔNG triệt tiêu vận tốc!
+                    UnityEngine.Vector3 vel = vm.m_vehicles.m_buffer[i].GetLastFrameVelocity();
+                    if (vel.sqrMagnitude > 0.001f)
                     {
-                        byte pFlags = pm.m_pathUnits.m_buffer[pathId].m_pathFindFlags;
-                        if ((pFlags & PathUnit.FLAG_READY) != 0)
-                        {
-                            vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.WaitingPath;
-                        }
-                        else if ((pFlags & PathUnit.FLAG_FAILED) != 0)
-                        {
-                            pm.ReleasePath(pathId);
-                            vm.m_vehicles.m_buffer[i].m_path = 0;
-                            vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.WaitingPath;
-                        }
+                        continue;
                     }
 
-                    // 5. If already waiting for path calculation, skip to avoid spamming the pathfinder
-                    if ((flags & Vehicle.Flags.WaitingPath) != 0)
+                    // 5. TRẠNG THÁI 2: XE ĐỨNG IM CHƯA ĐỦ LÂU (m_blockCounter < 30)
+                    // Xe chỉ vừa dừng vài giây (nhường đường, giảm tốc tại ngã tư) -> KHÔNG phải xe chết!
+                    if (vm.m_vehicles.m_buffer[i].m_blockCounter < 30)
+                    {
                         continue;
+                    }
 
-                    // Check motion: is vehicle stopped / stationary in traffic?
-                    UnityEngine.Vector3 vel = vm.m_vehicles.m_buffer[i].GetLastFrameVelocity();
-                    float sqrSpeed = vel.sqrMagnitude;
-                    bool isStationary = (sqrSpeed < 0.04f || vm.m_vehicles.m_buffer[i].m_blockCounter >= 2);
-
-                    if (!isStationary)
-                        continue;
-
-                    // 6. STRICT EXCLUSION: Red lights and stop signs
-                    // If vehicle is stopped at an active red traffic light or yielding at junction, DO NOT reroute!
+                    // 6. TRẠNG THÁI 3: XE DỪNG CHỜ ĐÈN ĐỎ / BIỂN DỪNG (IsWaitingAtRedLightOrYield)
+                    // Xe đang tuân thủ tín hiệu giao thông hợp lệ -> KHÔNG ĐƯỢC CHẠM VÀO!
                     if (TransportLineCompatibility.IsWaitingAtRedLightOrYield(ref vm.m_vehicles.m_buffer[i]))
+                    {
                         continue;
+                    }
 
-                    // 7. Reroute cooldown: at least 150 frames (~2.5s) between alternative path recalculations
-                    if (currentFrame - s_lastRerouteFrame[i] < 150)
-                        continue;
-
-                    // 8. Vehicle is stopped in traffic jam: IMMEDIATELY find alternative path
-                    s_lastRerouteFrame[i] = currentFrame;
+                    // 7. TRẠNG THÁI 4: XE DỪNG DO TẮC ĐƯỜNG (Có xe khác cản trở ngay phía trước)
+                    // Có xe khác đang chắn trước mũi xe trong làn -> Đây là tắc đường tự nhiên, chờ xe trước chạy là xe này sẽ chạy!
                     ushort vid = (ushort)i;
+                    if (HasVehicleAhead(vid, ref vm.m_vehicles.m_buffer[i], 16f))
+                    {
+                        continue;
+                    }
 
-                    // Zero out any residual physics impulse to settle tangles and prevent collision clipping
-                    Vehicle.Frame frame = vm.m_vehicles.m_buffer[i].GetLastFrameData();
-                    frame.m_velocity = UnityEngine.Vector3.zero;
-                    vm.m_vehicles.m_buffer[i].SetLastFrameData(frame);
-
-                    // Reset blocking flags
+                    // 8. ĐÂY CHÍNH LÀ "XE CHẾT" (xe đứng im mà không cản trở gì: đường phía trước thoáng, không đèn đỏ, nhưng bị kẹt cờ)!
+                    // Giải cứu xe chết để xe tự lăn bánh vào đoạn đường thoáng:
                     vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.WaitingSpace;
                     vm.m_vehicles.m_buffer[i].m_flags &= ~Vehicle.Flags.Stopped;
                     vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
 
-                    // Trigger alternative pathfinding algorithm via TM:PE / Cities: Skylines
-                    try
+                    // Kiểm tra đường đi của xe chết: nếu mất path hoặc path hỏng thì mới cấp lại path
+                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
+                    bool needsRepath = false;
+                    if (pathId == 0)
                     {
-                        SafeStartPathFind(info.m_vehicleAI, vid, ref vm.m_vehicles.m_buffer[i]);
+                        needsRepath = true;
                     }
-                    catch { }
+                    else if (pm != null && pathId < pm.m_pathUnits.m_buffer.Length)
+                    {
+                        byte pFlags = pm.m_pathUnits.m_buffer[pathId].m_pathFindFlags;
+                        if ((pFlags & PathUnit.FLAG_FAILED) != 0)
+                        {
+                            pm.ReleasePath(pathId);
+                            vm.m_vehicles.m_buffer[i].m_path = 0;
+                            needsRepath = true;
+                        }
+                    }
+
+                    if (needsRepath)
+                    {
+                        vm.m_vehicles.m_buffer[i].m_flags |= Vehicle.Flags.WaitingPath;
+                        try
+                        {
+                            SafeStartPathFind(info.m_vehicleAI, vid, ref vm.m_vehicles.m_buffer[i]);
+                        }
+                        catch { }
+                    }
                 }
             }
             catch { }

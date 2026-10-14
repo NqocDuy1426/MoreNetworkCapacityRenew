@@ -1,44 +1,31 @@
 "workshopitem"
 {
-	"appid" "255710"
-	"publishedfileid" "3818403598"
-	"contentfolder" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/content"
-	"previewfile" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
-	"visibility" "0"
-	"title" "More Network Capacity Renew by NgocDuy"
-	"description" "[h1]✨ WHAT'S NEW (v3.4 Hotfix: Phantom CitizenUnits & Simulation Optimization) ✨[/h1]
+	"appid"		"255710"
+	"publishedfileid"		"3818403598"
+	"contentfolder"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/content"
+	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
+	"visibility"		"0"
+	"title"		"More Network Capacity Renew by NgocDuy"
+	"description"		"[h1]✨ WHAT'S NEW IN v3.9.0 (Save Stability & Instant Rerouting) ✨[/h1]
 [list]
-[*] [b]Phantom CitizenUnits Auto-Sanitization & Lag Fix:[/b]
+[*] [b]Critical Save NullReferenceException Fix:[/b]
 [list]
-    [*] Permanently eliminated the issue where 'Phantom CitizenUnits' accumulated up to 1,000+ (detected by Phantom Lane Remover and similar diagnostic tools), preventing simulation lag and memory bloat.
-    [*] Added a built-in high-performance [b]CitizenUnit Auto-Sanitizer[/b] running on level load and pre-save that detects and safely purges orphaned CitizenUnits and cleans dangling home/work/vehicle pointers down to [b]0 phantom units[/b].
-    [*] Building sanitization now properly releases attached citizen units before flag reset, preventing custom building assets from orphaning citizens.
-    [*] Hotkey support: Press [b]Ctrl + Shift + C[/b] (or [b]Cmd + Shift + C[/b] on Mac) anytime during gameplay to trigger an instant on-demand CitizenUnits sanitization!
+    [*] Permanently eliminated the game save crash ([i]Object reference not set to an instance of an object[/i]) caused by generic PrefabCollection trampoline collisions during BuildingManager serialization.
+    [*] Replaced generic hooks with non-invasive pre-save sanitization that verifies and handles out-of-bounds prefab indices across all networks, buildings, vehicles, and transit lines before writing.
+    [*] Handled quit-after-save safely to prevent ColossalFramework Dispatcher thread violations.
 [/list]
-[*] [b]Isolated Ghost Transit Line Vehicle Cleanup:[/b]
+[*] [b]Instant Rerouting & Traffic Gridlock Resolution on Road Edits:[/b]
 [list]
-    [*] Eliminated disruptive city-wide vehicle wipeouts on level load. Deactivating corrupted ghost lines now releases ONLY the vehicles belonging to that specific broken line, preserving all other traffic, emergency vehicles, and passenger cims intact.
-    [*] Safely unspawns and resets stuck waiting citizens at transit stops via clean citizen instance recycling.
+    [*] Completely resolved sluggish vehicle rerouting and severe traffic gridlocks when modifying, upgrading, or bulldozing roads.
+    [*] Patched TM:PE CustomPathFind threads with fail-fast guards against transient uncreated segment/node states during road edits, eliminating pathfinding hangs.
+    [*] Scaled lane capacity bounds in vehicle speed calculation up to 524,288 lanes.
 [/list]
-[*] [b]Critical Save Game & SavePanel Stability (v3.3):[/b]
+[*] [b]Phantom CitizenUnits Auto-Sanitization (v3.4):[/b]
 [list]
-    [*] Universal pre-save simulation sanitization (SimulationManager & TransportManager) and out-of-bounds safety guards across all PrefabCollection serializers (TransportInfo, VehicleInfo, BuildingInfo, NetInfo).
-    [*] Fixed SavePanel UI lockup/freeze upon saving completion, allowing save dialogs to close and reset cleanly.
+    [*] Built-in high-performance [b]CitizenUnit Auto-Sanitizer[/b] runs on load and pre-save, safely cleaning dangling pointers down to 0 phantom units.
+    [*] Hotkey: Press [b]Ctrl + Shift + C[/b] (or [b]Cmd + Shift + C[/b] on Mac) for instant on-demand CitizenUnits sanitization!
 [/list]
-[*] [b]Complete Road & Building Placement Fix:[/b]
-[list]
-    [*] Permanently resolved the critical vanilla engine limitation where players were unable to draw roads or place buildings once network entities exceeded vanilla limits.
-    [*] Automatically expands ToolController collision bitmasks (m_collidingSegments & m_collidingBuildings) to 65,536 bits, eliminating IndexOutOfRangeException crashes in NetTool and BuildingTool when combined with Network Anarchy.
-[/list]
-[*] [b]Comprehensive 16-Mod Ecosystem Compatibility:[/b]
-[list]
-    [*] [b]Adaptive Roads (ADR):[/b] Expands and synchronizes all 6 core buffers (NodeBuffer, SegmentBuffer, SegmentEndBuffer 130K, LaneBuffer 524K, m_updatedNodes 1024 longs, m_updatedSegments 1024 longs). Fixes legacy MoreNetworkCapacity crashes at node 65,024 and unallocated LaneBuffer errors.
-    [*] [b]Network Skins 2:[/b] Seamlessly scales SegmentSkins (65K) and NodeSkins (65K), preventing skin calculation crashes on extended networks.
-    [*] [b]Node Controller Renewal:[/b] Expands NodeData Buffer up to 65K nodes.
-    [*] [b]Move It, Picker, Network Multitool, Intersection Marking Tool (IMT):[/b] Dynamic IL Transpilation scales all 32K/36K boundary checks up to 65K.
-    [*] [b]Network Anarchy, Advanced Road Tools, Network Extensions 2, Improved Public Transport 2/3, Advanced Vehicle Options:[/b] Fully verified and 100% operational.
-[/list]
-[*] [b]Savegame & Pathfinding Protection:[/b] Preserves the dedicated SavePanel.OnSavingComplete safety patch (preventing EndOfStreamException save corruptions) and ensures untampered TM:PE CustomPathFind threads for cars, buses, trams, trains, and emergency vehicles.
+[*] [b]Isolated Ghost Transit Line Cleanup:[/b] Deactivating broken lines releases ONLY vehicles on that line, preserving all other traffic intact.
 [/list]
 
 [hr][/hr]
@@ -55,28 +42,24 @@ Vanilla Cities: Skylines caps your road and transit networks at ~32,000 nodes an
 
 [b]More Network Capacity Renew[/b] safely expands your game internal network limits to [b]65,536 (64K) Nodes and Segments[/b] - giving you double the building freedom!
 
-Unlike unstable or abandoned experimental versions that caused fatal crashes, broken placement tools, and corrupted traffic, [b]Renew[/b] is engineered from the ground up for [b]maximum stability, accurate traffic simulation, and zero data loss.[/b]
+Unlike unstable legacy experimental versions that caused fatal crashes and corrupted traffic, [b]Renew[/b] is engineered from the ground up for [b]maximum stability, accurate traffic simulation, and zero data loss.[/b]
 
 [hr][/hr]
 
 [h1]KEY ADVANTAGES & SUPERIOR FEATURES[/h1]
 [list]
 [*] [b]64K Expanded Capacity:[/b] Doubles the maximum network node and segment limits (up to 65,536) and lanes up to 524,288. Build massive regional transit grids, hyper-detailed highway interchanges, and expansive subway networks without restriction.
-[*] [b]Full Road & Building Placement Guarantee:[/b] Solved engine-level ToolController collision bitmask limits, allowing smooth placement of roads, bridges, tunnels, intersections, and buildings without tool lockups.
-[*] [b]Native Apple Silicon & Intel Mac Stability:[/b] Fixed deep engine crash loops, memory boundary overflows, and native crashes that plagued previous limit mods on macOS (M1/M2/M3/M4 & Intel).
+[*] [b]Full Road & Building Placement Guarantee:[/b] Solved engine-level ToolController collision bitmask limits (65,536 bits), allowing smooth placement of roads, bridges, tunnels, intersections, and buildings without tool lockups.
+[*] [b]Native Apple Silicon & Intel Mac Stability:[/b] Fixed deep engine crash loops, memory boundary overflows, and native crashes that plagued previous limit mods on macOS (M1/M2/M3/M4 & Intel) and Windows.
 [*] [b]Complete TM:PE Compatibility:[/b]
 [list]
     [*] Timed Traffic Lights (TTL) are 100% operational on expanded nodes (> 32,768).
     [*] Custom lane connections, lane arrows, speed limits, and priority rules are fully respected.
     [*] Node data and timed phases persist cleanly through save/load cycles without missing references.
 [/list]
-[*] [b]Accurate Traffic Flow & Real-Time Heatmaps:[/b]
-[list]
-    [*] Full traffic flow color refresh across all extended segments.
-    [*] Active simulation loop prevents the notorious 'frozen vehicles' or phantom deadlock bug at high-ID junctions.
-[/list]
-[*] [b]Safe Persistence Guarantee:[/b] Implements clean savegame serialization to ensure your custom traffic setups, timed nodes, and networks reload perfectly with zero data loss.
-[*] [b]Deep 16-Mod Ecosystem Compatibility:[/b] Seamless integration with Adaptive Roads, Network Skins, Node Controller Renewal, Move It, IMT, Network Multitool, Network Anarchy, Picker, Find It, etc.
+[*] [b]Accurate Traffic Flow & Real-Time Heatmaps:[/b] Full traffic flow color refresh across all extended segments without frozen vehicles or phantom deadlocks.
+[*] [b]Safe Persistence Guarantee:[/b] Implements clean savegame serialization to ensure custom traffic setups and extended networks reload perfectly.
+[*] [b]Deep Mod Ecosystem Compatibility:[/b] Seamless integration with Adaptive Roads, Network Skins, Node Controller Renewal, Move It, IMT, Network Multitool, Network Anarchy, Picker, Find It, etc.
 [/list]
 
 [hr][/hr]
@@ -99,7 +82,7 @@ Tested and fully compatible with the standard modern modding ecosystem:
 [*] [b]Advanced Road Tools[/b]
 [*] [b]Improved Public Transport 2 & 3[/b]
 [*] [b]Advanced Vehicle Options[/b]
-[*] [b]Train Car Selector[/b]
+[*] [b]More Vehicles Renew 2[/b]
 [/list]
 
 [hr][/hr]
@@ -119,5 +102,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.9.0: Fix Save NullReferenceException & Instant Road Modification Rerouting: 1) Fixed Save NullReferenceException: Eliminated conflicting generic PrefabCollection.Serialize Harmony patches that caused Mono generic trampoline collisions during BuildingManager serialization; pre-save sanitization handles all prefab index integrity cleanly. Handled SavePanel quitAfterSaving to prevent Dispatcher thread access limitation exceptions. 2) Instant Rerouting on Road Changes: Patched TM:PE CustomPathFind ProcessItemMain and PathFindImplementation against uncreated/null node and segment states during road modifications and bulldozing, completely eliminating pathfinding thread freezes and prolonged traffic gridlocks."
+	"changenote"		"v3.9.0: 1) Fixed Save NullReferenceException during BuildingManager serialization. Handled quitAfterSaving to avoid thread access violations. 2) Fixed sluggish rerouting on road modifications with fail-fast guards in TM:PE CustomPathFind. Scaled lane capacity to 524,288."
 }

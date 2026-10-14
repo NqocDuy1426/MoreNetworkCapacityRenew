@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.8.3: Precise vehicle state differentiation: Completely eliminated false stops on moving/decelerating cars. Moving vehicles (speed > 0), vehicles stopped at red lights/stop signs, and vehicles queued in traffic jams behind other cars are 100% untouched. Only true 'dead vehicles' (completely motionless for >10s on clear roads with zero obstacles ahead) are unclogged and woken up."
+	"changenote" "v3.8.4: Critical Traffic & Pathfinding Fix: 1) Auto-despawn floating vehicles on demolished roads: Vehicles stranded on destroyed/bulldozed bridges or segments are now automatically released and vanished instead of remaining stuck floating in mid-air. 2) Fixed city-wide vehicle spawning stoppage: Removed intrusive pathfinding worker thread intercepts and reflection overhead that previously congested the PathManager queue, restoring normal, rapid vehicle spawning for all citizens, industry, and services."
 }

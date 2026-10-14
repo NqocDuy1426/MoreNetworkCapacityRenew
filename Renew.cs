@@ -1256,26 +1256,6 @@ namespace MoreNetworkCapacityRenew
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ThreadingExtension: " + ex);
                 }
-
-                // 26. VehicleBehaviorManager.MayDespawn (Native TM:PE despawn delegation)
-                try
-                {
-                    Type vbmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleBehaviorManager");
-                    if (vbmType != null)
-                    {
-                        MethodInfo mayDespawnM = vbmType.GetMethod("MayDespawn", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(Vehicle).MakeByRefType() }, null);
-                        if (mayDespawnM != null)
-                        {
-                            var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayDespawn_Postfix));
-                            harmony.Patch(mayDespawnM, postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayDespawn (delegating dead/demolished vehicle despawn to TM:PE)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
-                }
             }
             catch (Exception ex)
             {
@@ -3741,62 +3721,6 @@ namespace MoreNetworkCapacityRenew
             {
                 return false;
             }
-        }
-
-        public static void VehicleBehaviorManager_MayDespawn_Postfix(ushort vehicleId, ref Vehicle vehicleData, ref bool __result)
-        {
-            if (__result) return;
-
-            try
-            {
-                uint pathId = vehicleData.m_path;
-                if (pathId != 0)
-                {
-                    PathManager pm = Singleton<PathManager>.instance;
-                    NetManager nm = Singleton<NetManager>.instance;
-                    if (pm != null && nm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pathId < pm.m_pathUnits.m_buffer.Length)
-                    {
-                        int posIdx = (int)(vehicleData.m_pathPositionIndex >> 1);
-                        PathUnit.Position pPos;
-                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
-                        {
-                            ushort segId = pPos.m_segment;
-                            if (segId == 0 || segId >= nm.m_segments.m_buffer.Length ||
-                                (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
-                            {
-                                __result = true;
-                                return;
-                            }
-                        }
-                        else
-                        {
-                            __result = true;
-                            return;
-                        }
-
-                        PathUnit.Position nextPos;
-                        if (pm.m_pathUnits.m_buffer[pathId].GetNextPosition(posIdx, out nextPos))
-                        {
-                            ushort nextSegId = nextPos.m_segment;
-                            if (nextSegId != 0 && (nextSegId >= nm.m_segments.m_buffer.Length ||
-                                (nm.m_segments.m_buffer[nextSegId].m_flags & NetSegment.Flags.Created) == 0))
-                            {
-                                __result = true;
-                                return;
-                            }
-                        }
-                    }
-                }
-                else if ((vehicleData.m_flags & (Vehicle.Flags.WaitingPath | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
-                {
-                    if (vehicleData.m_blockCounter >= 100)
-                    {
-                        __result = true;
-                        return;
-                    }
-                }
-            }
-            catch { }
         }
     }
 

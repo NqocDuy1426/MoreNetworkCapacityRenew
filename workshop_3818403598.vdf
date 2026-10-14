@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.8.8: 100% Native TM:PE Traffic & Despawn Delegation: 1) Delegated Vehicle Despawn to TM:PE: Completely removed intrusive MNC background cleaner loops and hotkeys. Demolished road vehicle despawns are now handled natively through TM:PE's VehicleBehaviorManager.MayDespawn, letting TM:PE's own simulation engine cleanly release dead vehicles while keeping live traffic at red lights and jams fully protected. 2) Fixed ToolController Segment Collision Bitmap Sizes Exception: Corrected collision bitmask length to exactly 1016 words (65,024 bits), eliminating InvalidOperationException popups."
+	"changenote" "v3.8.8: Full Independence for TM:PE & ToolController Fix: 1) Full Authority to TM:PE: Completely eliminated all vehicle interventions, background cleaner loops, and despawn hooks from MNC. TM:PE now has 100% full, unhindered control over all vehicle simulation, routing, and despawn logic without any interference. 2) Fixed ToolController Segment Collision Bitmap Sizes Exception: Corrected collision bitmask length to exactly 1016 words (65,024 bits), eliminating InvalidOperationException popups."
 }

@@ -119,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.8.6: Ultra-Fast Vehicle Spawning & Zero-Lag Pathfinding: 1) Eliminated Pathfinding Freezes: Intercepted TM:PE SpeedLimitManager NullReferenceExceptions that spammed 89,000+ error logs per minute and stalled background pathfinder threads, restoring instantaneous vehicle path calculations and rapid spawning. 2) Zero Road Dead-Stops: Drivable road lanes now reliably receive positive speed limits directly from TM:PE cache or road prefabs, permanently resolving phantom traffic deaths. 3) 100% natural AI & mod ecosystem compatibility preserved."
+	"changenote" "v3.8.7: Critical Fixes for Bulldozed Roads & ToolController: 1) Fixed Bulldozed Road Ghost Vehicles: Added real-time auto-despawn on road destruction (NetManager.ReleaseSegmentImplementation), instantly vanishing vehicles on bulldozed roads instead of leaving them stranded in mid-air. 2) Fixed ToolController Segment Collision Bitmap Sizes Exception: Adjusted collision bitmask words to exactly 1016 (65,024 bits), satisfying MNC engine assertions and eliminating InvalidOperationException popups. 3) Added on-demand / periodic clean for dead/floating vehicles with hotkey (Ctrl/Cmd + Shift + V)."
 }

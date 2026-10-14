@@ -4096,6 +4096,21 @@ namespace MoreNetworkCapacityRenew
 
                 try
                 {
+                    MethodInfo relSegM = typeof(NetManager).GetMethod("ReleaseSegmentImplementation", BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(bool) }, null);
+                    if (relSegM != null)
+                    {
+                        var post = typeof(VehicleAndTransportRepair).GetMethod(nameof(VehicleAndTransportRepair.NetManager_ReleaseSegmentImplementation_Postfix));
+                        harmony.Patch(relSegM, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.ReleaseSegmentImplementation for auto-despawn on bulldozed roads.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ReleaseSegmentImplementation: " + ex);
+                }
+
+                try
+                {
                     // Patch KianCommons limits
                     int patchedCount = 0;
                     foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -4169,7 +4184,7 @@ namespace MoreNetworkCapacityRenew
                     var tc = tm.m_properties;
                     if (tc != null)
                     {
-                        int requiredSize = 1024; // 65536 / 64
+                        int requiredSize = 1016; // 65024 / 64 (MNC standard, avoids InvalidOperationException)
 
                         FieldInfo f1 = typeof(ToolController).GetField("m_collidingSegments1", BindingFlags.NonPublic | BindingFlags.Instance);
                         FieldInfo f2 = typeof(ToolController).GetField("m_collidingSegments2", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -4180,8 +4195,8 @@ namespace MoreNetworkCapacityRenew
                         FieldInfo b1 = typeof(ToolController).GetField("m_collidingBuildings1", BindingFlags.NonPublic | BindingFlags.Instance);
                         FieldInfo b2 = typeof(ToolController).GetField("m_collidingBuildings2", BindingFlags.NonPublic | BindingFlags.Instance);
 
-                        if (b1 != null) b1.SetValue(tc, new ulong[1024]);
-                        if (b2 != null) b2.SetValue(tc, new ulong[1024]);
+                        if (b1 != null) b1.SetValue(tc, new ulong[768]);
+                        if (b2 != null) b2.SetValue(tc, new ulong[768]);
 
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully resized ToolController collision arrays to " + requiredSize);
                     }
@@ -4227,6 +4242,11 @@ namespace MoreNetworkCapacityRenew
                     }
                     VehicleAndTransportRepair.UnstickCitizens();
                     TransportLineCompatibility.SanitizeCitizenUnits();
+                    int cleanedVehicles = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
+                    if (cleanedVehicles > 0)
+                    {
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initial load cleaned " + cleanedVehicles + " floating/dead vehicles on demolished roads.");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -4921,7 +4941,7 @@ namespace MoreNetworkCapacityRenew
             if (__instance == null) return;
             try
             {
-                int req = 1024;
+                int req = 1016; // 65024 / 64 (MNC standard)
                 FieldInfo f1 = typeof(ToolController).GetField("m_collidingSegments1", BindingFlags.NonPublic | BindingFlags.Instance);
                 FieldInfo f2 = typeof(ToolController).GetField("m_collidingSegments2", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (f1 != null) f1.SetValue(__instance, new ulong[req]);
@@ -4929,8 +4949,8 @@ namespace MoreNetworkCapacityRenew
 
                 FieldInfo b1 = typeof(ToolController).GetField("m_collidingBuildings1", BindingFlags.NonPublic | BindingFlags.Instance);
                 FieldInfo b2 = typeof(ToolController).GetField("m_collidingBuildings2", BindingFlags.NonPublic | BindingFlags.Instance);
-                if (b1 != null) b1.SetValue(__instance, new ulong[req]);
-                if (b2 != null) b2.SetValue(__instance, new ulong[req]);
+                if (b1 != null) b1.SetValue(__instance, new ulong[768]);
+                if (b2 != null) b2.SetValue(__instance, new ulong[768]);
             }
             catch { }
         }
@@ -4944,7 +4964,7 @@ namespace MoreNetworkCapacityRenew
                 var tc = tm.m_properties;
                 if (tc == null) return;
 
-                int req = 1024;
+                int req = 1016; // 65024 / 64 (MNC standard)
                 FieldInfo f1 = typeof(ToolController).GetField("m_collidingSegments1", BindingFlags.NonPublic | BindingFlags.Instance);
                 FieldInfo f2 = typeof(ToolController).GetField("m_collidingSegments2", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (f1 != null && (f1.GetValue(tc) is ulong[] a1 && a1.Length < req)) f1.SetValue(tc, new ulong[req]);
@@ -4952,8 +4972,8 @@ namespace MoreNetworkCapacityRenew
 
                 FieldInfo b1 = typeof(ToolController).GetField("m_collidingBuildings1", BindingFlags.NonPublic | BindingFlags.Instance);
                 FieldInfo b2 = typeof(ToolController).GetField("m_collidingBuildings2", BindingFlags.NonPublic | BindingFlags.Instance);
-                if (b1 != null && (b1.GetValue(tc) is ulong[] ba1 && ba1.Length < req)) b1.SetValue(tc, new ulong[req]);
-                if (b2 != null && (b2.GetValue(tc) is ulong[] ba2 && ba2.Length < req)) b2.SetValue(tc, new ulong[req]);
+                if (b1 != null && (b1.GetValue(tc) is ulong[] ba1 && ba1.Length < 768)) b1.SetValue(tc, new ulong[768]);
+                if (b2 != null && (b2.GetValue(tc) is ulong[] ba2 && ba2.Length < 768)) b2.SetValue(tc, new ulong[768]);
             }
             catch { }
         }
@@ -6053,6 +6073,139 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RestoreLinesFromBackupCRP error: " + ex);
+            }
+        }
+
+        public static void NetManager_ReleaseSegmentImplementation_Postfix(ushort segment)
+        {
+            if (segment == 0) return;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null)
+                    return;
+
+                int vCount = vm.m_vehicles.m_buffer.Length;
+                int pathCount = pm.m_pathUnits.m_buffer.Length;
+                for (int i = 1; i < vCount; i++)
+                {
+                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
+                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
+                        continue;
+
+                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
+                    byte pathIdx = vm.m_vehicles.m_buffer[i].m_pathPositionIndex;
+                    if (pathId != 0 && pathId < (uint)pathCount)
+                    {
+                        PathUnit.Position pPos;
+                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(pathIdx, out pPos))
+                        {
+                            if (pPos.m_segment == segment)
+                            {
+                                try { pm.ReleasePath(pathId); } catch { }
+                                vm.m_vehicles.m_buffer[i].m_path = 0;
+                                vm.ReleaseVehicle((ushort)i);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static int CleanDemolishedRoadVehicles()
+        {
+            int released = 0;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null || pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null)
+                    return 0;
+
+                int vCount = vm.m_vehicles.m_buffer.Length;
+                int segCount = nm.m_segments.m_buffer.Length;
+                int pathCount = pm.m_pathUnits.m_buffer.Length;
+
+                for (int i = 1; i < vCount; i++)
+                {
+                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
+                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
+                        continue;
+
+                    VehicleInfo info = vm.m_vehicles.m_buffer[i].Info;
+                    if (info == null || (info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
+                        continue;
+
+                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
+                    byte pathIdx = vm.m_vehicles.m_buffer[i].m_pathPositionIndex;
+                    bool shouldRelease = false;
+
+                    if (pathId != 0 && pathId < (uint)pathCount)
+                    {
+                        PathUnit.Position pPos;
+                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(pathIdx, out pPos))
+                        {
+                            if (pPos.m_segment == 0 || pPos.m_segment >= segCount ||
+                                (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) == 0)
+                            {
+                                shouldRelease = true;
+                            }
+                        }
+                    }
+                    else if (pathId == 0 && (flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
+                    {
+                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f && vm.m_vehicles.m_buffer[i].m_blockCounter >= 250)
+                        {
+                            shouldRelease = true;
+                        }
+                    }
+
+                    if (shouldRelease)
+                    {
+                        if (pathId != 0)
+                        {
+                            try { pm.ReleasePath(pathId); } catch { }
+                            vm.m_vehicles.m_buffer[i].m_path = 0;
+                        }
+                        vm.ReleaseVehicle((ushort)i);
+                        released++;
+                    }
+                }
+            }
+            catch { }
+            return released;
+        }
+    }
+
+    public class MNC_ThreadingExtension : ThreadingExtensionBase
+    {
+        private int _frameCounter = 0;
+
+        public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
+        {
+            // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles on demand
+            if ((UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand))
+                && (UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift))
+                && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.V))
+            {
+                int cleaned = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) cleaned " + cleaned + " dead/floating vehicles.");
+            }
+
+            _frameCounter++;
+            if (_frameCounter >= 300)
+            {
+                _frameCounter = 0;
+                VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
             }
         }
     }

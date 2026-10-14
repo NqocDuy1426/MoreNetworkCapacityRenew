@@ -6,25 +6,24 @@
 	"previewfile" "/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility" "0"
 	"title" "More Network Capacity Renew by NgocDuy"
-	"description" "[h1]✨ WHAT'S NEW (v3.3 Emergency Hotfix: Game Saving & UI Stability) ✨[/h1]
+	"description" "[h1]✨ WHAT'S NEW (v3.4 Hotfix: Phantom CitizenUnits & Simulation Optimization) ✨[/h1]
 [list]
-[*] [b]Critical Save Game & SavePanel Hotfix:[/b]
+[*] [b]Phantom CitizenUnits Auto-Sanitization & Lag Fix:[/b]
 [list]
-    [*] Fixed the game-breaking issue where saving aborted or failed to generate .crp save files due to corrupted transport line data or missing custom vehicle/transit assets.
-    [*] Added universal pre-save simulation sanitization (SimulationManager & TransportManager) and out-of-bounds safety guards across all PrefabCollection serializers (TransportInfo, VehicleInfo, BuildingInfo, NetInfo).
+    [*] Permanently eliminated the issue where 'Phantom CitizenUnits' accumulated up to 1,000+ (detected by Phantom Lane Remover and similar diagnostic tools), preventing simulation lag and memory bloat.
+    [*] Added a built-in high-performance [b]CitizenUnit Auto-Sanitizer[/b] running on level load and pre-save that detects and safely purges orphaned CitizenUnits and cleans dangling home/work/vehicle pointers down to [b]0 phantom units[/b].
+    [*] Building sanitization now properly releases attached citizen units before flag reset, preventing custom building assets from orphaning citizens.
+    [*] Hotkey support: Press [b]Ctrl + Shift + C[/b] (or [b]Cmd + Shift + C[/b] on Mac) anytime during gameplay to trigger an instant on-demand CitizenUnits sanitization!
+[/list]
+[*] [b]Isolated Ghost Transit Line Vehicle Cleanup:[/b]
+[list]
+    [*] Eliminated disruptive city-wide vehicle wipeouts on level load. Deactivating corrupted ghost lines now releases ONLY the vehicles belonging to that specific broken line, preserving all other traffic, emergency vehicles, and passenger cims intact.
+    [*] Safely unspawns and resets stuck waiting citizens at transit stops via clean citizen instance recycling.
+[/list]
+[*] [b]Critical Save Game & SavePanel Stability (v3.3):[/b]
+[list]
+    [*] Universal pre-save simulation sanitization (SimulationManager & TransportManager) and out-of-bounds safety guards across all PrefabCollection serializers (TransportInfo, VehicleInfo, BuildingInfo, NetInfo).
     [*] Fixed SavePanel UI lockup/freeze upon saving completion, allowing save dialogs to close and reset cleanly.
-    [*] Automatically deactivates and purges corrupted ghost transport lines upon level load and save.
-[/list]
-[*] [b]Native Crash Resilience & Hardened Dynamic Patcher:[/b]
-[list]
-    [*] Fixed deep native runtime crashes (SIGABRT / Abort trap 6) during level initialization on macOS and Windows caused by scanning third-party assemblies with unresolvable dependencies (e.g. PropAnarchy / EManagersLib).
-    [*] Added pre-flight assembly dependency verification and safe reflection guards.
-[/list]
-[*] [b]Built-in Vehicle & Public Transit Auto-Repair Engine:[/b]
-[list]
-    [*] Automatically unfreezes and clears stuck/deadlocked vehicles, phantom pathfinding loops, and stranded citizen queues upon level load.
-    [*] Automatically restores broken, invalid, or hidden bus and public transit lines, reconnecting stops and updating mesh/paths seamlessly.
-    [*] Hotkey support: Press [b]Ctrl + Shift + R[/b] (or [b]Cmd + Shift + R[/b] on Mac) at any time during gameplay to trigger an instant on-demand traffic and transit line refresh!
 [/list]
 [*] [b]Complete Road & Building Placement Fix:[/b]
 [list]
@@ -120,5 +119,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote" "v3.3 Emergency Hotfix: Fixed game saving failure (.crp not saving) and SavePanel UI lockup. Added multi-layer pre-save sanitization, PrefabCollection bounds guards (TransportInfo, VehicleInfo, BuildingInfo, NetInfo), automatic ghost transit line purge, and TM:PE save synchronization."
+	"changenote" "v3.4 Hotfix: Resolved Phantom CitizenUnits accumulation (~1,000 down to 0). Added built-in CitizenUnit Auto-Sanitizer on level load, pre-save, and Ctrl+Shift+C hotkey. Isolated ghost transit line vehicle release to prevent disruptive city-wide vehicle wipeouts, and cleanly unspawned stuck waiting citizens."
 }

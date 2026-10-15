@@ -147,14 +147,14 @@ namespace MoreNetworkCapacityRenew
                 RegisterArray("TrafficManager.State.Flags", "laneAllowedVehicleTypesArray", 65024);
                 
                 // Register TM:PE live extension buffers (must match live NetManager arrays)
-                RegisterArray("TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", 524288);
+                RegisterArray("TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", 262144);
                 RegisterArray("TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", 65536);
                 RegisterArray("TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", 65536);
 
                 // Register game network arrays
                 RegisterArray("NetManager", "m_segments", 65536);
                 RegisterArray("NetManager", "m_nodes", 65536);
-                RegisterArray("NetManager", "m_lanes", 524288);
+                RegisterArray("NetManager", "m_lanes", 262144);
                 
                 initialized = true;
                 UnityEngine.Debug.Log(string.Format("[ArrayGuardian] Initialized tracking for {0} arrays", arrayRegistry.Count));
@@ -241,7 +241,7 @@ namespace MoreNetworkCapacityRenew
                 if (nm != null)
                 {
                     if (nm.m_lanes != null && nm.m_lanes.m_buffer != null)
-                        SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer, 524288);
+                        SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer, 262144);
                     if (nm.m_segments != null && nm.m_segments.m_buffer != null)
                         SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer, 65536);
                     if (nm.m_nodes != null && nm.m_nodes.m_buffer != null)
@@ -402,29 +402,40 @@ namespace MoreNetworkCapacityRenew
             }
         }
         
+        private static Assembly _cachedTmpe = null;
+        private static Type _cachedFlagsType = null;
+        private static FieldInfo _cachedFieldArrows = null;
+        private static FieldInfo _cachedFieldHwy = null;
+        private static FieldInfo _cachedFieldTypes = null;
+        private static FieldInfo _cachedFieldBuf = null;
+
         public static bool HasShrinkage()
         {
             try
             {
-                Assembly tmpe = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                if (_cachedTmpe == null)
                 {
-                    if (asm.GetName().Name == "TrafficManager")
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                     {
-                        tmpe = asm;
-                        break;
+                        if (asm.GetName().Name == "TrafficManager")
+                        {
+                            _cachedTmpe = asm;
+                            break;
+                        }
                     }
                 }
                 
-                if (tmpe == null) return false;
+                if (_cachedTmpe == null) return false;
                 
-                Type flagsType = tmpe.GetType("TrafficManager.State.Flags");
-                if (flagsType == null) return false;
+                if (_cachedFlagsType == null)
+                    _cachedFlagsType = _cachedTmpe.GetType("TrafficManager.State.Flags");
+                if (_cachedFlagsType == null) return false;
                 
-                FieldInfo fieldArrows = flagsType.GetField("laneArrowFlags", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
-                if (fieldArrows != null)
+                if (_cachedFieldArrows == null)
+                    _cachedFieldArrows = _cachedFlagsType.GetField("laneArrowFlags", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                if (_cachedFieldArrows != null)
                 {
-                    Array arr = fieldArrows.GetValue(null) as Array;
+                    Array arr = _cachedFieldArrows.GetValue(null) as Array;
                     if (arr != null && arr.Length < 524288)
                     {
                         ShrinkageEvents++;
@@ -432,10 +443,11 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                FieldInfo fieldHwy = flagsType.GetField("highwayLaneArrowFlags", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
-                if (fieldHwy != null)
+                if (_cachedFieldHwy == null)
+                    _cachedFieldHwy = _cachedFlagsType.GetField("highwayLaneArrowFlags", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                if (_cachedFieldHwy != null)
                 {
-                    Array arr = fieldHwy.GetValue(null) as Array;
+                    Array arr = _cachedFieldHwy.GetValue(null) as Array;
                     if (arr != null && arr.Length < 524288)
                     {
                         ShrinkageEvents++;
@@ -443,10 +455,11 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                FieldInfo fieldTypes = flagsType.GetField("laneAllowedVehicleTypesArray", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
-                if (fieldTypes != null)
+                if (_cachedFieldTypes == null)
+                    _cachedFieldTypes = _cachedFlagsType.GetField("laneAllowedVehicleTypesArray", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                if (_cachedFieldTypes != null)
                 {
-                    Array arr = fieldTypes.GetValue(null) as Array;
+                    Array arr = _cachedFieldTypes.GetValue(null) as Array;
                     if (arr != null && arr.Length < 65024)
                     {
                         ShrinkageEvents++;
@@ -454,18 +467,19 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                Type laneExt = tmpe.GetType("TrafficManager.Util.Extensions.NetLaneExtensions");
-                if (laneExt != null)
+                if (_cachedFieldBuf == null)
                 {
-                    FieldInfo fieldBuf = laneExt.GetField("_laneBuffer", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
-                    if (fieldBuf != null)
+                    Type laneExt = _cachedTmpe.GetType("TrafficManager.Util.Extensions.NetLaneExtensions");
+                    if (laneExt != null)
+                        _cachedFieldBuf = laneExt.GetField("_laneBuffer", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                }
+                if (_cachedFieldBuf != null)
+                {
+                    Array arr = _cachedFieldBuf.GetValue(null) as Array;
+                    if (arr != null && arr.Length < 262144)
                     {
-                        Array arr = fieldBuf.GetValue(null) as Array;
-                        if (arr != null && arr.Length < 524288)
-                        {
-                            ShrinkageEvents++;
-                            return true;
-                        }
+                        ShrinkageEvents++;
+                        return true;
                     }
                 }
                 
@@ -619,77 +633,14 @@ namespace MoreNetworkCapacityRenew
             if (laneId >= NetManager.MAX_LANE_COUNT)
             {
                 boundsViolations++;
-                UnityEngine.Debug.LogWarning(string.Format(
-                    "[SafeFlagsAccessor] {0}: laneId {1} exceeds MAX_LANE_COUNT {2}",
-                    operation, laneId, NetManager.MAX_LANE_COUNT));
-                    
-                if (ArrayGuardian.HasShrinkage())
-                {
-                    UnityEngine.Debug.Log("[SafeFlagsAccessor] Detected array shrinkage, triggering repair");
-                    ArrayGuardian.RepairAllArrays();
-                    autoExpansions++;
-                }
-                
                 return false;
             }
-            
-            if (flagsType != null)
-            {
-                try
-                {
-                    FieldInfo field = flagsType.GetField("laneArrowFlags", 
-                        BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
-                        
-                    if (field != null)
-                    {
-                        object arrayObj = field.GetValue(null);
-                        if (arrayObj != null && arrayObj is Array)
-                        {
-                            Array array = (Array)arrayObj;
-                            if (laneId >= array.Length)
-                            {
-                                boundsViolations++;
-                                UnityEngine.Debug.LogWarning(string.Format(
-                                    "[SafeFlagsAccessor] {0}: laneId {1} exceeds array length {2}",
-                                    operation, laneId, array.Length));
-                                    
-                                ArrayGuardian.RepairAllArrays();
-                                autoExpansions++;
-                                
-                                return false;
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.LogError("[SafeFlagsAccessor] ValidateLaneIndex internal error: " + ex);
-                }
-            }
-            
             return true;
         }
         
         private static void HandleBoundsViolation(uint index, string operation, Exception ex)
         {
             boundsViolations++;
-            
-            string message = string.Format(
-                "[SafeFlagsAccessor] BOUNDS VIOLATION in {0}: index={1}, MAX_LANE={2}, violations={3}",
-                operation, index, NetManager.MAX_LANE_COUNT, boundsViolations);
-                
-            if (ex != null)
-            {
-                message += " | Exception: " + ex.Message;
-            }
-            
-            UnityEngine.Debug.LogError(message);
-            
-            if (boundsViolations % 10 == 0)
-            {
-                UnityEngine.Debug.Log("[SafeFlagsAccessor] Triggering array repair after repeated violations");
-                ArrayGuardian.RepairAllArrays();
-            }
         }
         
         public static string GetDiagnostics()
@@ -3973,14 +3924,10 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                if (laneId >= 524288 || laneId >= NetManager.MAX_LANE_COUNT)
+                if (laneId >= NetManager.MAX_LANE_COUNT)
                 {
                     __result = false;
                     return false;
-                }
-                if (ArrayGuardian.HasShrinkage())
-                {
-                    ArrayGuardian.RepairAllArrays();
                 }
                 return true;
             }
@@ -3995,14 +3942,10 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                if (laneId >= 524288 || laneId >= NetManager.MAX_LANE_COUNT)
+                if (laneId >= NetManager.MAX_LANE_COUNT)
                 {
                     __result = false;
                     return false;
-                }
-                if (ArrayGuardian.HasShrinkage())
-                {
-                    ArrayGuardian.RepairAllArrays();
                 }
                 return true;
             }

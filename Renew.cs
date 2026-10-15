@@ -199,6 +199,14 @@ namespace MoreNetworkCapacityRenew
                 group.AddButton("Run Garbage Collection Now", () => {
                     MemoryOptimizer.StrategicGarbageCollect("ManualTrigger");
                 });
+
+                UIHelperBase trafficGroup = helper.AddGroup("Traffic & City Logistics Diagnostics (NgocDuy)");
+                trafficGroup.AddButton("Reactivate City Logistics & Unblock Spawns (Ctrl+Shift+V)", () => {
+                    VehicleAndTransportRepair.ReactivateCityLogistics();
+                });
+                trafficGroup.AddButton("Clear All Traffic & Reactivate Logistics", () => {
+                    VehicleAndTransportRepair.ClearAllVehicles();
+                });
             }
             catch (Exception ex)
             {
@@ -1264,6 +1272,36 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
+                }
+
+                // 27. UtilityManager.ClearTraffic & DespawnVehicles (City Logistics Reactivator & Traffic Spawning unblocker)
+                try
+                {
+                    Type umType = tmpe.GetType("TrafficManager.Manager.Impl.UtilityManager");
+                    if (umType != null)
+                    {
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.UtilityManager_DespawnVehicles_Postfix));
+                        MethodInfo clearM = umType.GetMethod("ClearTraffic", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (clearM != null)
+                        {
+                            harmony.Patch(clearM, postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE UtilityManager.ClearTraffic with Postfix logistics reactivator.");
+                        }
+
+                        MethodInfo[] methods = umType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        foreach (var m in methods)
+                        {
+                            if (m.Name == "DespawnVehicles")
+                            {
+                                harmony.Patch(m, postfix: new HarmonyMethod(post));
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE UtilityManager.DespawnVehicles with Postfix logistics reactivator.");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching UtilityManager: " + ex);
                 }
             }
             catch (Exception ex)
@@ -3961,6 +3999,19 @@ namespace MoreNetworkCapacityRenew
             catch { }
         }
 
+        public static void UtilityManager_DespawnVehicles_Postfix()
+        {
+            try
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TM:PE DespawnVehicles completed. Invoking ReactivateCityLogistics to unblock traffic spawns...");
+                VehicleAndTransportRepair.ReactivateCityLogistics();
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] UtilityManager_DespawnVehicles_Postfix error: " + ex);
+            }
+        }
+
         public static void RestoreVehicleSpeedIfNeeded(
             ushort vehicleID, 
             ref Vehicle vehicleData, 
@@ -4372,6 +4423,21 @@ namespace MoreNetworkCapacityRenew
         public static Exception LastSaveSimulationException = null;
         public static string CurrentSavingFilename = null;
 
+        public static void LogSaveDebug(string text)
+        {
+            try
+            {
+                string logDir = ColossalFramework.IO.DataLocation.localApplicationData;
+                if (!string.IsNullOrEmpty(logDir))
+                {
+                    string logPath = System.IO.Path.Combine(logDir, "MNC_Save_Debug.log");
+                    string entry = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] {1}\n", DateTime.Now, text);
+                    System.IO.File.AppendAllText(logPath, entry);
+                }
+            }
+            catch { }
+        }
+
         public static void Prefix(object __instance)
         {
             try
@@ -4382,13 +4448,31 @@ namespace MoreNetworkCapacityRenew
                     FieldInfo fFilename = __instance.GetType().GetField("filename", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     string fname = (fFilename != null) ? (fFilename.GetValue(__instance) as string) : "unknown";
                     CurrentSavingFilename = fname;
+                    LogSaveDebug("=== SaveSimulationData BEGIN: " + fname + " ===");
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData BEGIN: " + fname + " ===");
                 }
+
+                // Universal pre-save data sanitization executed before file creation and manager serialization
+                LogSaveDebug("Running PreSaveSanitization before serialization begins...");
+                TransportLineCompatibility.PreSaveSanitization();
+                LogSaveDebug("PreSaveSanitization finished cleanly.");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SaveSimulationData prefix log error: " + ex);
+                LogSaveDebug("SaveSimulationData prefix error: " + ex);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SaveSimulationData prefix error: " + ex);
             }
+        }
+
+        public static Exception Finalizer(Exception __exception)
+        {
+            if (__exception != null)
+            {
+                LastSaveSimulationException = __exception;
+                LogSaveDebug("CRITICAL: Unhandled exception in SaveSimulationData iterator MoveNext: " + __exception);
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SaveSimulationData iterator caught unhandled exception:\n" + __exception);
+            }
+            return __exception;
         }
 
         public static void Postfix(object __instance, bool __result)
@@ -4401,18 +4485,21 @@ namespace MoreNetworkCapacityRenew
                     {
                         if (LastSaveSimulationException == null)
                         {
-                            LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization (an exception occurred during manager serialization).");
+                            LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization (an unhandled exception occurred during manager serialization).");
                         }
+                        LogSaveDebug("=== SaveSimulationData FAILED: Output file deleted during serialization! ===");
                         UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] === SaveSimulationData FAILED: Output file deleted during serialization! ===");
                     }
                     else
                     {
+                        LogSaveDebug("=== SaveSimulationData completed successfully ===");
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData completed successfully ===");
                     }
                 }
             }
             catch (Exception ex)
             {
+                LogSaveDebug("SaveSimulationData postfix error: " + ex);
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SaveSimulationData postfix log error: " + ex);
             }
         }
@@ -4451,16 +4538,23 @@ namespace MoreNetworkCapacityRenew
                 FieldInfo fIsSaving = typeof(SavePanel).GetField("m_IsSaving", BindingFlags.NonPublic | BindingFlags.Static);
                 if (fIsSaving != null) fIsSaving.SetValue(null, false);
 
-                if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null)
+                if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null ||
+                    (!string.IsNullOrEmpty(SaveSimulationDataSafetyPatch.CurrentSavingFilename) && !System.IO.File.Exists(SaveSimulationDataSafetyPatch.CurrentSavingFilename)))
                 {
                     errorOnSaving = true;
+                    if (SaveSimulationDataSafetyPatch.LastSaveSimulationException == null)
+                    {
+                        SaveSimulationDataSafetyPatch.LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization.");
+                    }
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("SavePanel.OnSavingComplete intercepted save failure: " + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SavePanel detected failed save simulation:\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     try
                     {
                         var panel = ColossalFramework.UI.UIView.library.ShowModal<ExceptionPanel>("ExceptionPanel");
                         if (panel != null)
                         {
-                            panel.SetMessage("Game Save Failed", "Cities: Skylines was unable to save simulation data:\n\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException.Message + "\n\nPlease check Player.log for full details.", true);
+                            string logPath = System.IO.Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "MNC_Save_Debug.log");
+                            panel.SetMessage("Game Save Failed", "Cities: Skylines was unable to save simulation data:\n\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException.Message + "\n\nPlease check MNC_Save_Debug.log and Player.log for full details.\nLog path: " + logPath, true);
                         }
                     }
                     catch { }
@@ -6290,6 +6384,9 @@ namespace MoreNetworkCapacityRenew
                 // 3. Clean up citizen paths
                 UnstickCitizens();
 
+                // 4. Reactivate City Logistics & Spawning Pipelines
+                ReactivateCityLogistics();
+
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ClearAllVehicles completed: Cleared {0} vehicles.", freed));
             }
             catch (Exception ex)
@@ -6297,6 +6394,216 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ClearAllVehicles error: " + ex);
             }
             return freed;
+        }
+
+        public static int ReactivateCityLogistics()
+        {
+            int repaired = 0;
+            try
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Reactivating city logistics and unblocking traffic spawns...");
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                BuildingManager bm = Singleton<BuildingManager>.instance;
+                TransportManager tm = Singleton<TransportManager>.instance;
+                CitizenManager cm = Singleton<CitizenManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                if (pm != null)
+                {
+                    try { pm.WaitForAllPaths(); } catch { }
+                }
+
+                int vBufLen = (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) ? vm.m_vehicles.m_buffer.Length : 0;
+
+                // 1. Repair Building vehicle lists (m_ownVehicles, m_guestVehicles)
+                if (bm != null && bm.m_buildings != null && bm.m_buildings.m_buffer != null && vBufLen > 0)
+                {
+                    for (int i = 1; i < bm.m_buildings.m_buffer.Length; i++)
+                    {
+                        if (bm.m_buildings.m_buffer[i].m_flags == Building.Flags.None)
+                        {
+                            if (bm.m_buildings.m_buffer[i].m_ownVehicles != 0 || bm.m_buildings.m_buffer[i].m_guestVehicles != 0)
+                            {
+                                bm.m_buildings.m_buffer[i].m_ownVehicles = 0;
+                                bm.m_buildings.m_buffer[i].m_guestVehicles = 0;
+                                repaired++;
+                            }
+                            continue;
+                        }
+
+                        // Check m_ownVehicles
+                        ushort ownHead = bm.m_buildings.m_buffer[i].m_ownVehicles;
+                        if (ownHead != 0)
+                        {
+                            if (ownHead >= vBufLen || (vm.m_vehicles.m_buffer[ownHead].m_flags & Vehicle.Flags.Created) == 0)
+                            {
+                                bm.m_buildings.m_buffer[i].m_ownVehicles = 0;
+                                repaired++;
+                            }
+                            else
+                            {
+                                ushort prev = 0;
+                                ushort curr = ownHead;
+                                int steps = 0;
+                                while (curr != 0 && steps++ < 16384)
+                                {
+                                    if (curr >= vBufLen || (vm.m_vehicles.m_buffer[curr].m_flags & Vehicle.Flags.Created) == 0)
+                                    {
+                                        if (prev == 0) bm.m_buildings.m_buffer[i].m_ownVehicles = 0;
+                                        else vm.m_vehicles.m_buffer[prev].m_nextOwnVehicle = 0;
+                                        repaired++;
+                                        break;
+                                    }
+                                    prev = curr;
+                                    curr = vm.m_vehicles.m_buffer[curr].m_nextOwnVehicle;
+                                }
+                                if (steps >= 16384 && prev != 0)
+                                {
+                                    vm.m_vehicles.m_buffer[prev].m_nextOwnVehicle = 0;
+                                    repaired++;
+                                }
+                            }
+                        }
+
+                        // Check m_guestVehicles
+                        ushort guestHead = bm.m_buildings.m_buffer[i].m_guestVehicles;
+                        if (guestHead != 0)
+                        {
+                            if (guestHead >= vBufLen || (vm.m_vehicles.m_buffer[guestHead].m_flags & Vehicle.Flags.Created) == 0)
+                            {
+                                bm.m_buildings.m_buffer[i].m_guestVehicles = 0;
+                                repaired++;
+                            }
+                            else
+                            {
+                                ushort prev = 0;
+                                ushort curr = guestHead;
+                                int steps = 0;
+                                while (curr != 0 && steps++ < 16384)
+                                {
+                                    if (curr >= vBufLen || (vm.m_vehicles.m_buffer[curr].m_flags & Vehicle.Flags.Created) == 0)
+                                    {
+                                        if (prev == 0) bm.m_buildings.m_buffer[i].m_guestVehicles = 0;
+                                        else vm.m_vehicles.m_buffer[prev].m_nextGuestVehicle = 0;
+                                        repaired++;
+                                        break;
+                                    }
+                                    prev = curr;
+                                    curr = vm.m_vehicles.m_buffer[curr].m_nextGuestVehicle;
+                                }
+                                if (steps >= 16384 && prev != 0)
+                                {
+                                    vm.m_vehicles.m_buffer[prev].m_nextGuestVehicle = 0;
+                                    repaired++;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Repair TransportLine vehicle lists (m_vehicles)
+                if (tm != null && tm.m_lines != null && tm.m_lines.m_buffer != null && vBufLen > 0)
+                {
+                    for (int i = 1; i < tm.m_lines.m_buffer.Length; i++)
+                    {
+                        if (tm.m_lines.m_buffer[i].m_flags == TransportLine.Flags.None)
+                        {
+                            if (tm.m_lines.m_buffer[i].m_vehicles != 0)
+                            {
+                                tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                repaired++;
+                            }
+                            continue;
+                        }
+
+                        ushort lineVehHead = tm.m_lines.m_buffer[i].m_vehicles;
+                        if (lineVehHead != 0)
+                        {
+                            if (lineVehHead >= vBufLen || (vm.m_vehicles.m_buffer[lineVehHead].m_flags & Vehicle.Flags.Created) == 0)
+                            {
+                                tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                repaired++;
+                            }
+                            else
+                            {
+                                ushort prev = 0;
+                                ushort curr = lineVehHead;
+                                int steps = 0;
+                                while (curr != 0 && steps++ < 16384)
+                                {
+                                    if (curr >= vBufLen || (vm.m_vehicles.m_buffer[curr].m_flags & Vehicle.Flags.Created) == 0)
+                                    {
+                                        if (prev == 0) tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                        else vm.m_vehicles.m_buffer[prev].m_nextLineVehicle = 0;
+                                        repaired++;
+                                        break;
+                                    }
+                                    prev = curr;
+                                    curr = vm.m_vehicles.m_buffer[curr].m_nextLineVehicle;
+                                }
+                                if (steps >= 16384 && prev != 0)
+                                {
+                                    vm.m_vehicles.m_buffer[prev].m_nextLineVehicle = 0;
+                                    repaired++;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Recalculate VehicleManager.m_vehicleCount accurately
+                if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
+                {
+                    int active = 0;
+                    for (int i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
+                    {
+                        if ((vm.m_vehicles.m_buffer[i].m_flags & Vehicle.Flags.Created) != 0)
+                        {
+                            active++;
+                        }
+                    }
+                    vm.m_vehicleCount = active;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated VehicleManager.m_vehicleCount = {0} (max capacity = {1})", active, vm.m_vehicles.m_buffer.Length));
+                }
+
+                // 4. Release stuck citizens and dead path references
+                if (cm != null && cm.m_instances != null && cm.m_instances.m_buffer != null)
+                {
+                    int unstuck = 0;
+                    for (int i = 1; i < cm.m_instances.m_buffer.Length; i++)
+                    {
+                        if ((cm.m_instances.m_buffer[i].m_flags & CitizenInstance.Flags.Created) == 0) continue;
+
+                        CitizenInstance.Flags flags = cm.m_instances.m_buffer[i].m_flags;
+                        if ((flags & (CitizenInstance.Flags.WaitingTransport | CitizenInstance.Flags.WaitingPath | CitizenInstance.Flags.EnteringVehicle | CitizenInstance.Flags.BoredOfWaiting)) != 0)
+                        {
+                            if (cm.m_instances.m_buffer[i].m_path != 0 && pm != null)
+                            {
+                                try { pm.ReleasePath(cm.m_instances.m_buffer[i].m_path); } catch { }
+                                cm.m_instances.m_buffer[i].m_path = 0;
+                            }
+                            cm.m_instances.m_buffer[i].m_waitCounter = 0;
+                            try
+                            {
+                                cm.ReleaseCitizenInstance((ushort)i);
+                                unstuck++;
+                            }
+                            catch { }
+                        }
+                    }
+                    if (unstuck > 0)
+                    {
+                        repaired += unstuck;
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ReactivateCityLogistics: Reset {0} citizen instances in transit.", unstuck));
+                    }
+                }
+
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ReactivateCityLogistics completed successfully ({0} repairs applied). Spawning is unblocked.", repaired));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ReactivateCityLogistics error: " + ex);
+            }
+            return repaired;
         }
 
         public static void RunFullRepair(bool verbose = true)
@@ -6805,14 +7112,15 @@ namespace MoreNetworkCapacityRenew
     {
         public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
         {
-            // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles and unblock frozen queues on demand
+            // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles, unblock frozen queues, and reactivate city logistics
             if ((UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand))
                 && (UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift))
                 && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.V))
             {
                 int cleaned = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
                 int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) cleaned " + cleaned + " dead vehicles and unblocked " + unblocked + " frozen vehicles.");
+                int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) executed: cleaned {0} dead vehicles, unblocked {1} frozen vehicles, reactivated {2} logistics entities.", cleaned, unblocked, reactivated));
             }
         }
     }
@@ -7059,6 +7367,8 @@ namespace MoreNetworkCapacityRenew
             try { SanitizeVehicles(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeVehicles error: " + ex); }
             try { SanitizeBuildings(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeBuildings error: " + ex); }
             try { SanitizeNetElements(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeNetElements error: " + ex); }
+            try { SanitizeProps(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeProps error: " + ex); }
+            try { SanitizeTrees(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTrees error: " + ex); }
             try { SanitizeCitizenInstances(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeCitizenInstances error: " + ex); }
         }
 
@@ -7113,6 +7423,38 @@ namespace MoreNetworkCapacityRenew
                 if (tm == null || tm.m_lines == null || tm.m_lines.m_buffer == null) return 0;
 
                 int prefabCount = PrefabCollection<TransportInfo>.PrefabCount();
+                int vCount = PrefabCollection<VehicleInfo>.PrefabCount();
+
+                // Sanitize vehicle selection indices to prevent NRE during serialization
+                FieldInfo fTLIndices = typeof(TransportManager).GetField("m_transportLineVehicleSelectionIndices", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var tlIndices = (fTLIndices != null) ? fTLIndices.GetValue(tm) as Dictionary<ushort, int> : null;
+                FieldInfo fTLNames = typeof(TransportManager).GetField("m_transportLineVehicleSelection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var tlNames = (fTLNames != null) ? fTLNames.GetValue(tm) as Dictionary<ushort, string> : null;
+                if (tlIndices != null)
+                {
+                    List<ushort> toRemove = null;
+                    foreach (var kvp in tlIndices)
+                    {
+                        if (kvp.Value < 0 || kvp.Value >= vCount || PrefabCollection<VehicleInfo>.GetPrefab((uint)kvp.Value) == null)
+                        {
+                            if (toRemove == null) toRemove = new List<ushort>();
+                            toRemove.Add(kvp.Key);
+                        }
+                    }
+                    if (toRemove != null)
+                    {
+                        foreach (var key in toRemove)
+                        {
+                            tlIndices.Remove(key);
+                            if (tlNames != null) tlNames.Remove(key);
+                            sanitized++;
+                        }
+                    }
+                }
+
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                int vBufLen = (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) ? vm.m_vehicles.m_buffer.Length : 0;
+
                 for (int i = 0; i < tm.m_lines.m_buffer.Length; i++)
                 {
                     if (tm.m_lines.m_buffer[i].m_flags != TransportLine.Flags.None)
@@ -7143,12 +7485,16 @@ namespace MoreNetworkCapacityRenew
                             {
                                 tm.m_lines.m_buffer[i].m_stops = 0;
                             }
-                            VehicleManager vm = Singleton<VehicleManager>.instance;
-                            if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
+                            if (vBufLen > 0)
                             {
-                                if (tm.m_lines.m_buffer[i].m_vehicles >= vm.m_vehicles.m_buffer.Length)
+                                ushort vHead = tm.m_lines.m_buffer[i].m_vehicles;
+                                if (vHead != 0)
                                 {
-                                    tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                    if (vHead >= vBufLen || (vm.m_vehicles.m_buffer[vHead].m_flags & Vehicle.Flags.Created) == 0)
+                                    {
+                                        tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                        sanitized++;
+                                    }
                                 }
                             }
                         }
@@ -7156,7 +7502,7 @@ namespace MoreNetworkCapacityRenew
                 }
                 if (sanitized > 0)
                 {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeTransportLines: Cleared {0} corrupted/ghost transport lines.", sanitized));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeTransportLines: Cleared/sanitized {0} corrupted transport line items.", sanitized));
                 }
             }
             catch (Exception ex)
@@ -7228,6 +7574,38 @@ namespace MoreNetworkCapacityRenew
                 if (bm == null || bm.m_buildings == null || bm.m_buildings.m_buffer == null) return 0;
 
                 int prefabCount = PrefabCollection<BuildingInfo>.PrefabCount();
+                int vCount = PrefabCollection<VehicleInfo>.PrefabCount();
+
+                // Sanitize vehicle selection indices to prevent serialization crashes
+                FieldInfo fSBIndices = typeof(BuildingManager).GetField("m_serviceBuildingVehicleSelectionIndices", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var sbIndices = (fSBIndices != null) ? fSBIndices.GetValue(bm) as Dictionary<ushort, int> : null;
+                FieldInfo fSBNames = typeof(BuildingManager).GetField("m_serviceBuildingVehicleSelection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var sbNames = (fSBNames != null) ? fSBNames.GetValue(bm) as Dictionary<ushort, string> : null;
+                if (sbIndices != null)
+                {
+                    List<ushort> toRemove = null;
+                    foreach (var kvp in sbIndices)
+                    {
+                        if (kvp.Value < 0 || kvp.Value >= vCount || PrefabCollection<VehicleInfo>.GetPrefab((uint)kvp.Value) == null)
+                        {
+                            if (toRemove == null) toRemove = new List<ushort>();
+                            toRemove.Add(kvp.Key);
+                        }
+                    }
+                    if (toRemove != null)
+                    {
+                        foreach (var key in toRemove)
+                        {
+                            sbIndices.Remove(key);
+                            if (sbNames != null) sbNames.Remove(key);
+                            cleared++;
+                        }
+                    }
+                }
+
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                int vBufLen = (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) ? vm.m_vehicles.m_buffer.Length : 0;
+
                 for (int i = 1; i < bm.m_buildings.m_buffer.Length; i++)
                 {
                     if (bm.m_buildings.m_buffer[i].m_flags != Building.Flags.None)
@@ -7239,11 +7617,26 @@ namespace MoreNetworkCapacityRenew
                             bm.m_buildings.m_buffer[i].m_infoIndex = 0;
                             cleared++;
                         }
+                        else if (vBufLen > 0)
+                        {
+                            ushort own = bm.m_buildings.m_buffer[i].m_ownVehicles;
+                            if (own != 0 && (own >= vBufLen || (vm.m_vehicles.m_buffer[own].m_flags & Vehicle.Flags.Created) == 0))
+                            {
+                                bm.m_buildings.m_buffer[i].m_ownVehicles = 0;
+                                cleared++;
+                            }
+                            ushort guest = bm.m_buildings.m_buffer[i].m_guestVehicles;
+                            if (guest != 0 && (guest >= vBufLen || (vm.m_vehicles.m_buffer[guest].m_flags & Vehicle.Flags.Created) == 0))
+                            {
+                                bm.m_buildings.m_buffer[i].m_guestVehicles = 0;
+                                cleared++;
+                            }
+                        }
                     }
                 }
                 if (cleared > 0)
                 {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeBuildings: Cleared {0} buildings with invalid prefabs.", cleared));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeBuildings: Cleared/sanitized {0} building items.", cleared));
                 }
             }
             catch (Exception ex)
@@ -7275,12 +7668,31 @@ namespace MoreNetworkCapacityRenew
                             nm.m_segments.m_buffer[i].m_infoIndex = 0;
                             cleared++;
                         }
-                        else if (nm.m_segments.m_buffer[i].m_treeInfoIndex != 65535)
+                        else
                         {
-                            if (nm.m_segments.m_buffer[i].m_treeInfoIndex >= treeCount || PrefabCollection<TreeInfo>.GetPrefab(nm.m_segments.m_buffer[i].m_treeInfoIndex) == null)
+                            if (nm.m_segments.m_buffer[i].m_treeInfoIndex != 65535)
                             {
-                                nm.m_segments.m_buffer[i].m_treeInfoIndex = 65535;
-                                cleared++;
+                                if (nm.m_segments.m_buffer[i].m_treeInfoIndex >= treeCount || PrefabCollection<TreeInfo>.GetPrefab(nm.m_segments.m_buffer[i].m_treeInfoIndex) == null)
+                                {
+                                    nm.m_segments.m_buffer[i].m_treeInfoIndex = 65535;
+                                    cleared++;
+                                }
+                            }
+                            if (nm.m_segments.m_buffer[i].m_leftFenceInfoIndex != 65535)
+                            {
+                                if (nm.m_segments.m_buffer[i].m_leftFenceInfoIndex >= netCount || PrefabCollection<NetInfo>.GetPrefab(nm.m_segments.m_buffer[i].m_leftFenceInfoIndex) == null)
+                                {
+                                    nm.m_segments.m_buffer[i].m_leftFenceInfoIndex = 65535;
+                                    cleared++;
+                                }
+                            }
+                            if (nm.m_segments.m_buffer[i].m_rightFenceInfoIndex != 65535)
+                            {
+                                if (nm.m_segments.m_buffer[i].m_rightFenceInfoIndex >= netCount || PrefabCollection<NetInfo>.GetPrefab(nm.m_segments.m_buffer[i].m_rightFenceInfoIndex) == null)
+                                {
+                                    nm.m_segments.m_buffer[i].m_rightFenceInfoIndex = 65535;
+                                    cleared++;
+                                }
                             }
                         }
                     }
@@ -7302,12 +7714,80 @@ namespace MoreNetworkCapacityRenew
 
                 if (cleared > 0)
                 {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeNetElements: Cleared {0} net elements with invalid prefabs.", cleared));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeNetElements: Cleared/sanitized {0} net elements with invalid prefabs or fence indices.", cleared));
                 }
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeNetElements error: " + ex);
+            }
+            return cleared;
+        }
+
+        public static int SanitizeProps()
+        {
+            int cleared = 0;
+            try
+            {
+                PropManager pm = Singleton<PropManager>.instance;
+                if (pm == null || pm.m_props == null || pm.m_props.m_buffer == null) return 0;
+
+                int propCount = PrefabCollection<PropInfo>.PrefabCount();
+                for (int i = 1; i < pm.m_props.m_buffer.Length; i++)
+                {
+                    if (pm.m_props.m_buffer[i].m_flags != 0)
+                    {
+                        ushort infoIndex = pm.m_props.m_buffer[i].m_infoIndex;
+                        if (infoIndex >= propCount || PrefabCollection<PropInfo>.GetPrefab(infoIndex) == null)
+                        {
+                            pm.m_props.m_buffer[i].m_flags = 0;
+                            pm.m_props.m_buffer[i].m_infoIndex = 0;
+                            cleared++;
+                        }
+                    }
+                }
+                if (cleared > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeProps: Cleared {0} props with invalid prefabs.", cleared));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeProps error: " + ex);
+            }
+            return cleared;
+        }
+
+        public static int SanitizeTrees()
+        {
+            int cleared = 0;
+            try
+            {
+                TreeManager tm = Singleton<TreeManager>.instance;
+                if (tm == null || tm.m_trees == null || tm.m_trees.m_buffer == null) return 0;
+
+                int treeCount = PrefabCollection<TreeInfo>.PrefabCount();
+                for (int i = 1; i < tm.m_trees.m_buffer.Length; i++)
+                {
+                    if (tm.m_trees.m_buffer[i].m_flags != 0)
+                    {
+                        ushort infoIndex = tm.m_trees.m_buffer[i].m_infoIndex;
+                        if (infoIndex >= treeCount || PrefabCollection<TreeInfo>.GetPrefab(infoIndex) == null)
+                        {
+                            tm.m_trees.m_buffer[i].m_flags = 0;
+                            tm.m_trees.m_buffer[i].m_infoIndex = 0;
+                            cleared++;
+                        }
+                    }
+                }
+                if (cleared > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeTrees: Cleared {0} trees with invalid prefabs.", cleared));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTrees error: " + ex);
             }
             return cleared;
         }

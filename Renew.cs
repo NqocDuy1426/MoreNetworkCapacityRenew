@@ -5194,20 +5194,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] KianCommons patching error: " + ex);
                 }
 
-                try
-                {
-                    MethodInfo relSegM = typeof(NetManager).GetMethod("ReleaseSegmentImplementation", BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(bool) }, null);
-                    if (relSegM != null)
-                    {
-                        var post = typeof(VehicleAndTransportRepair).GetMethod(nameof(VehicleAndTransportRepair.NetManager_ReleaseSegmentImplementation_Postfix));
-                        harmony.Patch(relSegM, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.ReleaseSegmentImplementation for auto-despawn on bulldozed roads.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ReleaseSegmentImplementation: " + ex);
-                }
+
 
                 // Network AI simulation slices (up to 65K nodes & segments) are handled 100% natively by MoreNetworkCapacity.Core (NetworkSimulationSlicePatch transpiler).
                 // No duplicate C# reflection/substep simulation loop to ensure maximum FPS performance!
@@ -7526,8 +7513,6 @@ namespace MoreNetworkCapacityRenew
 
     public class MNC_ThreadingExtension : ThreadingExtensionBase
     {
-        private int _frameWatchdog = 0;
-
         public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
         {
             // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles, unblock frozen queues, and reactivate city logistics
@@ -7539,26 +7524,6 @@ namespace MoreNetworkCapacityRenew
                 int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
                 int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) executed: cleaned {0} dead vehicles, unblocked {1} frozen vehicles, reactivated {2} logistics entities.", cleaned, unblocked, reactivated));
-            }
-
-            // Continuous Background Watchdog (Layer 3 & 4)
-            _frameWatchdog++;
-            if (_frameWatchdog >= 1800) // ~30-60s simulation time
-            {
-                _frameWatchdog = 0;
-                try
-                {
-                    // Layer 3: Watch for array shrinkage & auto-repair
-                    if (ArrayGuardian.HasShrinkage())
-                    {
-                        UnityEngine.Debug.LogWarning("[ArrayGuardian Watchdog] Array shrinkage detected during gameplay! Auto-repairing arrays...");
-                        ArrayGuardian.RepairAllArrays();
-                    }
-
-                    // Layer 4: Periodic stuck vehicle rescue (recovers traffic density and AI pathing)
-                    VehicleAndTransportRepair.UnstickFrozenVehicles();
-                }
-                catch { }
             }
         }
     }

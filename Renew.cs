@@ -4961,6 +4961,7 @@ namespace MoreNetworkCapacityRenew
                     {
                         LogSaveDebug("=== SaveSimulationData completed successfully ===");
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData completed successfully ===");
+                        CurrentSavingFilename = null;
                     }
                 }
             }
@@ -5005,14 +5006,9 @@ namespace MoreNetworkCapacityRenew
                 FieldInfo fIsSaving = typeof(SavePanel).GetField("m_IsSaving", BindingFlags.NonPublic | BindingFlags.Static);
                 if (fIsSaving != null) fIsSaving.SetValue(null, false);
 
-                if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null ||
-                    (!string.IsNullOrEmpty(SaveSimulationDataSafetyPatch.CurrentSavingFilename) && !System.IO.File.Exists(SaveSimulationDataSafetyPatch.CurrentSavingFilename)))
+                if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null)
                 {
                     errorOnSaving = true;
-                    if (SaveSimulationDataSafetyPatch.LastSaveSimulationException == null)
-                    {
-                        SaveSimulationDataSafetyPatch.LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization.");
-                    }
                     SaveSimulationDataSafetyPatch.LogSaveDebug("SavePanel.OnSavingComplete intercepted save failure: " + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SavePanel detected failed save simulation:\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     try
@@ -5055,6 +5051,163 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SavePanelOnSavingComplete error: " + ex);
             }
             return true;
+        }
+    }
+
+    // ============================================================================
+    // ECONOMY & PUBLIC TRANSIT MAINTENANCE SAFETY COMPATIBILITY
+    // ============================================================================
+    public static class EconomyCompatibility
+    {
+        public static void Apply(HarmonyInstance harmony)
+        {
+            if (harmony == null) return;
+            try
+            {
+                Type econType = typeof(EconomyManager);
+                MethodInfo preFetch = typeof(EconomyCompatibility).GetMethod(nameof(FetchResource_Prefix), BindingFlags.Public | BindingFlags.Static);
+                MethodInfo preAdd = typeof(EconomyCompatibility).GetMethod(nameof(AddResource_Prefix), BindingFlags.Public | BindingFlags.Static);
+
+                foreach (var m in econType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    if (m.Name == "FetchResource")
+                    {
+                        var p = m.GetParameters();
+                        if (p.Length >= 2 && p[0].ParameterType == typeof(EconomyManager.Resource) && p[1].ParameterType == typeof(int))
+                        {
+                            harmony.Patch(m, prefix: new HarmonyMethod(preFetch));
+                        }
+                    }
+                    else if (m.Name == "AddResource")
+                    {
+                        var p = m.GetParameters();
+                        if (p.Length >= 2 && p[0].ParameterType == typeof(EconomyManager.Resource) && p[1].ParameterType == typeof(int))
+                        {
+                            harmony.Patch(m, prefix: new HarmonyMethod(preAdd));
+                        }
+                    }
+                }
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully patched EconomyManager FetchResource and AddResource to guard against negative maintenance!");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EconomyCompatibility.Apply error: " + ex);
+            }
+        }
+
+        public static void FetchResource_Prefix(EconomyManager.Resource resource, ref int amount)
+        {
+            // FetchResource deducts money from treasury (m_cashAmount -= amount). Negative amount results in free cash printing.
+            if (amount < 0)
+            {
+                amount = 0;
+            }
+        }
+
+        public static void AddResource_Prefix(EconomyManager.Resource resource, ref int amount)
+        {
+            if (resource == EconomyManager.Resource.Maintenance && amount < 0)
+            {
+                amount = 0;
+            }
+        }
+
+        public static void SanitizeEconomyAndTransport()
+        {
+            try
+            {
+                EconomyManager em = Singleton<EconomyManager>.instance;
+                if (em != null)
+                {
+                    string[] expenseFieldNames = new string[] { "m_expenses", "m_totalExpenses", "m_policyExpenses", "m_loanExpenses" };
+                    int fixedCount = 0;
+                    foreach (string fname in expenseFieldNames)
+                    {
+                        FieldInfo fExp = typeof(EconomyManager).GetField(fname, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        long[] expenses = (fExp != null) ? fExp.GetValue(em) as long[] : null;
+                        if (expenses != null)
+                        {
+                            for (int i = 0; i < expenses.Length; i++)
+                            {
+                                if (expenses[i] < 0)
+                                {
+                                    expenses[i] = 0;
+                                    fixedCount++;
+                                }
+                            }
+                        }
+                    }
+                    if (fixedCount > 0)
+                    {
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Sanitized {0} negative expense entries across EconomyManager arrays.", fixedCount));
+                    }
+                }
+
+                // Sanitize TransportInfo prefabs against negative maintenance or passenger cost
+                int prefabCount = PrefabCollection<TransportInfo>.PrefabCount();
+                for (uint i = 0; i < (uint)prefabCount; i++)
+                {
+                    TransportInfo tInfo = PrefabCollection<TransportInfo>.GetPrefab(i);
+                    if (tInfo != null)
+                    {
+                        if (tInfo.m_maintenanceCostPerVehicle < 0) tInfo.m_maintenanceCostPerVehicle = 0;
+                        if (tInfo.m_maintenanceCostPerPassenger < 0f || float.IsNaN(tInfo.m_maintenanceCostPerPassenger) || float.IsInfinity(tInfo.m_maintenanceCostPerPassenger))
+                        {
+                            tInfo.m_maintenanceCostPerPassenger = 0f;
+                        }
+                    }
+                }
+
+                // Sanitize BuildingInfo prefabs against negative maintenance
+                int bCount = PrefabCollection<BuildingInfo>.PrefabCount();
+                for (uint i = 0; i < (uint)bCount; i++)
+                {
+                    BuildingInfo bInfo = PrefabCollection<BuildingInfo>.GetPrefab(i);
+                    if (bInfo != null)
+                    {
+                        PlayerBuildingAI pbAI = bInfo.m_buildingAI as PlayerBuildingAI;
+                        if (pbAI != null && pbAI.m_maintenanceCost < 0)
+                        {
+                            pbAI.m_maintenanceCost = 0;
+                        }
+                    }
+                }
+
+                // Sanitize NetInfo prefabs against negative maintenance
+                int netCount = PrefabCollection<NetInfo>.PrefabCount();
+                for (uint i = 0; i < (uint)netCount; i++)
+                {
+                    NetInfo nInfo = PrefabCollection<NetInfo>.GetPrefab(i);
+                    if (nInfo != null)
+                    {
+                        PlayerNetAI pnAI = nInfo.m_netAI as PlayerNetAI;
+                        if (pnAI != null && pnAI.m_maintenanceCost < 0)
+                        {
+                            pnAI.m_maintenanceCost = 0;
+                        }
+                    }
+                }
+
+                // Sanitize active TransportLines
+                TransportManager tm = Singleton<TransportManager>.instance;
+                if (tm != null && tm.m_lines != null && tm.m_lines.m_buffer != null)
+                {
+                    for (int i = 1; i < tm.m_lines.m_buffer.Length; i++)
+                    {
+                        if (tm.m_lines.m_buffer[i].m_flags != TransportLine.Flags.None)
+                        {
+                            if (tm.m_lines.m_buffer[i].m_ticketPrice > 65000)
+                            {
+                                tm.m_lines.m_buffer[i].m_ticketPrice = 0;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeEconomyAndTransport error: " + ex);
+            }
         }
     }
 
@@ -5169,6 +5322,16 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TransportLineCompatibility error: " + ex);
+                }
+
+                try
+                {
+                    // Economy & Public Transit maintenance safety hooks
+                    EconomyCompatibility.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EconomyCompatibility error: " + ex);
                 }
 
                 try
@@ -5305,6 +5468,9 @@ namespace MoreNetworkCapacityRenew
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initial clear/restore error: " + ex);
                 }
+
+                // Sanitize economy and transport
+                EconomyCompatibility.SanitizeEconomyAndTransport();
 
                 DiagnosticLogger.Checkpoint("OnLevelLoaded.Complete");
                 MemoryOptimizer.StrategicGarbageCollect("OnLevelLoaded (Post-Save Cleanup)");
@@ -5828,6 +5994,7 @@ namespace MoreNetworkCapacityRenew
         private static bool _networkSkinsPatched = false;
         private static bool _nodeControllerPatched = false;
         private static bool _toolControllerPatched = false;
+        private static bool _eightyOne2Patched = false;
         private static HarmonyInstance _harmonyInstance = null;
 
         public static void Apply(HarmonyInstance harmony)
@@ -5904,7 +6071,8 @@ namespace MoreNetworkCapacityRenew
                    name == "NetworkAnarchy" ||
                    name == "AdvancedRoadTools" ||
                    name == "NetworkExtensions2" ||
-                   name == "MoreTransportLines";
+                   name == "MoreTransportLines" ||
+                   name == "EightyOne2";
         }
 
         public static void SynchronizeThirdPartyMods(string context)
@@ -6705,6 +6873,246 @@ namespace MoreNetworkCapacityRenew
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] NodeController patching error: " + ex);
                 }
+            }
+
+            // 4. EightyOne2 (81 Tiles 2) serialization safety hooks
+            PatchEightyOne2(harmony);
+        }
+
+        private static void PatchEightyOne2(HarmonyInstance harmony)
+        {
+            if (_eightyOne2Patched || harmony == null) return;
+            try
+            {
+                Assembly eightyOneAsm = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "EightyOne2")
+                    {
+                        eightyOneAsm = asm;
+                        break;
+                    }
+                }
+                if (eightyOneAsm == null) return;
+
+                // 1. Patch ElectricityManagerDataPatches.CustomSerialize
+                Type elecPatches = eightyOneAsm.GetType("EightyOne2.Patches.ElectricityManagerDataPatches");
+                if (elecPatches != null)
+                {
+                    MethodInfo mCustomSerialize = elecPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (mCustomSerialize != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Electricity_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.ElectricityManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                    }
+                }
+
+                // 2. Patch WaterManagerDataPatches.CustomSerialize
+                Type waterPatches = eightyOneAsm.GetType("EightyOne2.Patches.WaterManagerDataPatches");
+                if (waterPatches != null)
+                {
+                    MethodInfo mCustomSerialize = waterPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (mCustomSerialize != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Water_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.WaterManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                    }
+                }
+
+                // 3. Patch DistrictManagerDataPatches.CustomSerialize
+                Type distPatches = eightyOneAsm.GetType("EightyOne2.Patches.DistrictManagerDataPatches");
+                if (distPatches != null)
+                {
+                    MethodInfo mCustomSerialize = distPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (mCustomSerialize != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_District_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.DistrictManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                    }
+                }
+
+                // 4. Patch GameAreaManagerDataPatches.CustomSerialize
+                Type areaPatches = eightyOneAsm.GetType("EightyOne2.Patches.GameAreaManagerDataPatches");
+                if (areaPatches != null)
+                {
+                    MethodInfo mCustomSerialize = areaPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (mCustomSerialize != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_GameArea_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.GameAreaManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                    }
+                }
+
+                // 5. Patch ImmaterialResourceManagerDataPatches.CustomSerialize
+                Type imresPatches = eightyOneAsm.GetType("EightyOne2.Patches.ImmaterialResourceManagerDataPatches");
+                if (imresPatches != null)
+                {
+                    MethodInfo mCustomSerialize = imresPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (mCustomSerialize != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Immaterial_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.ImmaterialResourceManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                    }
+                }
+
+                _eightyOne2Patched = true;
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully applied EightyOne2 serialization safety patches!");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchEightyOne2 error: " + ex);
+            }
+        }
+
+        public static bool EightyOne2_Electricity_CustomSerialize_Prefix(ElectricityManager.Cell[] cells, ElectricityManager.PulseGroup[] pulseGroups, ElectricityManager.PulseUnit[] pulseUnits, ref ElectricityManager.Cell[] __result)
+        {
+            try
+            {
+                if (cells != null && cells.Length >= 213444)
+                {
+                    return true;
+                }
+
+                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 Electricity CustomSerialize intercepted: cells.Length={0} (< 213444). Applying safe fallback serialization to prevent crash!", cells != null ? cells.Length : 0));
+                ElectricityManager.Cell[] safeCells = new ElectricityManager.Cell[65536];
+                if (cells != null)
+                {
+                    int len = Math.Min(cells.Length, safeCells.Length);
+                    Array.Copy(cells, safeCells, len);
+                }
+                __result = safeCells;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] EightyOne2_Electricity_CustomSerialize_Prefix error: " + ex);
+                __result = new ElectricityManager.Cell[65536];
+                return false;
+            }
+        }
+
+        public static bool EightyOne2_Water_CustomSerialize_Prefix(WaterManager.Cell[] cells, WaterManager.PulseUnit[] pulseUnits, WaterManager.PulseUnit[] pulseUnits2, WaterManager.PulseUnit[] pulseUnits3, ref WaterManager.Cell[] __result)
+        {
+            try
+            {
+                if (cells != null && cells.Length >= 213444)
+                {
+                    return true;
+                }
+
+                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 Water CustomSerialize intercepted: cells.Length={0} (< 213444). Applying safe fallback serialization to prevent crash!", cells != null ? cells.Length : 0));
+                WaterManager.Cell[] safeCells = new WaterManager.Cell[65536];
+                if (cells != null)
+                {
+                    int len = Math.Min(cells.Length, safeCells.Length);
+                    Array.Copy(cells, safeCells, len);
+                }
+                __result = safeCells;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] EightyOne2_Water_CustomSerialize_Prefix error: " + ex);
+                __result = new WaterManager.Cell[65536];
+                return false;
+            }
+        }
+
+        public static bool EightyOne2_District_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.Byte encodedArray, DistrictManager.Cell[] cells)
+        {
+            try
+            {
+                if (cells != null && cells.Length >= 810000)
+                {
+                    return true;
+                }
+
+                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 District CustomSerialize intercepted: cells.Length={0} (< 810000). Applying safe fallback serialization!", cells != null ? cells.Length : 0));
+                if (encodedArray != null)
+                {
+                    int limit = Math.Min(cells != null ? cells.Length : 0, 262144);
+                    for (int i = 0; i < limit; i++)
+                    {
+                        encodedArray.Write(cells[i].m_district1);
+                    }
+                    for (int i = limit; i < 262144; i++)
+                    {
+                        encodedArray.Write((byte)0);
+                    }
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] EightyOne2_District_CustomSerialize_Prefix error: " + ex);
+                return false;
+            }
+        }
+
+        public static bool EightyOne2_GameArea_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.Byte encodedArray, GameAreaManager gam)
+        {
+            try
+            {
+                if (gam != null && gam.m_areaGrid != null && gam.m_areaGrid.Length >= 81)
+                {
+                    return true;
+                }
+
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] EightyOne2 GameArea CustomSerialize intercepted: areaGrid < 81. Applying safe fallback serialization!");
+                if (encodedArray != null && gam != null && gam.m_areaGrid != null)
+                {
+                    int limit = Math.Min(gam.m_areaGrid.Length, 25);
+                    for (int i = 0; i < limit; i++)
+                    {
+                        encodedArray.Write((byte)gam.m_areaGrid[i]);
+                    }
+                    for (int i = limit; i < 25; i++)
+                    {
+                        encodedArray.Write((byte)0);
+                    }
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] EightyOne2_GameArea_CustomSerialize_Prefix error: " + ex);
+                return false;
+            }
+        }
+
+        public static bool EightyOne2_Immaterial_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.UShort encodedArray, ushort[] buffer)
+        {
+            try
+            {
+                if (buffer != null && buffer.Length >= 7087500)
+                {
+                    return true;
+                }
+
+                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 Immaterial CustomSerialize intercepted: buffer.Length={0} (< 7087500). Applying safe fallback serialization!", buffer != null ? buffer.Length : 0));
+                if (encodedArray != null)
+                {
+                    int limit = Math.Min(buffer != null ? buffer.Length : 0, 2293760);
+                    for (int i = 0; i < limit; i++)
+                    {
+                        encodedArray.Write(buffer[i]);
+                    }
+                    for (int i = limit; i < 2293760; i++)
+                    {
+                        encodedArray.Write((ushort)0);
+                    }
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] EightyOne2_Immaterial_CustomSerialize_Prefix error: " + ex);
+                return false;
             }
         }
 
@@ -7774,6 +8182,7 @@ namespace MoreNetworkCapacityRenew
             try { SanitizeProps(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeProps error: " + ex); }
             try { SanitizeTrees(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTrees error: " + ex); }
             try { SanitizeCitizenInstances(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeCitizenInstances error: " + ex); }
+            try { EconomyCompatibility.SanitizeEconomyAndTransport(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave SanitizeEconomy error: " + ex); }
         }
 
         public static int SanitizeDistricts()

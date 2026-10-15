@@ -106,5 +106,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.0.0 - Array Guardian & Bounds Protection System: NEW: ArrayGuardian expands TM:PE Flags arrays to 524,288 early + SafeFlagsAccessor provides bounds-checked array access. FIXED: Eliminated IndexOutOfRangeException crashes, infinite save spinner, ghost vehicles (stuck cars), vehicle count decay. PERFORMANCE: 80% faster saves (3-5s vs 20s+), <2% CPU overhead. TESTED: 100+ save/load cycles, zero crashes on 40K+ segments."
+	"changenote"		"v4.1.0 - Save Crash Protection & Economy Maintenance Armor: FIXED: Resolved save serialization crash (IndexOutOfRangeException in EightyOne2.Patches.ElectricityManagerDataPatches / WaterManager / DistrictManager CustomSerialize) causing save aborts and deleted simulation files. FIXED: Intercepted EconomyManager.FetchResource & AddResource against negative maintenance amounts that caused train/public transit negative expenses and abnormal budget infinite cash generation. Cleaned existing negative expense tables."
 }

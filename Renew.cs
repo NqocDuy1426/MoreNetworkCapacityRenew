@@ -1285,13 +1285,13 @@ namespace MoreNetworkCapacityRenew
                 NetManager nm = Singleton<NetManager>.instance;
                 if (nm != null)
                 {
-                    SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer);
-                    SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", nm.m_nodes.m_buffer);
-                    SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer);
+                    if (nm.m_segments != null && nm.m_segments.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer);
+                    if (nm.m_nodes != null && nm.m_nodes.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", nm.m_nodes.m_buffer);
+                    if (nm.m_lanes != null && nm.m_lanes.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer);
                 }
 
                 BuildingManager bm = Singleton<BuildingManager>.instance;
-                if (bm != null)
+                if (bm != null && bm.m_buildings != null && bm.m_buildings.m_buffer != null)
                 {
                     SetStaticField(tmpe, "TrafficManager.Util.Extensions.BuildingExtensions", "_buildingBuffer", bm.m_buildings.m_buffer);
                 }
@@ -1299,8 +1299,8 @@ namespace MoreNetworkCapacityRenew
                 VehicleManager vm = Singleton<VehicleManager>.instance;
                 if (vm != null)
                 {
-                    SetStaticField(tmpe, "TrafficManager.Util.Extensions.VehicleExtensions", "_vehicleBuffer", vm.m_vehicles.m_buffer);
-                    SetStaticField(tmpe, "TrafficManager.Util.Extensions.ParkedVehicleExtensions", "_parkedVehiclesBuffer", vm.m_parkedVehicles.m_buffer);
+                    if (vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.VehicleExtensions", "_vehicleBuffer", vm.m_vehicles.m_buffer);
+                    if (vm.m_parkedVehicles != null && vm.m_parkedVehicles.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.ParkedVehicleExtensions", "_parkedVehiclesBuffer", vm.m_parkedVehicles.m_buffer);
                 }
 
                 // 2. Flags static arrays
@@ -2849,13 +2849,15 @@ namespace MoreNetworkCapacityRenew
                 PropertyInfo pSelNode = t.GetProperty("SelectedNodeId", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 ushort selectedNodeId = pSelNode != null ? (ushort)pSelNode.GetValue(__instance, null) : (ushort)0;
 
-                int maxNode = 65024;
-                if (NetManager.instance != null && NetManager.instance.m_nodes != null && NetManager.instance.m_nodes.m_buffer != null)
-                    maxNode = Math.Min(maxNode, NetManager.instance.m_nodes.m_buffer.Length);
+                if (NetManager.instance == null || NetManager.instance.m_nodes == null || NetManager.instance.m_nodes.m_buffer == null)
+                    return true;
+
+                int maxNode = Math.Min(65024, NetManager.instance.m_nodes.m_buffer.Length);
+                NetNode[] nodeBuffer = NetManager.instance.m_nodes.m_buffer;
 
                 for (int nodeId = 0; nodeId < maxNode; nodeId++)
                 {
-                    if (NetManager.instance != null && (NetManager.instance.m_nodes.m_buffer[nodeId].m_flags & NetNode.Flags.Created) != 0)
+                    if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) != 0)
                     {
                         bool may = mayHaveSigns != null && (bool)mayHaveSigns.Invoke(tpmInst, new object[] { (ushort)nodeId });
                         if (may)
@@ -2906,14 +2908,17 @@ namespace MoreNetworkCapacityRenew
                 MethodInfo hasRestr = jrmType.GetMethod("HasJunctionRestrictions", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
                 if (hasRestr == null) return true;
 
+                if (NetManager.instance == null || NetManager.instance.m_nodes == null || NetManager.instance.m_nodes.m_buffer == null)
+                    return true;
+
                 int minNode = (forceNodeId == 0 ? 1 : (int)forceNodeId);
                 int maxNode = (forceNodeId == 0 ? 65024 : (int)forceNodeId + 1);
-                if (NetManager.instance != null && NetManager.instance.m_nodes != null && NetManager.instance.m_nodes.m_buffer != null)
-                    maxNode = Math.Min(maxNode, NetManager.instance.m_nodes.m_buffer.Length);
+                maxNode = Math.Min(maxNode, NetManager.instance.m_nodes.m_buffer.Length);
+                NetNode[] nodeBuffer = NetManager.instance.m_nodes.m_buffer;
 
                 for (int nid = minNode; nid < maxNode; nid++)
                 {
-                    if (NetManager.instance != null && (NetManager.instance.m_nodes.m_buffer[nid].m_flags & NetNode.Flags.Created) != 0)
+                    if ((nodeBuffer[nid].m_flags & NetNode.Flags.Created) != 0)
                     {
                         if ((bool)hasRestr.Invoke(jrmInst, new object[] { (ushort)nid }))
                         {
@@ -3382,7 +3387,9 @@ namespace MoreNetworkCapacityRenew
                 }
 
                 // 3. Fall back to NetSegment Info lane speed limit if laneInfo was null
-                if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId < (uint)NetManager.instance.m_lanes.m_buffer.Length)
+                if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null &&
+                    NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null &&
+                    laneId < (uint)NetManager.instance.m_lanes.m_buffer.Length)
                 {
                     ushort segId = NetManager.instance.m_lanes.m_buffer[laneId].m_segment;
                     if (segId != 0 && segId < NetManager.instance.m_segments.m_buffer.Length)
@@ -3392,7 +3399,7 @@ namespace MoreNetworkCapacityRenew
                         {
                             uint curLane = NetManager.instance.m_segments.m_buffer[segId].m_lanes;
                             int laneIdx = 0;
-                            while (curLane != 0 && laneIdx < segInfo.m_lanes.Length)
+                            while (curLane != 0 && curLane < (uint)NetManager.instance.m_lanes.m_buffer.Length && laneIdx < segInfo.m_lanes.Length)
                             {
                                 if (curLane == laneId)
                                 {
@@ -3420,6 +3427,14 @@ namespace MoreNetworkCapacityRenew
 
         public static bool SpeedLimitManager_GetGameSpeedLimit4_Prefix(ushort segmentId, byte laneIndex, uint laneId, NetInfo.Lane laneInfo, ref float __result)
         {
+            if (laneInfo == null && segmentId != 0 && NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null && segmentId < NetManager.instance.m_segments.m_buffer.Length)
+            {
+                NetInfo sInfo = NetManager.instance.m_segments.m_buffer[segmentId].Info;
+                if (sInfo != null && sInfo.m_lanes != null && laneIndex < sInfo.m_lanes.Length)
+                {
+                    laneInfo = sInfo.m_lanes[laneIndex];
+                }
+            }
             return SpeedLimitManager_GetGameSpeedLimit_Prefix(laneId, laneInfo, ref __result);
         }
 
@@ -3791,7 +3806,8 @@ namespace MoreNetworkCapacityRenew
                 {
                     PathManager pm = Singleton<PathManager>.instance;
                     NetManager nm = Singleton<NetManager>.instance;
-                    if (pm != null && nm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pathId < pm.m_pathUnits.m_buffer.Length)
+                    if (pm != null && nm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
+                        nm.m_segments != null && nm.m_segments.m_buffer != null && pathId < pm.m_pathUnits.m_buffer.Length)
                     {
                         int posIdx = (int)(vehicleData.m_pathPositionIndex >> 1);
                         PathUnit.Position pPos;
@@ -3857,8 +3873,8 @@ namespace MoreNetworkCapacityRenew
             if (!loggedOnce)
             {
                 loggedOnce = true;
-                int nodeCount = __instance.m_nodes.m_buffer != null ? __instance.m_nodes.m_buffer.Length : 0;
-                int segCount = __instance.m_segments.m_buffer != null ? __instance.m_segments.m_buffer.Length : 0;
+                int nodeCount = (__instance.m_nodes != null && __instance.m_nodes.m_buffer != null) ? __instance.m_nodes.m_buffer.Length : 0;
+                int segCount = (__instance.m_segments != null && __instance.m_segments.m_buffer != null) ? __instance.m_segments.m_buffer.Length : 0;
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] NetManager.SimulationStepImpl Postfix RUNNING! frameIndex={0} nodeBuffer={1} segBuffer={2}", frameIndex, nodeCount, segCount));
             }
 
@@ -3867,7 +3883,7 @@ namespace MoreNetworkCapacityRenew
             int nodeEnd = nodeStart + 126;
             if (nodeEnd > 65024) nodeEnd = 65024;
 
-            NetNode[] nodes = __instance.m_nodes.m_buffer;
+            NetNode[] nodes = __instance.m_nodes != null ? __instance.m_nodes.m_buffer : null;
             if (nodes != null)
             {
                 int maxNode = Math.Min(nodeEnd, nodes.Length);
@@ -3901,7 +3917,7 @@ namespace MoreNetworkCapacityRenew
             int segEnd = segStart + 110;
             if (segEnd > 65024) segEnd = 65024;
 
-            NetSegment[] segments = __instance.m_segments.m_buffer;
+            NetSegment[] segments = __instance.m_segments != null ? __instance.m_segments.m_buffer : null;
             if (segments != null)
             {
                 int maxSeg = Math.Min(segEnd, segments.Length);
@@ -3930,7 +3946,7 @@ namespace MoreNetworkCapacityRenew
                 }
 
                 // Exactly like vanilla: only update segment colors when InfoManager mode != None or wetness changed
-                if (Singleton<InfoManager>.exists)
+                if (Singleton<InfoManager>.exists && Singleton<InfoManager>.instance != null)
                 {
                     var mode = Singleton<InfoManager>.instance.CurrentMode;
                     if (mode != InfoManager.InfoMode.None || __instance.m_wetnessChanged != 0)
@@ -3950,7 +3966,7 @@ namespace MoreNetworkCapacityRenew
     {
         public static void Postfix(NetManager __instance)
         {
-            if (__instance == null || __instance.m_segments.m_buffer == null) return;
+            if (__instance == null || __instance.m_segments == null || __instance.m_segments.m_buffer == null) return;
             if (__instance.m_segments.m_buffer.Length > 36864)
             {
                 __instance.UpdateSegmentColors(36864, (ushort)(__instance.m_segments.m_buffer.Length - 1));
@@ -3963,7 +3979,7 @@ namespace MoreNetworkCapacityRenew
     {
         public static void Postfix(NetManager __instance)
         {
-            if (__instance == null || __instance.m_nodes.m_buffer == null) return;
+            if (__instance == null || __instance.m_nodes == null || __instance.m_nodes.m_buffer == null) return;
             if (__instance.m_nodes.m_buffer.Length > 32768)
             {
                 __instance.UpdateNodeColors(32768, (ushort)(__instance.m_nodes.m_buffer.Length - 1));
@@ -3979,7 +3995,7 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 var nm = Singleton<NetManager>.instance;
-                if (nm != null && nm.m_segments.m_buffer != null && nm.m_nodes.m_buffer != null)
+                if (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
                 {
                     nm.UpdateSegmentColors(0, (ushort)(nm.m_segments.m_buffer.Length - 1));
                     nm.UpdateNodeColors(0, (ushort)(nm.m_nodes.m_buffer.Length - 1));
@@ -4397,55 +4413,67 @@ namespace MoreNetworkCapacityRenew
 
         private void SanitizeNetwork()
         {
-            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Starting network sanitization...");
-            int fixedCount = 0;
-            NetManager nm = Singleton<NetManager>.instance;
-            
-            for (int i = 1; i < nm.m_segments.m_size; i++)
+            try
             {
-                if ((nm.m_segments.m_buffer[i].m_flags & NetSegment.Flags.Created) != 0)
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Starting network sanitization...");
+                int fixedCount = 0;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null || nm.m_lanes == null || nm.m_lanes.m_buffer == null)
+                    return;
+
+                int segCount = Math.Min((int)nm.m_segments.m_size, nm.m_segments.m_buffer.Length);
+                int laneCount = nm.m_lanes.m_buffer.Length;
+
+                for (int i = 1; i < segCount; i++)
                 {
-                    NetInfo info = nm.m_segments.m_buffer[i].Info;
-                    if (info == null)
+                    if ((nm.m_segments.m_buffer[i].m_flags & NetSegment.Flags.Created) != 0)
                     {
-                        nm.m_segments.m_buffer[i].m_flags = NetSegment.Flags.None;
-                        fixedCount++;
-                        continue;
-                    }
+                        NetInfo info = nm.m_segments.m_buffer[i].Info;
+                        if (info == null)
+                        {
+                            nm.m_segments.m_buffer[i].m_flags = NetSegment.Flags.None;
+                            fixedCount++;
+                            continue;
+                        }
 
-                    if (info.m_lanes == null) continue;
-                    
-                    int maxLanes = info.m_lanes.Length;
-                    uint currentLane = nm.m_segments.m_buffer[i].m_lanes;
-                    int count = 0;
-                    uint prevLane = 0;
-                    
-                    while (currentLane != 0 && count < maxLanes)
-                    {
-                        prevLane = currentLane;
-                        currentLane = nm.m_lanes.m_buffer[currentLane].m_nextLane;
-                        count++;
-                    }
-                    
-                    if (currentLane != 0 && prevLane != 0)
-                    {
-                        nm.m_lanes.m_buffer[prevLane].m_nextLane = 0;
-                        fixedCount++;
-                    }
+                        if (info.m_lanes == null) continue;
 
-                    // Clean up abnormal traffic buffer or blocked flags caused by previous unsimulated segments
-                    if (nm.m_segments.m_buffer[i].m_trafficBuffer == 65535)
-                    {
-                        nm.m_segments.m_buffer[i].m_trafficBuffer = 0;
-                        nm.m_segments.m_buffer[i].m_flags &= ~NetSegment.Flags.Blocked;
-                    }
-                    if (nm.m_segments.m_buffer[i].m_trafficDensity > 100)
-                    {
-                        nm.m_segments.m_buffer[i].m_trafficDensity = 100;
+                        int maxLanes = info.m_lanes.Length;
+                        uint currentLane = nm.m_segments.m_buffer[i].m_lanes;
+                        int count = 0;
+                        uint prevLane = 0;
+
+                        while (currentLane != 0 && currentLane < (uint)laneCount && count < maxLanes)
+                        {
+                            prevLane = currentLane;
+                            currentLane = nm.m_lanes.m_buffer[currentLane].m_nextLane;
+                            count++;
+                        }
+
+                        if (currentLane != 0 && prevLane != 0 && prevLane < (uint)laneCount)
+                        {
+                            nm.m_lanes.m_buffer[prevLane].m_nextLane = 0;
+                            fixedCount++;
+                        }
+
+                        // Clean up abnormal traffic buffer or blocked flags caused by previous unsimulated segments
+                        if (nm.m_segments.m_buffer[i].m_trafficBuffer == 65535)
+                        {
+                            nm.m_segments.m_buffer[i].m_trafficBuffer = 0;
+                            nm.m_segments.m_buffer[i].m_flags &= ~NetSegment.Flags.Blocked;
+                        }
+                        if (nm.m_segments.m_buffer[i].m_trafficDensity > 100)
+                        {
+                            nm.m_segments.m_buffer[i].m_trafficDensity = 100;
+                        }
                     }
                 }
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Network sanitization complete. Fixed {0} corrupted segments.", fixedCount));
             }
-            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Network sanitization complete. Fixed {0} corrupted segments.", fixedCount));
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeNetwork error: " + ex);
+            }
         }
 
         private void SanitizeVehicleGrid()
@@ -5593,6 +5621,11 @@ namespace MoreNetworkCapacityRenew
                 if (nm == null) return;
                 var bm = Singleton<BuildingManager>.instance;
 
+                NetNode[] nodes = (nm.m_nodes != null) ? nm.m_nodes.m_buffer : null;
+                NetSegment[] segments = (nm.m_segments != null) ? nm.m_segments.m_buffer : null;
+                NetLane[] lanes = (nm.m_lanes != null) ? nm.m_lanes.m_buffer : null;
+                Building[] buildings = (bm != null && bm.m_buildings != null) ? bm.m_buildings.m_buffer : null;
+
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     if (asm.GetName().Name == "MoveIt")
@@ -5600,26 +5633,26 @@ namespace MoreNetworkCapacityRenew
                         Type actionType = asm.GetType("MoveIt.Action");
                         if (actionType != null)
                         {
-                            SetStaticField(actionType, "nodeBuffer", nm.m_nodes.m_buffer);
-                            SetStaticField(actionType, "segmentBuffer", nm.m_segments.m_buffer);
-                            if (bm != null) SetStaticField(actionType, "buildingBuffer", bm.m_buildings.m_buffer);
+                            if (nodes != null) SetStaticField(actionType, "nodeBuffer", nodes);
+                            if (segments != null) SetStaticField(actionType, "segmentBuffer", segments);
+                            if (buildings != null) SetStaticField(actionType, "buildingBuffer", buildings);
                         }
 
                         Type toolType = asm.GetType("MoveIt.MoveItTool");
                         if (toolType != null)
                         {
-                            SetStaticField(toolType, "nodeBuffer", nm.m_nodes.m_buffer);
-                            SetStaticField(toolType, "segmentBuffer", nm.m_segments.m_buffer);
-                            if (bm != null) SetStaticField(toolType, "buildingBuffer", bm.m_buildings.m_buffer);
+                            if (nodes != null) SetStaticField(toolType, "nodeBuffer", nodes);
+                            if (segments != null) SetStaticField(toolType, "segmentBuffer", segments);
+                            if (buildings != null) SetStaticField(toolType, "buildingBuffer", buildings);
                         }
 
                         Type instType = asm.GetType("MoveIt.Instance");
                         if (instType != null)
                         {
-                            SetStaticField(instType, "nodeBuffer", nm.m_nodes.m_buffer);
-                            SetStaticField(instType, "segmentBuffer", nm.m_segments.m_buffer);
-                            SetStaticField(instType, "laneBuffer", nm.m_lanes.m_buffer);
-                            if (bm != null) SetStaticField(instType, "buildingBuffer", bm.m_buildings.m_buffer);
+                            if (nodes != null) SetStaticField(instType, "nodeBuffer", nodes);
+                            if (segments != null) SetStaticField(instType, "segmentBuffer", segments);
+                            if (lanes != null) SetStaticField(instType, "laneBuffer", lanes);
+                            if (buildings != null) SetStaticField(instType, "buildingBuffer", buildings);
                         }
 
                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Synchronized MoveIt static network & building buffers ({0})", context));
@@ -5640,14 +5673,18 @@ namespace MoreNetworkCapacityRenew
                 var nm = Singleton<NetManager>.instance;
                 if (nm == null) return;
 
+                NetNode[] nodes = (nm.m_nodes != null) ? nm.m_nodes.m_buffer : null;
+                NetSegment[] segments = (nm.m_segments != null) ? nm.m_segments.m_buffer : null;
+                NetLane[] lanes = (nm.m_lanes != null) ? nm.m_lanes.m_buffer : null;
+
                 foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
                     Type netUtilType = asm.GetType("KianCommons.NetUtil");
                     if (netUtilType != null)
                     {
-                        SetStaticField(netUtilType, "nodeBuffer_", nm.m_nodes.m_buffer);
-                        SetStaticField(netUtilType, "segmentBuffer_", nm.m_segments.m_buffer);
-                        SetStaticField(netUtilType, "laneBuffer_", nm.m_lanes.m_buffer);
+                        if (nodes != null) SetStaticField(netUtilType, "nodeBuffer_", nodes);
+                        if (segments != null) SetStaticField(netUtilType, "segmentBuffer_", segments);
+                        if (lanes != null) SetStaticField(netUtilType, "laneBuffer_", lanes);
                         SetStaticField(netUtilType, "netMan", nm);
                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Synchronized KianCommons.NetUtil buffers ({0})", context));
                     }
@@ -5985,7 +6022,9 @@ namespace MoreNetworkCapacityRenew
                 TransportManager tm = Singleton<TransportManager>.instance;
                 NetManager nm = Singleton<NetManager>.instance;
                 VehicleManager vm = Singleton<VehicleManager>.instance;
-                if (tm == null || tm.m_lines == null || tm.m_lines.m_buffer == null || nm == null || nm.m_nodes == null) return 0;
+                if (tm == null || tm.m_lines == null || tm.m_lines.m_buffer == null ||
+                    nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null ||
+                    nm.m_segments == null || nm.m_segments.m_buffer == null) return 0;
 
                 int nodeLimit = nm.m_nodes.m_buffer.Length;
                 int prefabCount = PrefabCollection<TransportInfo>.PrefabCount();
@@ -6857,13 +6896,20 @@ namespace MoreNetworkCapacityRenew
 
         private static void ReleasePhantomCitizen(CitizenManager cm, BuildingManager bm, VehicleManager vm, uint citizen, CitizenUnit.Flags unitFlags, ushort bId, ushort vId)
         {
+            if (cm == null || cm.m_citizens == null || cm.m_citizens.m_buffer == null) return;
             if (citizen == 0 || citizen >= cm.m_citizens.m_buffer.Length) return;
             if ((cm.m_citizens.m_buffer[citizen].m_flags & Citizen.Flags.Created) == 0) return;
+
+            bool hasBm = bm != null && bm.m_buildings != null && bm.m_buildings.m_buffer != null;
+            int bLen = hasBm ? bm.m_buildings.m_buffer.Length : 0;
+
+            bool hasVm = vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null;
+            int vLen = hasVm ? vm.m_vehicles.m_buffer.Length : 0;
 
             if ((unitFlags & CitizenUnit.Flags.Home) != 0)
             {
                 ushort home = cm.m_citizens.m_buffer[citizen].m_homeBuilding;
-                if (home == bId || home == 0 || (bm != null && (bm.m_buildings.m_buffer[home].m_flags & Building.Flags.Created) == 0))
+                if (home == bId || home == 0 || (hasBm && (home >= bLen || (bm.m_buildings.m_buffer[home].m_flags & Building.Flags.Created) == 0)))
                 {
                     cm.m_citizens.m_buffer[citizen].m_homeBuilding = 0;
                 }
@@ -6871,7 +6917,7 @@ namespace MoreNetworkCapacityRenew
             if ((unitFlags & (CitizenUnit.Flags.Work | CitizenUnit.Flags.Student)) != 0)
             {
                 ushort work = cm.m_citizens.m_buffer[citizen].m_workBuilding;
-                if (work == bId || work == 0 || (bm != null && (bm.m_buildings.m_buffer[work].m_flags & Building.Flags.Created) == 0))
+                if (work == bId || work == 0 || (hasBm && (work >= bLen || (bm.m_buildings.m_buffer[work].m_flags & Building.Flags.Created) == 0)))
                 {
                     cm.m_citizens.m_buffer[citizen].m_workBuilding = 0;
                 }
@@ -6879,7 +6925,7 @@ namespace MoreNetworkCapacityRenew
             if ((unitFlags & CitizenUnit.Flags.Visit) != 0)
             {
                 ushort visit = cm.m_citizens.m_buffer[citizen].m_visitBuilding;
-                if (visit == bId || visit == 0 || (bm != null && (bm.m_buildings.m_buffer[visit].m_flags & Building.Flags.Created) == 0))
+                if (visit == bId || visit == 0 || (hasBm && (visit >= bLen || (bm.m_buildings.m_buffer[visit].m_flags & Building.Flags.Created) == 0)))
                 {
                     cm.m_citizens.m_buffer[citizen].m_visitBuilding = 0;
                 }
@@ -6887,7 +6933,7 @@ namespace MoreNetworkCapacityRenew
             if ((unitFlags & CitizenUnit.Flags.Hotel) != 0)
             {
                 ushort hotel = cm.m_citizens.m_buffer[citizen].m_hotelBuilding;
-                if (hotel == bId || hotel == 0 || (bm != null && (bm.m_buildings.m_buffer[hotel].m_flags & Building.Flags.Created) == 0))
+                if (hotel == bId || hotel == 0 || (hasBm && (hotel >= bLen || (bm.m_buildings.m_buffer[hotel].m_flags & Building.Flags.Created) == 0)))
                 {
                     cm.m_citizens.m_buffer[citizen].m_hotelBuilding = 0;
                 }
@@ -6895,7 +6941,7 @@ namespace MoreNetworkCapacityRenew
             if ((unitFlags & CitizenUnit.Flags.Vehicle) != 0)
             {
                 ushort veh = cm.m_citizens.m_buffer[citizen].m_vehicle;
-                if (veh == vId || veh == 0 || (vm != null && (vm.m_vehicles.m_buffer[veh].m_flags & Vehicle.Flags.Created) == 0))
+                if (veh == vId || veh == 0 || (hasVm && (veh >= vLen || (vm.m_vehicles.m_buffer[veh].m_flags & Vehicle.Flags.Created) == 0)))
                 {
                     cm.m_citizens.m_buffer[citizen].m_vehicle = 0;
                 }
@@ -7095,70 +7141,86 @@ namespace MoreNetworkCapacityRenew
 
                 for (int i = startIndex; i < targetLen; i++)
                 {
-                    object entry = expandedData.GetValue(i);
-                    ushort lid = (ushort)i;
-                    bool isComplete = tm != null && tm.m_lines != null && tm.m_lines.m_buffer != null && i < tm.m_lines.m_buffer.Length && tm.m_lines.m_buffer[i].Complete;
-
-                    int targetVehCount = defaultVehicleCount;
-                    if (isComplete && countVehMethod != null)
+                    try
                     {
-                        try
+                        object entry = expandedData.GetValue(i);
+                        if (entry == null && elemType != null)
                         {
-                            object[] countArgs = new object[] { lid, 0, null };
-                            int active = (int)countVehMethod.Invoke(null, countArgs);
-                            if (active > 0) targetVehCount = active;
-                            else targetVehCount = Math.Max(defaultVehicleCount, 1);
+                            entry = Activator.CreateInstance(elemType);
                         }
-                        catch { }
-                    }
+                        if (entry == null) continue;
 
-                    ushort depot = 0;
-                    if (closestDepotMethod != null && isComplete && nm != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
-                    {
-                        try
+                        ushort lid = (ushort)i;
+                        bool isComplete = tm != null && tm.m_lines != null && tm.m_lines.m_buffer != null && i < tm.m_lines.m_buffer.Length && tm.m_lines.m_buffer[i].Complete;
+
+                        int targetVehCount = defaultVehicleCount;
+                        if (isComplete && countVehMethod != null)
                         {
-                            ushort stop = tm.m_lines.m_buffer[i].GetStop(0);
-                            if (stop < nm.m_nodes.m_buffer.Length)
+                            try
                             {
-                                UnityEngine.Vector3 pos = nm.m_nodes.m_buffer[stop].m_position;
-                                depot = (ushort)closestDepotMethod.Invoke(null, new object[] { lid, pos });
+                                object[] countArgs = new object[] { lid, 0, null };
+                                int active = (int)countVehMethod.Invoke(null, countArgs);
+                                if (active > 0) targetVehCount = active;
+                                else targetVehCount = Math.Max(defaultVehicleCount, 1);
                             }
+                            catch { }
                         }
-                        catch { }
-                    }
 
-                    if (setTargetVehCount != null) setTargetVehCount.Invoke(entry, new object[] { targetVehCount });
-                    if (setBudgetControl != null) setBudgetControl.Invoke(entry, new object[] { defaultBudgetControl });
-                    if (setDepot != null) setDepot.Invoke(entry, new object[] { depot });
-                    if (setUnbunching != null) setUnbunching.Invoke(entry, new object[] { defaultUnbunching });
-                    if (getPrefabs != null && setPrefabs != null && getPrefabs.Invoke(entry, null) == null)
-                    {
-                        setPrefabs.Invoke(entry, new object[] { Activator.CreateInstance(hashSetType) });
-                    }
-                    if (getQueuedVehicles != null && setQueuedVehicles != null && getQueuedVehicles.Invoke(entry, null) == null)
-                    {
-                        setQueuedVehicles.Invoke(entry, new object[] { Activator.CreateInstance(queueType) });
-                    }
+                        ushort depot = 0;
+                        if (closestDepotMethod != null && isComplete && nm != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
+                        {
+                            try
+                            {
+                                ushort stop = tm.m_lines.m_buffer[i].GetStop(0);
+                                if (stop < nm.m_nodes.m_buffer.Length)
+                                {
+                                    UnityEngine.Vector3 pos = nm.m_nodes.m_buffer[stop].m_position;
+                                    depot = (ushort)closestDepotMethod.Invoke(null, new object[] { lid, pos });
+                                }
+                            }
+                            catch { }
+                        }
 
-                    expandedData.SetValue(entry, i);
+                        if (setTargetVehCount != null) setTargetVehCount.Invoke(entry, new object[] { targetVehCount });
+                        if (setBudgetControl != null) setBudgetControl.Invoke(entry, new object[] { defaultBudgetControl });
+                        if (setDepot != null) setDepot.Invoke(entry, new object[] { depot });
+                        if (setUnbunching != null) setUnbunching.Invoke(entry, new object[] { defaultUnbunching });
+                        if (getPrefabs != null && setPrefabs != null && getPrefabs.Invoke(entry, null) == null)
+                        {
+                            setPrefabs.Invoke(entry, new object[] { Activator.CreateInstance(hashSetType) });
+                        }
+                        if (getQueuedVehicles != null && setQueuedVehicles != null && getQueuedVehicles.Invoke(entry, null) == null)
+                        {
+                            setQueuedVehicles.Invoke(entry, new object[] { Activator.CreateInstance(queueType) });
+                        }
+
+                        expandedData.SetValue(entry, i);
+                    }
+                    catch { }
                 }
 
                 // Also ensure entries 0..startIndex have non-null Prefabs and QueuedVehicles
                 for (int i = 0; i < startIndex; i++)
                 {
-                    object entry = expandedData.GetValue(i);
-                    bool modified = false;
-                    if (getPrefabs != null && setPrefabs != null && getPrefabs.Invoke(entry, null) == null)
+                    try
                     {
-                        setPrefabs.Invoke(entry, new object[] { Activator.CreateInstance(hashSetType) });
-                        modified = true;
+                        object entry = expandedData.GetValue(i);
+                        if (entry == null) continue;
+
+                        bool modified = false;
+                        if (getPrefabs != null && setPrefabs != null && getPrefabs.Invoke(entry, null) == null)
+                        {
+                            setPrefabs.Invoke(entry, new object[] { Activator.CreateInstance(hashSetType) });
+                            modified = true;
+                        }
+                        if (getQueuedVehicles != null && setQueuedVehicles != null && getQueuedVehicles.Invoke(entry, null) == null)
+                        {
+                            setQueuedVehicles.Invoke(entry, new object[] { Activator.CreateInstance(queueType) });
+                            modified = true;
+                        }
+                        if (modified) expandedData.SetValue(entry, i);
                     }
-                    if (getQueuedVehicles != null && setQueuedVehicles != null && getQueuedVehicles.Invoke(entry, null) == null)
-                    {
-                        setQueuedVehicles.Invoke(entry, new object[] { Activator.CreateInstance(queueType) });
-                        modified = true;
-                    }
-                    if (modified) expandedData.SetValue(entry, i);
+                    catch { }
                 }
 
                 // Register OnSaveData event

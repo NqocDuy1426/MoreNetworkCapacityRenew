@@ -6,26 +6,25 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v3.9.5 (Vehicles Refusing to Move Fix & 524K ExtLaneManager Expansion) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v3.9.6 (Game Save Pipeline Fix: Saving -> Packaging -> Saved) ✨[/h1]
 [list]
-[*] [b]Fixed Vehicles Refusing to Move on Valid Routes ('Không Chịu Đi'):[/b]
+[*] [b]Fixed In-Game Save Failing at 'Saving' Stage ('Chỉ Chạy Saving Rồi Thôi'):[/b]
 [list]
-    [*] Diagnosed and resolved the game-wide zero-speed deadlock where vehicles with valid routes, intact path units, and clear destinations would freeze at 0 velocity and refuse to accelerate.
-    [*] Added a safety guard to TM:PE's [i]VehicleBehaviorManager.MayChangeSegment[/i] and [i]CarAI.CalculateSegmentPosition[/i] preventing vehicles on highways and non-signal roads from being trapped in permanent 0-speed [i]Blocked[/i] states.
-    [*] Ensured vehicles on highways (which have no traffic lights or pedestrian crossings) are never assigned 0 maxSpeed.
-    [*] Added an automated queue unblocking engine that detects stopped vehicles with valid paths, resets their blocked counter, and kicks off acceleration along their route.
+    [*] Fixed the critical issue where clicking Save in-game would show 'Saving', then immediately disappear without ever transitioning to 'Packaging...' or creating a valid .crp save file.
+    [*] Decompiled the game's native save pipeline: If an exception occurs inside [i]DataSerializer.Serialize[/i], Unity's [i]SaveSimulationData[/i] catch block automatically deletes the temporary save file and exits. The game's [i]SaveGame[/i] coroutine then sees [i]!File.Exists[/i] and silently skips the 'Packaging' step without showing an error!
 [/list]
-[*] [b]Expanded TM:PE ExtLaneManager to 524,288 Lanes:[/b]
+[*] [b]Eliminated Save Serialization Exceptions:[/b]
 [list]
-    [*] TM:PE's internal [i]ExtLaneManager.lanes[/i] was originally fixed at 262,144 lanes. In 64K network cities, lanes exceed 262K, triggering unhandled [i]IndexOutOfRangeException[/i] on lane queries.
-    [*] Dynamically expanded [i]ExtLaneManager.lanes[/i] to full 524,288 capacity with proper [i]laneIndex = -1[/i] initialization, eliminating crashes in lane arrow validation and speed limit lookups.
+    [*] [b]Removed destructive citizen unit wiping:[/b] Removed the aggressive citizen unit purge which erroneously classified multi-family building units and transit passengers as phantoms, corrupting the [i]m_nextUnit[/i] linked lists during serialization.
+    [*] [b]Full Prefab Bounds Validation:[/b] Validated all entities across all managers before save serialization (Transport Lines, Active Vehicles, Parked Vehicles, Buildings, Network Segments, Network Nodes, Road Segment Trees, Citizen Instances, and Districts). Any corrupt or orphaned prefabs are safely cleared before reaching [i]PrefabCollection<T>.Serialize[/i], preventing [i]IndexOutOfRangeException[/i].
+    [*] [b]Removed DataSerializer WriteUInt24/WriteInt24 Harmony Hooks:[/b] Replaced low-level dynamic method detours with district counter clamping, preventing millions of unnecessary detour invocations in the high-frequency save loop.
 [/list]
-[*] [b]Protected Valid Vehicles from Accidental Despawning:[/b]
+[*] [b]Save Diagnostics & Exception Dialog:[/b]
 [list]
-    [*] Refined [i]VehicleBehaviorManager.MayDespawn[/i] so that vehicles with valid routes are actively unstuck and allowed to drive instead of being deleted after 150 frames.
-    [*] Clean despawn remains strictly reserved for vehicles whose road segments were bulldozed or demolished.
+    [*] Added detailed tracking on [i]LoadingManager.SaveSimulationData[/i] to log save milestones to [i]Player.log[/i].
+    [*] Added a safety guard to [i]SavePanel.OnSavingComplete[/i] that triggers an immediate modal notification dialog if a save file cannot be packaged, so players are never left wondering if their game saved.
 [/list]
-[*] [b]Hotkey:[/b] Press [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) to instantly unblock all frozen queues and clean demolished road vehicles!
+[*] [b]Hotkey:[/b] Press [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) to instantly unblock all frozen vehicle queues and clean demolished road vehicles!
 [/list]
 
 [hr][/hr]
@@ -102,5 +101,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v3.9.5: Fix Vehicles Refusing to Move ('Không Chịu Đi') & 524K ExtLaneManager Expansion: 1) Fixed vehicles with valid routes freezing at 0 speed by patching TM:PE VehicleBehaviorManager.MayChangeSegment and CarAI.CalculateSegmentPosition against false 0-speed Blocked traps. 2) Ensured highway segments never assign 0 maxSpeed. 3) Expanded TM:PE ExtLaneManager.lanes from 262,144 to full 524,288 capacity with laneIndex=-1 initialization, eliminating unhandled IndexOutOfRangeException. 4) Added background unsticking and hotkey (Ctrl+Shift+V) to wake up and accelerate queued vehicles along their routes with strict exclusions protecting public transport at stops/stations and vehicles at red traffic lights. 5) Protected valid vehicles from being accidentally despawned."
+	"changenote"		"v3.9.6: Game Save Pipeline Fix (Saving -> Packaging -> Saved): 1) Diagnosed and resolved the issue where clicking Save ran 'Saving' and vanished without packaging or saving the game. 2) Fixed native game SaveSimulationData catch block deleting temporary save file by eliminating serialization exceptions. 3) Removed destructive citizen unit wiping that corrupted m_nextUnit linked lists. 4) Implemented comprehensive pre-save prefab bounds sanitization across Vehicles, Parked Vehicles, Buildings, Net Segments, Nodes, Trees, Citizen Instances, and Transport Lines before PrefabCollection<T>.Serialize runs. 5) Removed high-frequency WriteUInt24/WriteInt24 detours in favor of district clamping. 6) Added save diagnostics and modal error dialog alerting if save file packaging fails."
 }

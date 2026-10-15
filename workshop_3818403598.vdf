@@ -106,5 +106,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.2.0 - Vehicle Stuck & Traffic Flow Recovery Engine: FIXED: Vehicles permanently frozen on demolished or modified road segments now despawn immediately. FIXED: Traffic volume gradual decay and spawn throttling resolved by fixing TM:PE speed limit / lane arrow array boundaries (524K lanes) and rebuilding vehicle quota counts cleanly. FIXED: Clear traffic respawn lockup by preventing vehicle info count destruction. ADDED: Real-time dynamic TM:PE buffer sync with 60-frame debouncing. ADDED: 3-tier progressive stuck vehicle recovery system with automated invalid path release. REMOVED: MayDespawn postfix despawn suppression."
+	"changenote"		"v4.2.1 - EightyOne2 Save Crash Resolution & Traffic Flow Recovery: FIXED: IndexOutOfRangeException in EightyOne2 ElectricityManagerDataPatches / WaterManagerDataPatches CustomSerialize during save serialization (caused by MNC 65K expanded pulse units exceeding 81 Tiles 2 32K array buffers, resulting in aborted saves and deleted simulation files). Implemented high-performance dynamic serialization with automatic bounds safety. FIXED: Permanent stuck vehicles, vehicle decay, and clear traffic respawn lockup."
 }

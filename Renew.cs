@@ -5491,6 +5491,15 @@ namespace MoreNetworkCapacityRenew
                 FieldInfo fIsSaving = typeof(SavePanel).GetField("m_IsSaving", BindingFlags.NonPublic | BindingFlags.Static);
                 if (fIsSaving != null) fIsSaving.SetValue(null, false);
 
+                if (!string.IsNullOrEmpty(SaveSimulationDataSafetyPatch.CurrentSavingFilename) && !System.IO.File.Exists(SaveSimulationDataSafetyPatch.CurrentSavingFilename))
+                {
+                    errorOnSaving = true;
+                    if (SaveSimulationDataSafetyPatch.LastSaveSimulationException == null)
+                    {
+                        SaveSimulationDataSafetyPatch.LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization (an unhandled exception aborted save serialization).");
+                    }
+                }
+
                 if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null)
                 {
                     errorOnSaving = true;
@@ -7491,22 +7500,411 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        // Delegate types for fast dynamic invocation of EightyOne2 expanded arrays
+        private delegate void CopyExpPulseUnitsDelegate(Array expUnits, Array targetUnits, int count);
+        private delegate void CopyExpPulseGroupsDelegate(Array expGroups, Array targetGroups, int count);
+
+        private static bool s_eightyOne2DelegatesInitialized = false;
+        private static MethodInfo s_mGetExpElecPulseGroups = null;
+        private static MethodInfo s_mGetExpElecPulseUnits = null;
+        private static MethodInfo s_mGetExpWaterPulseUnits = null;
+        private static MethodInfo s_mGetExpSewagePulseUnits = null;
+        private static MethodInfo s_mGetExpHeatingPulseUnits = null;
+
+        private static CopyExpPulseGroupsDelegate s_copyElecGroups = null;
+        private static CopyExpPulseUnitsDelegate s_copyElecUnits = null;
+        private static CopyExpPulseUnitsDelegate s_copyWaterUnits = null;
+
+        private static void InitEightyOne2Delegates()
+        {
+            if (s_eightyOne2DelegatesInitialized) return;
+            s_eightyOne2DelegatesInitialized = true;
+            try
+            {
+                Assembly eightyOneAsm = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "EightyOne2")
+                    {
+                        eightyOneAsm = asm;
+                        break;
+                    }
+                }
+                if (eightyOneAsm == null) return;
+
+                Type expElec = eightyOneAsm.GetType("EightyOne2.Patches.ExpandedElectricityManager");
+                if (expElec != null)
+                {
+                    s_mGetExpElecPulseGroups = expElec.GetMethod("get_PulseGroups", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    s_mGetExpElecPulseUnits = expElec.GetMethod("get_PulseUnits", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
+                    if (s_mGetExpElecPulseUnits != null)
+                    {
+                        Type expUnitType = s_mGetExpElecPulseUnits.ReturnType.GetElementType();
+                        Type emUnitType = typeof(ElectricityManager.PulseUnit);
+                        s_copyElecUnits = CreateCopyPulseUnitsDynamicMethod(expUnitType, emUnitType);
+                    }
+                    if (s_mGetExpElecPulseGroups != null)
+                    {
+                        Type expGroupType = s_mGetExpElecPulseGroups.ReturnType.GetElementType();
+                        Type emGroupType = typeof(ElectricityManager.PulseGroup);
+                        s_copyElecGroups = CreateCopyPulseGroupsDynamicMethod(expGroupType, emGroupType);
+                    }
+                }
+
+                Type expWater = eightyOneAsm.GetType("EightyOne2.Patches.ExpandedWaterManager");
+                if (expWater != null)
+                {
+                    s_mGetExpWaterPulseUnits = expWater.GetMethod("get_WaterPulseUnits", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    s_mGetExpSewagePulseUnits = expWater.GetMethod("get_SewagePulseUnits", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    s_mGetExpHeatingPulseUnits = expWater.GetMethod("get_HeatingPulseUnits", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
+                    if (s_mGetExpWaterPulseUnits != null)
+                    {
+                        Type expWaterUnitType = s_mGetExpWaterPulseUnits.ReturnType.GetElementType();
+                        Type wmUnitType = typeof(WaterManager.PulseUnit);
+                        s_copyWaterUnits = CreateCopyPulseUnitsDynamicMethod(expWaterUnitType, wmUnitType);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] InitEightyOne2Delegates warning: " + ex);
+            }
+        }
+
+        private static CopyExpPulseUnitsDelegate CreateCopyPulseUnitsDynamicMethod(Type expUnitType, Type targetUnitType)
+        {
+            try
+            {
+                var fExpX = expUnitType.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpZ = expUnitType.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetX = targetUnitType.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetZ = targetUnitType.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var clamp = typeof(UnityEngine.Mathf).GetMethod("Clamp", new Type[] { typeof(int), typeof(int), typeof(int) });
+
+                DynamicMethod dm = new DynamicMethod("CopyPulseUnits_" + targetUnitType.Name, null, new Type[] { typeof(Array), typeof(Array), typeof(int) }, typeof(ThirdPartyCompatibility).Module);
+                var il = dm.GetILGenerator();
+                var loopStart = il.DefineLabel();
+                var loopCond = il.DefineLabel();
+                var locI = il.DeclareLocal(typeof(int));
+
+                Type expArrayType = expUnitType.MakeArrayType();
+                Type targetArrayType = targetUnitType.MakeArrayType();
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Stloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Br, loopCond);
+
+                il.MarkLabel(loopStart);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetUnitType);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expUnitType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpX);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, 255);
+                il.Emit(System.Reflection.Emit.OpCodes.Call, clamp);
+                il.Emit(System.Reflection.Emit.OpCodes.Conv_U1);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetX);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetUnitType);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expUnitType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpZ);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, 255);
+                il.Emit(System.Reflection.Emit.OpCodes.Call, clamp);
+                il.Emit(System.Reflection.Emit.OpCodes.Conv_U1);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetZ);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Add);
+                il.Emit(System.Reflection.Emit.OpCodes.Stloc, locI);
+
+                il.MarkLabel(loopCond);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_2);
+                il.Emit(System.Reflection.Emit.OpCodes.Blt, loopStart);
+                il.Emit(System.Reflection.Emit.OpCodes.Ret);
+
+                return (CopyExpPulseUnitsDelegate)dm.CreateDelegate(typeof(CopyExpPulseUnitsDelegate));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] CreateCopyPulseUnitsDynamicMethod error: " + ex);
+                return null;
+            }
+        }
+
+        private static CopyExpPulseGroupsDelegate CreateCopyPulseGroupsDynamicMethod(Type expGroupType, Type targetGroupType)
+        {
+            try
+            {
+                var fExpOrig = expGroupType.GetField("m_origCharge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpCur = expGroupType.GetField("m_curCharge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpMergeIdx = expGroupType.GetField("m_mergeIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpMergeCnt = expGroupType.GetField("m_mergeCount", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpX = expGroupType.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpZ = expGroupType.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                var fTargetOrig = targetGroupType.GetField("m_origCharge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetCur = targetGroupType.GetField("m_curCharge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetMergeIdx = targetGroupType.GetField("m_mergeIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetMergeCnt = targetGroupType.GetField("m_mergeCount", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetX = targetGroupType.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetZ = targetGroupType.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                var clamp = typeof(UnityEngine.Mathf).GetMethod("Clamp", new Type[] { typeof(int), typeof(int), typeof(int) });
+
+                DynamicMethod dm = new DynamicMethod("CopyPulseGroups", null, new Type[] { typeof(Array), typeof(Array), typeof(int) }, typeof(ThirdPartyCompatibility).Module);
+                var il = dm.GetILGenerator();
+                var loopStart = il.DefineLabel();
+                var loopCond = il.DefineLabel();
+                var locI = il.DeclareLocal(typeof(int));
+
+                Type expArrayType = expGroupType.MakeArrayType();
+                Type targetArrayType = targetGroupType.MakeArrayType();
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Stloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Br, loopCond);
+
+                il.MarkLabel(loopStart);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpOrig);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetOrig);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpCur);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetCur);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpMergeIdx);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetMergeIdx);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpMergeCnt);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetMergeCnt);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpX);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, 255);
+                il.Emit(System.Reflection.Emit.OpCodes.Call, clamp);
+                il.Emit(System.Reflection.Emit.OpCodes.Conv_U1);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetX);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, targetArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, targetGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Castclass, expArrayType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldelema, expGroupType);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldfld, fExpZ);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, 255);
+                il.Emit(System.Reflection.Emit.OpCodes.Call, clamp);
+                il.Emit(System.Reflection.Emit.OpCodes.Conv_U1);
+                il.Emit(System.Reflection.Emit.OpCodes.Stfld, fTargetZ);
+
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+                il.Emit(System.Reflection.Emit.OpCodes.Add);
+                il.Emit(System.Reflection.Emit.OpCodes.Stloc, locI);
+
+                il.MarkLabel(loopCond);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldloc, locI);
+                il.Emit(System.Reflection.Emit.OpCodes.Ldarg_2);
+                il.Emit(System.Reflection.Emit.OpCodes.Blt, loopStart);
+                il.Emit(System.Reflection.Emit.OpCodes.Ret);
+
+                return (CopyExpPulseGroupsDelegate)dm.CreateDelegate(typeof(CopyExpPulseGroupsDelegate));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] CreateCopyPulseGroupsDynamicMethod error: " + ex);
+                return null;
+            }
+        }
+
+        private static void SafeCopyPulseUnits(Array expUnits, Array targetUnits, int count)
+        {
+            if (expUnits == null || targetUnits == null || count <= 0) return;
+            if (s_copyElecUnits != null && targetUnits is ElectricityManager.PulseUnit[])
+            {
+                s_copyElecUnits(expUnits, targetUnits, count);
+                return;
+            }
+            if (s_copyWaterUnits != null && targetUnits is WaterManager.PulseUnit[])
+            {
+                s_copyWaterUnits(expUnits, targetUnits, count);
+                return;
+            }
+
+            try
+            {
+                Type expElem = expUnits.GetType().GetElementType();
+                Type targetElem = targetUnits.GetType().GetElementType();
+                var fExpX = expElem.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpZ = expElem.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetX = targetElem.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fTargetZ = targetElem.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                for (int i = 0; i < count; i++)
+                {
+                    object src = expUnits.GetValue(i);
+                    object dst = targetUnits.GetValue(i);
+                    ushort x = (ushort)fExpX.GetValue(src);
+                    ushort z = (ushort)fExpZ.GetValue(src);
+                    fTargetX.SetValue(dst, (byte)UnityEngine.Mathf.Clamp((int)x, 0, 255));
+                    fTargetZ.SetValue(dst, (byte)UnityEngine.Mathf.Clamp((int)z, 0, 255));
+                    targetUnits.SetValue(dst, i);
+                }
+            }
+            catch { }
+        }
+
+        private static void SafeCopyPulseGroups(Array expGroups, ElectricityManager.PulseGroup[] targetGroups, int count)
+        {
+            if (expGroups == null || targetGroups == null || count <= 0) return;
+            if (s_copyElecGroups != null)
+            {
+                s_copyElecGroups(expGroups, targetGroups, count);
+                return;
+            }
+
+            try
+            {
+                Type expElem = expGroups.GetType().GetElementType();
+                var fExpOrig = expElem.GetField("m_origCharge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpCur = expElem.GetField("m_curCharge", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpMergeIdx = expElem.GetField("m_mergeIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpMergeCnt = expElem.GetField("m_mergeCount", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpX = expElem.GetField("m_x", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fExpZ = expElem.GetField("m_z", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                for (int i = 0; i < count; i++)
+                {
+                    object src = expGroups.GetValue(i);
+                    targetGroups[i].m_origCharge = (uint)fExpOrig.GetValue(src);
+                    targetGroups[i].m_curCharge = (uint)fExpCur.GetValue(src);
+                    targetGroups[i].m_mergeIndex = (ushort)fExpMergeIdx.GetValue(src);
+                    targetGroups[i].m_mergeCount = (ushort)fExpMergeCnt.GetValue(src);
+                    ushort x = (ushort)fExpX.GetValue(src);
+                    ushort z = (ushort)fExpZ.GetValue(src);
+                    targetGroups[i].m_x = (byte)UnityEngine.Mathf.Clamp((int)x, 0, 255);
+                    targetGroups[i].m_z = (byte)UnityEngine.Mathf.Clamp((int)z, 0, 255);
+                }
+            }
+            catch { }
+        }
+
         public static bool EightyOne2_Electricity_CustomSerialize_Prefix(ElectricityManager.Cell[] cells, ElectricityManager.PulseGroup[] pulseGroups, ElectricityManager.PulseUnit[] pulseUnits, ref ElectricityManager.Cell[] __result)
         {
             try
             {
-                if (cells != null && cells.Length >= 213444)
-                {
-                    return true;
-                }
+                InitEightyOne2Delegates();
 
-                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 Electricity CustomSerialize intercepted: cells.Length={0} (< 213444). Applying safe fallback serialization to prevent crash!", cells != null ? cells.Length : 0));
                 ElectricityManager.Cell[] safeCells = new ElectricityManager.Cell[65536];
                 if (cells != null)
                 {
-                    int len = Math.Min(cells.Length, safeCells.Length);
-                    Array.Copy(cells, safeCells, len);
+                    if (cells.Length >= 213444)
+                    {
+                        for (int z = 0; z < 256; z++)
+                        {
+                            for (int x = 0; x < 256; x++)
+                            {
+                                int src = (z + 103) * 462 + x + 103;
+                                int dst = z * 256 + x;
+                                safeCells[dst] = cells[src];
+                            }
+                        }
+                    }
+                    else
+                    {
+                        int len = Math.Min(cells.Length, safeCells.Length);
+                        Array.Copy(cells, safeCells, len);
+                    }
                 }
+
+                // Sync PulseGroups safely
+                if (pulseGroups != null && s_mGetExpElecPulseGroups != null)
+                {
+                    Array expGroups = s_mGetExpElecPulseGroups.Invoke(null, null) as Array;
+                    if (expGroups != null)
+                    {
+                        int gCount = Math.Min(pulseGroups.Length, expGroups.Length);
+                        SafeCopyPulseGroups(expGroups, pulseGroups, gCount);
+                    }
+                }
+
+                // Sync PulseUnits safely (bypasses EightyOne2's IndexOutOfRangeException)
+                if (pulseUnits != null && s_mGetExpElecPulseUnits != null)
+                {
+                    Array expUnits = s_mGetExpElecPulseUnits.Invoke(null, null) as Array;
+                    if (expUnits != null)
+                    {
+                        int uCount = Math.Min(pulseUnits.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, pulseUnits, uCount);
+                        for (int i = uCount; i < pulseUnits.Length; i++)
+                        {
+                            pulseUnits[i].m_x = 0;
+                            pulseUnits[i].m_z = 0;
+                        }
+                    }
+                }
+
                 __result = safeCells;
                 return false;
             }
@@ -7522,18 +7920,78 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                if (cells != null && cells.Length >= 213444)
-                {
-                    return true;
-                }
+                InitEightyOne2Delegates();
 
-                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 Water CustomSerialize intercepted: cells.Length={0} (< 213444). Applying safe fallback serialization to prevent crash!", cells != null ? cells.Length : 0));
                 WaterManager.Cell[] safeCells = new WaterManager.Cell[65536];
                 if (cells != null)
                 {
-                    int len = Math.Min(cells.Length, safeCells.Length);
-                    Array.Copy(cells, safeCells, len);
+                    if (cells.Length >= 213444)
+                    {
+                        for (int z = 0; z < 256; z++)
+                        {
+                            for (int x = 0; x < 256; x++)
+                            {
+                                int src = (z + 103) * 462 + x + 103;
+                                int dst = z * 256 + x;
+                                safeCells[dst] = cells[src];
+                            }
+                        }
+                    }
+                    else
+                    {
+                        int len = Math.Min(cells.Length, safeCells.Length);
+                        Array.Copy(cells, safeCells, len);
+                    }
                 }
+
+                // 1. Water PulseUnits
+                if (pulseUnits != null && s_mGetExpWaterPulseUnits != null)
+                {
+                    Array expUnits = s_mGetExpWaterPulseUnits.Invoke(null, null) as Array;
+                    if (expUnits != null)
+                    {
+                        int uCount = Math.Min(pulseUnits.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, pulseUnits, uCount);
+                        for (int i = uCount; i < pulseUnits.Length; i++)
+                        {
+                            pulseUnits[i].m_x = 0;
+                            pulseUnits[i].m_z = 0;
+                        }
+                    }
+                }
+
+                // 2. Sewage PulseUnits
+                if (pulseUnits2 != null && s_mGetExpSewagePulseUnits != null)
+                {
+                    Array expUnits = s_mGetExpSewagePulseUnits.Invoke(null, null) as Array;
+                    if (expUnits != null)
+                    {
+                        int uCount = Math.Min(pulseUnits2.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, pulseUnits2, uCount);
+                        for (int i = uCount; i < pulseUnits2.Length; i++)
+                        {
+                            pulseUnits2[i].m_x = 0;
+                            pulseUnits2[i].m_z = 0;
+                        }
+                    }
+                }
+
+                // 3. Heating PulseUnits
+                if (pulseUnits3 != null && s_mGetExpHeatingPulseUnits != null)
+                {
+                    Array expUnits = s_mGetExpHeatingPulseUnits.Invoke(null, null) as Array;
+                    if (expUnits != null)
+                    {
+                        int uCount = Math.Min(pulseUnits3.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, pulseUnits3, uCount);
+                        for (int i = uCount; i < pulseUnits3.Length; i++)
+                        {
+                            pulseUnits3[i].m_x = 0;
+                            pulseUnits3[i].m_z = 0;
+                        }
+                    }
+                }
+
                 __result = safeCells;
                 return false;
             }
@@ -7549,24 +8007,103 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                if (encodedArray == null) return false;
+
                 if (cells != null && cells.Length >= 810000)
                 {
-                    return true;
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_district1);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_district2);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_district3);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_district4);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_alpha1);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_alpha2);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_alpha3);
+                        }
+                    }
+                    for (int z = 0; z < 512; z++)
+                    {
+                        for (int x = 0; x < 512; x++)
+                        {
+                            int idx = (z + 194) * 900 + x + 194;
+                            encodedArray.Write(cells[idx].m_alpha4);
+                        }
+                    }
+                    return false;
                 }
 
-                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 District CustomSerialize intercepted: cells.Length={0} (< 810000). Applying safe fallback serialization!", cells != null ? cells.Length : 0));
-                if (encodedArray != null)
-                {
-                    int limit = Math.Min(cells != null ? cells.Length : 0, 262144);
-                    for (int i = 0; i < limit; i++)
-                    {
-                        encodedArray.Write(cells[i].m_district1);
-                    }
-                    for (int i = limit; i < 262144; i++)
-                    {
-                        encodedArray.Write((byte)0);
-                    }
-                }
+                int limit = Math.Min(cells != null ? cells.Length : 0, 262144);
+                // 1
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district1);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 2
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district2);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 3
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district3);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 4
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district4);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 5
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha1);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 6
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha2);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 7
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha3);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+                // 8
+                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha4);
+                for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
+
                 return false;
             }
             catch (Exception ex)
@@ -7580,24 +8117,23 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                if (encodedArray == null) return false;
                 if (gam != null && gam.m_areaGrid != null && gam.m_areaGrid.Length >= 81)
                 {
-                    return true;
+                    for (int z = 0; z < 5; z++)
+                    {
+                        for (int x = 0; x < 5; x++)
+                        {
+                            int idx = (z + 2) * 9 + x + 2;
+                            encodedArray.Write((byte)gam.m_areaGrid[idx]);
+                        }
+                    }
+                    return false;
                 }
 
-                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] EightyOne2 GameArea CustomSerialize intercepted: areaGrid < 81. Applying safe fallback serialization!");
-                if (encodedArray != null && gam != null && gam.m_areaGrid != null)
-                {
-                    int limit = Math.Min(gam.m_areaGrid.Length, 25);
-                    for (int i = 0; i < limit; i++)
-                    {
-                        encodedArray.Write((byte)gam.m_areaGrid[i]);
-                    }
-                    for (int i = limit; i < 25; i++)
-                    {
-                        encodedArray.Write((byte)0);
-                    }
-                }
+                int limit = gam != null && gam.m_areaGrid != null ? Math.Min(gam.m_areaGrid.Length, 25) : 0;
+                for (int i = 0; i < limit; i++) encodedArray.Write((byte)gam.m_areaGrid[i]);
+                for (int i = limit; i < 25; i++) encodedArray.Write((byte)0);
                 return false;
             }
             catch (Exception ex)
@@ -7611,24 +8147,26 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                if (encodedArray == null) return false;
                 if (buffer != null && buffer.Length >= 7087500)
                 {
-                    return true;
+                    for (int z = 0; z < 256; z++)
+                    {
+                        for (int x = 0; x < 256; x++)
+                        {
+                            int baseIdx = ((z + 97) * 450 + x + 97) * 35;
+                            for (int r = 0; r < 35; r++)
+                            {
+                                encodedArray.Write(buffer[baseIdx + r]);
+                            }
+                        }
+                    }
+                    return false;
                 }
 
-                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] EightyOne2 Immaterial CustomSerialize intercepted: buffer.Length={0} (< 7087500). Applying safe fallback serialization!", buffer != null ? buffer.Length : 0));
-                if (encodedArray != null)
-                {
-                    int limit = Math.Min(buffer != null ? buffer.Length : 0, 2293760);
-                    for (int i = 0; i < limit; i++)
-                    {
-                        encodedArray.Write(buffer[i]);
-                    }
-                    for (int i = limit; i < 2293760; i++)
-                    {
-                        encodedArray.Write((ushort)0);
-                    }
-                }
+                int limit = buffer != null ? Math.Min(buffer.Length, 2293760) : 0;
+                for (int i = 0; i < limit; i++) encodedArray.Write(buffer[i]);
+                for (int i = limit; i < 2293760; i++) encodedArray.Write((ushort)0);
                 return false;
             }
             catch (Exception ex)

@@ -144,7 +144,7 @@ namespace MoreNetworkCapacityRenew
                 // Register TM:PE Flags arrays (critical for IndexOutOfRangeException fix)
                 RegisterArray("TrafficManager.State.Flags", "laneArrowFlags", 524288);
                 RegisterArray("TrafficManager.State.Flags", "highwayLaneArrowFlags", 524288);
-                RegisterArray("TrafficManager.State.Flags", "laneAllowedVehicleTypesArray", 65536);
+                RegisterArray("TrafficManager.State.Flags", "laneAllowedVehicleTypesArray", 65024);
                 
                 // Register TM:PE live extension buffers (must match live NetManager arrays)
                 RegisterArray("TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", 524288);
@@ -234,7 +234,7 @@ namespace MoreNetworkCapacityRenew
                 bool success = true;
                 success &= ExpandStaticArray(flagsType, "laneArrowFlags", 524288);
                 success &= ExpandStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                success &= ExpandStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
+                success &= ExpandStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
                 
                 // 2. Synchronize live game buffers to TM:PE extension buffers
                 NetManager nm = Singleton<NetManager>.instance;
@@ -373,7 +373,7 @@ namespace MoreNetworkCapacityRenew
                 bool valid = true;
                 valid &= ValidateStaticArray(flagsType, "laneArrowFlags", 524288);
                 valid &= ValidateStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                valid &= ValidateStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
+                valid &= ValidateStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
                 
                 return valid;
             }
@@ -447,7 +447,7 @@ namespace MoreNetworkCapacityRenew
                 if (fieldTypes != null)
                 {
                     Array arr = fieldTypes.GetValue(null) as Array;
-                    if (arr != null && arr.Length < 65536)
+                    if (arr != null && arr.Length < 65024)
                     {
                         ShrinkageEvents++;
                         return true;
@@ -2009,7 +2009,7 @@ namespace MoreNetworkCapacityRenew
                 {
                     ResizeStaticArray(flagsType, "laneArrowFlags", 524288);
                     ResizeStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                    ResizeStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
+                    ResizeStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
                 }
 
                 // 3. ParkingRestrictionsManager
@@ -3951,9 +3951,9 @@ namespace MoreNetworkCapacityRenew
                     if (flagsType != null)
                     {
                         FieldInfo f = flagsType.GetField("laneAllowedVehicleTypesArray", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (f != null && f.GetValue(null) is Array arr && arr.Length < 65536)
+                        if (f != null && f.GetValue(null) is Array arr && arr.Length < 65024)
                         {
-                            Array newArr = Array.CreateInstance(arr.GetType().GetElementType(), 65536);
+                            Array newArr = Array.CreateInstance(arr.GetType().GetElementType(), 65024);
                             Array.Copy(arr, newArr, arr.Length);
                             f.SetValue(null, newArr);
                         }

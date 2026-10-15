@@ -4032,14 +4032,14 @@ namespace MoreNetworkCapacityRenew
                             }
                         }
 
-                        // Path is completely valid! DO NOT despawn! If blocked, UNSTICK IT!
-                        if (vehicleData.m_blockCounter >= 5)
+                        // If path is completely valid and vehicle was trapped in zero-velocity deadlock (w < 0.1f), rescue it
+                        if (vehicleData.m_targetPos0.w < 0.1f && vehicleData.GetLastFrameVelocity().sqrMagnitude < 0.001f)
                         {
                             vehicleData.m_blockCounter = 0;
-                            if (vehicleData.m_targetPos0.w < 0.1f) vehicleData.m_targetPos0.w = 1.5f;
-                            if (vehicleData.m_targetPos1.w < 0.1f) vehicleData.m_targetPos1.w = 1.5f;
-                            if (vehicleData.m_targetPos2.w < 0.1f) vehicleData.m_targetPos2.w = 1.5f;
-                            if (vehicleData.m_targetPos3.w < 0.1f) vehicleData.m_targetPos3.w = 1.5f;
+                            vehicleData.m_targetPos0.w = 1.5f;
+                            vehicleData.m_targetPos1.w = 1.5f;
+                            vehicleData.m_targetPos2.w = 1.5f;
+                            vehicleData.m_targetPos3.w = 1.5f;
 
                             TMPECompatibility.UnstickVehicle(vehicleId);
                             __result = false;
@@ -4074,8 +4074,8 @@ namespace MoreNetworkCapacityRenew
                 if (vehicleData.m_path == 0) return;
                 if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
 
-                // Legitimate stops: arriving at destination, parking, or waiting for loading/path
-                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath)) != 0)
+                // Legitimate stops: arriving at destination, parking, waiting for loading/cargo, stopped at station/stop, or waiting for path
+                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingPath)) != 0)
                 {
                     return;
                 }
@@ -4207,7 +4207,7 @@ namespace MoreNetworkCapacityRenew
 
                 if (vehicleData.m_path == 0) return;
                 if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
-                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath)) != 0) return;
+                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingPath)) != 0) return;
 
                 NetInfo prevInfo = prevSegment.Info;
                 bool isHighway = (prevInfo != null && prevInfo.m_netAI != null && prevInfo.m_netAI.IsHighway());
@@ -6820,13 +6820,15 @@ namespace MoreNetworkCapacityRenew
                     if (info == null || (info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
                         continue;
 
-                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Arriving | Vehicle.Flags.WaitingPath)) != 0)
+                    // Legitimate stops: parking, waiting to load/cargo, stopped at station/stop, arriving, or waiting for pathfind
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.Arriving | Vehicle.Flags.WaitingPath)) != 0)
                         continue;
 
                     uint pathId = vm.m_vehicles.m_buffer[i].m_path;
                     if (pathId != 0 && pathId < (uint)pathCount)
                     {
-                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f)
+                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f &&
+                            (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f || vm.m_vehicles.m_buffer[i].m_blockCounter > 10))
                         {
                             int posIdx = (int)(vm.m_vehicles.m_buffer[i].m_pathPositionIndex >> 1);
                             PathUnit.Position pPos;
@@ -6835,6 +6837,25 @@ namespace MoreNetworkCapacityRenew
                                 if (pPos.m_segment != 0 && pPos.m_segment < segCount &&
                                     (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) != 0)
                                 {
+                                    // Do not unstick if legitimately waiting at a red traffic light
+                                    ushort startNode = nm.m_segments.m_buffer[pPos.m_segment].m_startNode;
+                                    ushort endNode = nm.m_segments.m_buffer[pPos.m_segment].m_endNode;
+                                    ushort targetNodeId = (pPos.m_offset > 128) ? endNode : startNode;
+                                    if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
+                                    {
+                                        if ((nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
+                                        {
+                                            RoadBaseAI.TrafficLightState vState, pState;
+                                            RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[pPos.m_segment], 
+                                                Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
+                                                out vState, out pState);
+                                            if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
+                                            {
+                                                continue; // Legitimate red light wait -> DO NOT touch!
+                                            }
+                                        }
+                                    }
+
                                     vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
                                     if (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos0.w = 1.5f;
                                     if (vm.m_vehicles.m_buffer[i].m_targetPos1.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos1.w = 1.5f;

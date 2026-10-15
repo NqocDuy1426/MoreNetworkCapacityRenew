@@ -106,5 +106,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.1.0 - Save Crash Protection & Economy Maintenance Armor: FIXED: Resolved save serialization crash (IndexOutOfRangeException in EightyOne2.Patches.ElectricityManagerDataPatches / WaterManager / DistrictManager CustomSerialize) causing save aborts and deleted simulation files. FIXED: Intercepted EconomyManager.FetchResource & AddResource against negative maintenance amounts that caused train/public transit negative expenses and abnormal budget infinite cash generation. Cleaned existing negative expense tables."
+	"changenote"		"v4.2.0 - Vehicle Stuck & Traffic Flow Recovery Engine: FIXED: Vehicles permanently frozen on demolished or modified road segments now despawn immediately. FIXED: Traffic volume gradual decay and spawn throttling resolved by fixing TM:PE speed limit / lane arrow array boundaries (524K lanes) and rebuilding vehicle quota counts cleanly. FIXED: Clear traffic respawn lockup by preventing vehicle info count destruction. ADDED: Real-time dynamic TM:PE buffer sync with 60-frame debouncing. ADDED: 3-tier progressive stuck vehicle recovery system with automated invalid path release. REMOVED: MayDespawn postfix despawn suppression."
 }

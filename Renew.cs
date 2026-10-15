@@ -9,6 +9,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 using ColossalFramework.Plugins;
+using UnityEngine;
 
 namespace MoreNetworkCapacityRenew
 {
@@ -667,6 +668,462 @@ namespace MoreNetworkCapacityRenew
     }
 
     // ============================================================================
+    // ARRAY GUARDIAN V2 - Real-Time Monitoring with Background Thread
+    // ============================================================================
+    /// <summary>
+    /// Monitors critical arrays in background thread every 5 seconds.
+    /// Auto-repairs shrinkage and prevents IndexOutOfRangeException.
+    /// NEW in v4.1: Monitors SpeedLimitManager.speedLimitArray
+    /// </summary>
+    public static class ArrayGuardianV2
+    {
+        // ========================================================================
+        // FIELDS
+        // ========================================================================
+        private static System.Threading.Thread monitorThread = null;
+        private static bool isMonitoring = false;
+        private static bool stopRequested = false;
+        private static readonly object monitorLock = new object();
+        
+        // Configuration
+        private static readonly int checkIntervalMs = 5000; // 5 seconds
+        
+        // Diagnostics
+        private static DateTime lastCheckTime = DateTime.MinValue;
+        private static int checksPerformed = 0;
+        private static int repairsTriggered = 0;
+        private static int speedLimitRepairs = 0;
+        
+        // Cached references for performance (avoid reflection every check)
+        private static Assembly cachedTMPE = null;
+        private static Type cachedFlagsType = null;
+        private static Type cachedSpeedLimitManagerType = null;
+        private static FieldInfo cachedLaneSpeedLimitsField = null;
+        private static object cachedSpeedLimitManagerInstance = null;
+        
+        // ========================================================================
+        // PUBLIC API
+        // ========================================================================
+        
+        /// <summary>
+        /// Start background monitoring thread. Call from RenewMod.OnEnabled()
+        /// </summary>
+        public static void StartMonitoring()
+        {
+            if (isMonitoring)
+            {
+                UnityEngine.Debug.Log("[ArrayGuardianV2] Already monitoring");
+                return;
+            }
+            
+            try
+            {
+                stopRequested = false;
+                isMonitoring = true;
+                
+                monitorThread = new System.Threading.Thread(MonitorLoop);
+                monitorThread.IsBackground = true; // Won't prevent app exit
+                monitorThread.Priority = System.Threading.ThreadPriority.BelowNormal;
+                monitorThread.Name = "ArrayGuardianV2_Monitor";
+                monitorThread.Start();
+                
+                UnityEngine.Debug.Log("[ArrayGuardianV2] Monitoring started (check every 5s)");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] StartMonitoring failed: " + ex);
+                isMonitoring = false;
+            }
+        }
+        
+        /// <summary>
+        /// Stop background monitoring thread. Call from OnLevelUnloading()
+        /// </summary>
+        public static void StopMonitoring()
+        {
+            if (!isMonitoring)
+            {
+                return;
+            }
+            
+            try
+            {
+                stopRequested = true;
+                
+                // Wait max 2 seconds for thread to finish
+                if (monitorThread != null && monitorThread.IsAlive)
+                {
+                    monitorThread.Join(2000);
+                }
+                
+                isMonitoring = false;
+                monitorThread = null;
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[ArrayGuardianV2] Monitoring stopped. Stats: {0} checks, {1} repairs, {2} speed limit fixes",
+                    checksPerformed, repairsTriggered, speedLimitRepairs));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] StopMonitoring error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Get current monitoring status for diagnostics UI
+        /// </summary>
+        public static string GetStatus()
+        {
+            if (!isMonitoring)
+            {
+                return "Monitoring: Stopped";
+            }
+            
+            double secondsSinceLastCheck = (DateTime.Now - lastCheckTime).TotalSeconds;
+            return string.Format(
+                "Monitoring: Active | Last check: {0:F0}s ago | Checks: {1} | Repairs: {2} | Speed fixes: {3}",
+                secondsSinceLastCheck, checksPerformed, repairsTriggered, speedLimitRepairs);
+        }
+        
+        // ========================================================================
+        // BACKGROUND MONITORING LOOP
+        // ========================================================================
+        
+        private static void MonitorLoop()
+        {
+            UnityEngine.Debug.Log("[ArrayGuardianV2] Monitor thread started (ID: " + System.Threading.Thread.CurrentThread.ManagedThreadId + ")");
+            
+            while (!stopRequested)
+            {
+                try
+                {
+                    // Wait first to avoid immediate check on start
+                    System.Threading.Thread.Sleep(checkIntervalMs);
+                    
+                    if (stopRequested) break;
+                    
+                    // Perform checks
+                    lock (monitorLock)
+                    {
+                        PerformMonitoringChecks();
+                    }
+                }
+                catch (System.Threading.ThreadAbortException)
+                {
+                    // Normal shutdown, exit gracefully
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogError("[ArrayGuardianV2] Monitor loop error: " + ex);
+                    // Continue monitoring despite errors
+                }
+            }
+            
+            UnityEngine.Debug.Log("[ArrayGuardianV2] Monitor thread stopped");
+        }
+        
+        private static void PerformMonitoringChecks()
+        {
+            lastCheckTime = DateTime.Now;
+            checksPerformed++;
+            
+            bool needsRepair = false;
+            
+            // Check 1: Existing ArrayGuardian shrinkage detection
+            if (ArrayGuardian.HasShrinkage())
+            {
+                UnityEngine.Debug.LogWarning("[ArrayGuardianV2] Shrinkage detected in tracked arrays!");
+                needsRepair = true;
+            }
+            
+            // Check 2: Speed limit array (CRITICAL - prevents stuck vehicles)
+            if (CheckSpeedLimitArray())
+            {
+                needsRepair = true;
+            }
+            
+            // Check 3: TM:PE Flags arrays
+            if (CheckTMPEFlagsArrays())
+            {
+                needsRepair = true;
+            }
+            
+            // Trigger repair if any check failed
+            if (needsRepair)
+            {
+                repairsTriggered++;
+                PerformAutoRepair();
+            }
+        }
+        
+        // ========================================================================
+        // CHECK: SPEED LIMIT ARRAY (Most Critical)
+        // ========================================================================
+        
+        /// <summary>
+        /// Check SpeedLimitManager.cachedLaneSpeedLimits_ size.
+        /// This is THE critical check that prevents stuck vehicles.
+        /// Returns true if repair needed.
+        /// </summary>
+        private static bool CheckSpeedLimitArray()
+        {
+            try
+            {
+                // Cache TMPE assembly reference
+                if (cachedTMPE == null)
+                {
+                    cachedTMPE = TMPECompatibility.GetTMPEAssembly();
+                }
+                
+                if (cachedTMPE == null)
+                {
+                    // TM:PE not loaded yet, not an error
+                    return false;
+                }
+                
+                // Cache SpeedLimitManager type
+                if (cachedSpeedLimitManagerType == null)
+                {
+                    cachedSpeedLimitManagerType = cachedTMPE.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                }
+                
+                if (cachedSpeedLimitManagerType == null)
+                {
+                    return false;
+                }
+
+                if (cachedSpeedLimitManagerInstance == null)
+                {
+                    cachedSpeedLimitManagerInstance = TMPECompatibility.GetManagerInstance(cachedSpeedLimitManagerType);
+                }
+
+                if (cachedSpeedLimitManagerInstance == null)
+                {
+                    return false;
+                }
+                
+                // Cache cachedLaneSpeedLimits_ field
+                if (cachedLaneSpeedLimitsField == null)
+                {
+                    cachedLaneSpeedLimitsField = cachedSpeedLimitManagerType.GetField("cachedLaneSpeedLimits_",
+                        BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                }
+                
+                if (cachedLaneSpeedLimitsField == null)
+                {
+                    return false;
+                }
+                
+                // Get current array
+                float[] speedLimitArray = cachedLaneSpeedLimitsField.GetValue(cachedSpeedLimitManagerInstance) as float[];
+                
+                if (speedLimitArray == null)
+                {
+                    UnityEngine.Debug.LogWarning("[ArrayGuardianV2] cachedLaneSpeedLimits_ is null!");
+                    return true; // Needs repair
+                }
+                
+                // Check size
+                const int REQUIRED_SIZE = 524288; // Must match lane count
+                
+                if (speedLimitArray.Length < REQUIRED_SIZE)
+                {
+                    UnityEngine.Debug.LogWarning(string.Format(
+                        "[ArrayGuardianV2] CRITICAL: cachedLaneSpeedLimits_ shrunk! Current: {0}, Required: {1}",
+                        speedLimitArray.Length, REQUIRED_SIZE));
+                    return true; // Needs repair
+                }
+                
+                // All OK
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] CheckSpeedLimitArray error: " + ex);
+                return false; // Don't trigger repair on error
+            }
+        }
+        
+        // ========================================================================
+        // CHECK: TM:PE FLAGS ARRAYS
+        // ========================================================================
+        
+        private static bool CheckTMPEFlagsArrays()
+        {
+            try
+            {
+                if (cachedTMPE == null || cachedFlagsType == null)
+                {
+                    if (cachedTMPE == null) cachedTMPE = TMPECompatibility.GetTMPEAssembly();
+                    if (cachedTMPE != null)
+                        cachedFlagsType = cachedTMPE.GetType("TrafficManager.State.Flags");
+                }
+                
+                if (cachedFlagsType == null) return false;
+                
+                bool needsRepair = false;
+                
+                // Check laneArrowFlags (524,288 lanes)
+                needsRepair |= !ValidateArraySize(cachedFlagsType, "laneArrowFlags", 524288);
+                
+                // Check highwayLaneArrowFlags (524,288 lanes)
+                needsRepair |= !ValidateArraySize(cachedFlagsType, "highwayLaneArrowFlags", 524288);
+                
+                // Check laneAllowedVehicleTypesArray (65,024 segments)
+                needsRepair |= !ValidateArraySize(cachedFlagsType, "laneAllowedVehicleTypesArray", 65024);
+                
+                return needsRepair;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] CheckTMPEFlagsArrays error: " + ex);
+                return false;
+            }
+        }
+        
+        private static bool ValidateArraySize(Type type, string fieldName, int requiredSize)
+        {
+            try
+            {
+                FieldInfo field = type.GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Public);
+                if (field == null) return true; // Can't validate, assume OK
+                
+                Array array = field.GetValue(null) as Array;
+                if (array == null) return false; // Needs repair
+                
+                if (array.Length < requiredSize)
+                {
+                    UnityEngine.Debug.LogWarning(string.Format(
+                        "[ArrayGuardianV2] {0}.{1} shrunk: {2} < {3}",
+                        type.Name, fieldName, array.Length, requiredSize));
+                    return false; // Needs repair
+                }
+                
+                return true; // OK
+            }
+            catch
+            {
+                return true; // Can't validate, assume OK
+            }
+        }
+        
+        // ========================================================================
+        // REPAIR: AUTO-REPAIR ALL DETECTED ISSUES
+        // ========================================================================
+        
+        private static void PerformAutoRepair()
+        {
+            try
+            {
+                UnityEngine.Debug.Log("[ArrayGuardianV2] Starting auto-repair...");
+                
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                
+                // Step 1: Repair tracked arrays via existing ArrayGuardian
+                bool existingRepairOK = ArrayGuardian.RepairAllArrays();
+                
+                // Step 2: Repair speed limit array specifically
+                bool speedLimitOK = RepairSpeedLimitArray();
+                if (speedLimitOK)
+                {
+                    speedLimitRepairs++;
+                }
+                
+                // Step 3: Sync TM:PE buffers to ensure consistency
+                try
+                {
+                    TMPECompatibility.SynchronizeTMPEBuffersAndArrays("ArrayGuardianV2.AutoRepair");
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogError("[ArrayGuardianV2] Buffer sync error: " + ex);
+                }
+                
+                sw.Stop();
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[ArrayGuardianV2] Auto-repair completed in {0}ms. Tracked arrays: {1}, Speed limit: {2}",
+                    sw.ElapsedMilliseconds, existingRepairOK ? "OK" : "FAILED", speedLimitOK ? "OK" : "FAILED"));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] PerformAutoRepair error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Repair speed limit array: ensure cachedLaneSpeedLimits_ capacity and defaults
+        /// </summary>
+        private static bool RepairSpeedLimitArray()
+        {
+            try
+            {
+                if (cachedTMPE == null)
+                {
+                    cachedTMPE = TMPECompatibility.GetTMPEAssembly();
+                }
+                
+                if (cachedTMPE != null)
+                {
+                    TMPECompatibility.EnsureSpeedLimitManagerCapacity(cachedTMPE);
+                    UnityEngine.Debug.Log("[ArrayGuardianV2] Restored and expanded TM:PE speed limit capacity to 524,288 lanes.");
+                    return true;
+                }
+                
+                UnityEngine.Debug.LogWarning("[ArrayGuardianV2] Cannot repair speed limit: TM:PE assembly not found.");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] RepairSpeedLimitArray error: " + ex);
+                return false;
+            }
+        }
+        
+        // ========================================================================
+        // DIAGNOSTICS & CLEANUP
+        // ========================================================================
+        
+        /// <summary>
+        /// Reset all statistics (for testing)
+        /// </summary>
+        public static void ResetStats()
+        {
+            checksPerformed = 0;
+            repairsTriggered = 0;
+            speedLimitRepairs = 0;
+            lastCheckTime = DateTime.MinValue;
+        }
+        
+        /// <summary>
+        /// Force immediate check (for manual trigger from console)
+        /// </summary>
+        public static void ForceCheck()
+        {
+            if (!isMonitoring)
+            {
+                UnityEngine.Debug.LogWarning("[ArrayGuardianV2] Not monitoring, cannot force check");
+                return;
+            }
+            
+            try
+            {
+                lock (monitorLock)
+                {
+                    UnityEngine.Debug.Log("[ArrayGuardianV2] Manual check triggered");
+                    PerformMonitoringChecks();
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[ArrayGuardianV2] ForceCheck error: " + ex);
+            }
+        }
+    }
+
+    // ============================================================================
     // MOD INFO (IUserMod)
     // ============================================================================
     public class RenewMod : IUserMod
@@ -715,6 +1172,14 @@ namespace MoreNetworkCapacityRenew
                 // NEW v4.0.0: Initialize SafeFlagsAccessor for bounds-checked array access
                 SafeFlagsAccessor.Initialize();
                 DiagnosticLogger.Checkpoint("RenewMod.ArrayGuardian.Complete");
+                
+                // NEW v4.1: Start real-time array monitoring
+                ArrayGuardianV2.StartMonitoring();
+                
+                // NEW v4.1: Initialize diagnostics UI
+                DiagnosticsUI.Initialize();
+                
+                DiagnosticLogger.Checkpoint("RenewMod.VehicleFixSystems.Complete");
                 
                 AppDomain.CurrentDomain.AssemblyLoad += (sender, args) =>
                 {
@@ -4446,11 +4911,19 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                // If already marked to despawn, honor it immediately
+                if (__result) return;
+
+                // Check created flag
+                if ((vehicleData.m_flags & Vehicle.Flags.Created) == 0) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
                 uint pathId = vehicleData.m_path;
+
+                // 1. Vehicle with path unit
                 if (pathId != 0)
                 {
-                    PathManager pm = Singleton<PathManager>.instance;
-                    NetManager nm = Singleton<NetManager>.instance;
                     if (pm != null && nm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
                         nm.m_segments != null && nm.m_segments.m_buffer != null && pathId < pm.m_pathUnits.m_buffer.Length)
                     {
@@ -4462,6 +4935,7 @@ namespace MoreNetworkCapacityRenew
                             if (segId == 0 || segId >= nm.m_segments.m_buffer.Length ||
                                 (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
                             {
+                                // Road segment under path is demolished / missing -> DESPAWN!
                                 __result = true;
                                 return;
                             }
@@ -4479,32 +4953,43 @@ namespace MoreNetworkCapacityRenew
                             if (nextSegId != 0 && (nextSegId >= nm.m_segments.m_buffer.Length ||
                                 (nm.m_segments.m_buffer[nextSegId].m_flags & NetSegment.Flags.Created) == 0))
                             {
+                                // Next segment in route is demolished -> DESPAWN!
                                 __result = true;
                                 return;
                             }
                         }
 
-                        // If path is completely valid and vehicle was trapped in zero-velocity deadlock (w < 0.1f), rescue it
-                        if (vehicleData.m_targetPos0.w < 0.1f && vehicleData.GetLastFrameVelocity().sqrMagnitude < 0.001f)
+                        // If vehicle has been blocked for too long (blockCounter >= 100), allow it to despawn!
+                        if (vehicleData.m_blockCounter >= 100)
                         {
-                            vehicleData.m_blockCounter = 0;
+                            __result = true;
+                            return;
+                        }
+
+                        // If trapped in zero-velocity but recently blocked, try light unstick
+                        if (vehicleData.m_targetPos0.w < 0.1f && vehicleData.GetLastFrameVelocity().sqrMagnitude < 0.001f && vehicleData.m_blockCounter < 50)
+                        {
                             vehicleData.m_targetPos0.w = 1.5f;
                             vehicleData.m_targetPos1.w = 1.5f;
                             vehicleData.m_targetPos2.w = 1.5f;
                             vehicleData.m_targetPos3.w = 1.5f;
 
                             TMPECompatibility.UnstickVehicle(vehicleId);
-                            __result = false;
-                            return;
                         }
                     }
                 }
-                else if ((vehicleData.m_flags & (Vehicle.Flags.WaitingPath | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
+                else
                 {
-                    if (vehicleData.m_blockCounter >= 150 && vehicleData.GetLastFrameVelocity().sqrMagnitude < 0.001f)
+                    // 2. Vehicle without path unit
+                    if ((vehicleData.m_flags & Vehicle.Flags.Spawned) != 0 &&
+                        (vehicleData.m_flags & (Vehicle.Flags.WaitingPath | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
                     {
-                        __result = true;
-                        return;
+                        // Vehicle on road without path: if blocked or completely motionless, allow despawn!
+                        if (vehicleData.m_blockCounter >= 60 || vehicleData.GetLastFrameVelocity().sqrMagnitude < 0.0001f)
+                        {
+                            __result = true;
+                            return;
+                        }
                     }
                 }
             }
@@ -5386,6 +5871,26 @@ namespace MoreNetworkCapacityRenew
                 // Synchronize TM:PE buffers on level load
                 TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnLevelLoaded");
                 ThirdPartyCompatibility.SynchronizeThirdPartyMods("OnLevelLoaded");
+                
+                // NEW v4.1: Initialize vehicle fix systems
+                VehiclePoolMonitor.Initialize();
+                TMPEBufferSync.Initialize();
+                TMPEBufferSync.SyncAllBuffers("OnLevelLoaded");
+                PathFindValidator.Initialize();
+                PathFindValidator.ValidateAndCleanPaths();
+                StuckVehicleRecovery.Initialize();
+                
+                // NEW v4.1: Install Harmony patches for vehicle monitoring
+                try
+                {
+                    var harmony = HarmonyInstance.Create("com.ngocduyrenewal.vehiclefix");
+                    VehicleFixPatches.InstallAllPatches(harmony);
+                }
+                catch (Exception harmEx)
+                {
+                    UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] Failed to install vehicle fix patches: " + harmEx);
+                }
+                
                 TMPECompatibility.EnsurePathFindCapacity();
                 Assembly loadedTmpe = TMPECompatibility.GetTMPEAssembly();
                 if (loadedTmpe != null)
@@ -5479,6 +5984,23 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] OnLevelLoaded error: " + ex);
+            }
+        }
+
+        public override void OnLevelUnloading()
+        {
+            try
+            {
+                // NEW v4.1: Stop monitoring systems
+                ArrayGuardianV2.StopMonitoring();
+                StuckVehicleRecovery.ClearCache();
+                DiagnosticsUI.Cleanup();
+                
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] OnLevelUnloading: Vehicle fix systems cleaned up");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] OnLevelUnloading error: " + ex);
             }
         }
 
@@ -7195,6 +7717,9 @@ namespace MoreNetworkCapacityRenew
                 // 3. Clean up citizen paths
                 UnstickCitizens();
 
+                // 3b. Clear stuck vehicle recovery tracking
+                StuckVehicleRecovery.ClearCache();
+
                 // 4. Reactivate City Logistics & Spawning Pipelines
                 ReactivateCityLogistics();
 
@@ -7373,7 +7898,8 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
                     vm.m_vehicleCount = active;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated VehicleManager.m_vehicleCount = {0} (max capacity = {1})", active, vm.m_vehicles.m_buffer.Length));
+                    VehiclePoolMonitor.RebuildInfoCounts(vm);
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated VehicleManager.m_vehicleCount = {0} and rebuilt m_infoCount (max capacity = {1})", active, vm.m_vehicles.m_buffer.Length));
                 }
 
                 // 4. Release stuck citizens and dead path references
@@ -7407,6 +7933,54 @@ namespace MoreNetworkCapacityRenew
                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ReactivateCityLogistics: Reset {0} citizen instances in transit.", unstuck));
                     }
                 }
+
+                // 5. Clean up any orphaned PathUnits in PathManager
+                if (pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null)
+                {
+                    int freedPaths = 0;
+                    for (uint i = 1; i < pm.m_pathUnits.m_buffer.Length; i++)
+                    {
+                        if (pm.m_pathUnits.m_buffer[i].m_pathFindFlags != 0 &&
+                            pm.m_pathUnits.m_buffer[i].m_referenceCount == 0)
+                        {
+                            try
+                            {
+                                pm.ReleasePath(i);
+                                freedPaths++;
+                            }
+                            catch { }
+                        }
+                    }
+                    if (freedPaths > 0)
+                    {
+                        repaired += freedPaths;
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ReactivateCityLogistics: Released {0} orphaned PathUnits.", freedPaths));
+                    }
+                }
+
+                // 6. Request TM:PE RoutingManager full recalculation to unblock vehicle paths
+                try
+                {
+                    Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                    if (tmpe != null)
+                    {
+                        Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+                        if (rmType != null)
+                        {
+                            object rmInst = TMPECompatibility.GetManagerInstance(rmType);
+                            MethodInfo req = rmType.GetMethod("RequestFullRecalculation", BindingFlags.Public | BindingFlags.Instance);
+                            if (req != null && rmInst != null)
+                            {
+                                req.Invoke(rmInst, new object[] { true });
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Requested TM:PE RoutingManager full recalculation.");
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // 7. Ensure TM:PE buffers and speed limits are live
+                TMPEBufferSync.SyncAllBuffers("ReactivateCityLogistics");
 
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ReactivateCityLogistics completed successfully ({0} repairs applied). Spawning is unblocked.", repaired));
             }
@@ -8964,6 +9538,1466 @@ namespace MoreNetworkCapacityRenew
         {
             data.m_flags &= ~NetSegment.Flags.PathFailed;
             return true;
+        }
+    }
+
+    // ============================================================================
+    // VEHICLE POOL MONITOR - Vehicle Count Health Checking
+    // ============================================================================
+    /// <summary>
+    /// Monitors VehicleManager.m_vehicleCount for corruption.
+    /// Detects spawn throttling and repairs vehicle count mismatches.
+    /// Runs every 60 simulation frames (~1 second @ 60fps)
+    /// </summary>
+    public static class VehiclePoolMonitor
+    {
+        // ========================================================================
+        // FIELDS
+        // ========================================================================
+        
+        // State tracking
+        private static int lastActualCount = 0;
+        private static uint lastCheckFrame = 0;
+        private static int consecutiveStaticChecks = 0;
+        
+        // Configuration
+        private static readonly int checkIntervalFrames = 60; // Check every second
+        private static readonly int staticThreshold = 120; // 120 consecutive static counts (~2 mins)
+        
+        // Diagnostics
+        private static int totalChecks = 0;
+        private static int countMismatches = 0;
+        private static int throttlingDetections = 0;
+        private static int repairsPerformed = 0;
+        private static DateTime lastRepairTime = DateTime.MinValue;
+        
+        // ========================================================================
+        // PUBLIC API
+        // ========================================================================
+        
+        /// <summary>
+        /// Initialize and perform initial check
+        /// </summary>
+        public static void Initialize()
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null) return;
+                
+                int actualCount = CountActualVehicles(vm);
+                int reportedCount = vm.m_vehicleCount;
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[VehiclePoolMonitor] Initialized. Reported={0}, Actual={1}, Buffer size={2}",
+                    reportedCount, actualCount, vm.m_vehicles.m_buffer.Length));
+                
+                if (actualCount != reportedCount)
+                {
+                    UnityEngine.Debug.LogWarning("[VehiclePoolMonitor] Initial count mismatch detected! Repairing...");
+                    HandleCountMismatch(vm, actualCount, reportedCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] Initialize error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Check and repair vehicle count. Called from SimulationStep Harmony patch.
+        /// </summary>
+        public static void CheckAndRepair()
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null) return;
+                
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (sm == null) return;
+                
+                uint currentFrame = sm.m_currentFrameIndex;
+                
+                // Only check every N frames
+                if (currentFrame - lastCheckFrame < checkIntervalFrames)
+                {
+                    return;
+                }
+                
+                lastCheckFrame = currentFrame;
+                totalChecks++;
+                
+                // Perform checks
+                int actualCount = CountActualVehicles(vm);
+                int reportedCount = vm.m_vehicleCount;
+                
+                // Check 1: Count mismatch
+                if (actualCount != reportedCount)
+                {
+                    HandleCountMismatch(vm, actualCount, reportedCount);
+                }
+                
+                // Check 2: Spawn throttling detection
+                if (DetectSpawnThrottling(vm, actualCount))
+                {
+                    HandleSpawnThrottling(vm);
+                }
+                
+                lastActualCount = actualCount;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] CheckAndRepair error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Get status for diagnostics UI
+        /// </summary>
+        public static string GetStatus()
+        {
+            VehicleManager vm = Singleton<VehicleManager>.instance;
+            if (vm == null) return "Vehicle Manager: Not loaded";
+            
+            int actual = CountActualVehicles(vm);
+            int reported = vm.m_vehicleCount;
+            bool mismatch = actual != reported;
+            
+            return string.Format(
+                "Vehicles: {0} / {1} {2} | Checks: {3} | Mismatches: {4} | Throttling: {5} | Last repair: {6}",
+                actual,
+                vm.m_vehicles.m_buffer.Length,
+                mismatch ? "⚠ MISMATCH" : "✓",
+                totalChecks,
+                countMismatches,
+                throttlingDetections,
+                lastRepairTime == DateTime.MinValue ? "Never" : FormatTimeSince(lastRepairTime));
+        }
+        
+        // ========================================================================
+        // COUNT ACTUAL VEHICLES
+        // ========================================================================
+        
+        /// <summary>
+        /// Count vehicles with Created flag in buffer.
+        /// This is the ground truth vs VehicleManager.m_vehicleCount.
+        /// Slot 0 is reserved/null in Cities: Skylines, so start at 1.
+        /// </summary>
+        public static int CountActualVehicles(VehicleManager vm)
+        {
+            int count = 0;
+            
+            try
+            {
+                if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
+                {
+                    Vehicle[] buffer = vm.m_vehicles.m_buffer;
+                    for (int i = 1; i < buffer.Length; i++)
+                    {
+                        if ((buffer[i].m_flags & Vehicle.Flags.Created) != 0)
+                        {
+                            count++;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] CountActualVehicles error: " + ex);
+            }
+            
+            return count;
+        }
+        
+        // ========================================================================
+        // MISMATCH HANDLING
+        // ========================================================================
+        
+        /// <summary>
+        /// Handle mismatch between reported and actual count
+        /// </summary>
+        private static void HandleCountMismatch(VehicleManager vm, int actual, int reported)
+        {
+            countMismatches++;
+            
+            UnityEngine.Debug.LogWarning(string.Format(
+                "[VehiclePoolMonitor] Count mismatch detected! Reported: {0}, Actual: {1}, Diff: {2}",
+                reported, actual, reported - actual));
+            
+            try
+            {
+                vm.m_vehicleCount = actual;
+                RebuildInfoCounts(vm);
+                
+                repairsPerformed++;
+                lastRepairTime = DateTime.Now;
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[VehiclePoolMonitor] Count repaired: {0} → {1} and synced m_infoCount", reported, actual));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] HandleCountMismatch repair error: " + ex);
+            }
+        }
+        
+        // ========================================================================
+        // SPAWN THROTTLING DETECTION
+        // ========================================================================
+        
+        /// <summary>
+        /// Detect if spawn throttling is occurring
+        /// </summary>
+        private static bool DetectSpawnThrottling(VehicleManager vm, int currentCount)
+        {
+            // Check if count is static
+            if (currentCount == lastActualCount)
+            {
+                consecutiveStaticChecks++;
+            }
+            else
+            {
+                consecutiveStaticChecks = 0;
+                return false; // Count is changing, no throttling
+            }
+            
+            // Check if count has been static for threshold checks (~2 minutes)
+            if (consecutiveStaticChecks < staticThreshold)
+            {
+                return false;
+            }
+            
+            // Only flag throttling if count is unusually low (< 50) while city should have traffic
+            if (currentCount < 50)
+            {
+                return true;
+            }
+            
+            return false;
+        }
+        
+        /// <summary>
+        /// Handle spawn throttling by safely rebuilding internal counters
+        /// </summary>
+        private static void HandleSpawnThrottling(VehicleManager vm)
+        {
+            throttlingDetections++;
+            
+            UnityEngine.Debug.LogWarning(string.Format(
+                "[VehiclePoolMonitor] Spawn throttling check triggered: Count static at {0} for {1} checks. Rebuilding info quotas...",
+                lastActualCount, consecutiveStaticChecks));
+            
+            try
+            {
+                RebuildInfoCounts(vm);
+                consecutiveStaticChecks = 0;
+                repairsPerformed++;
+                lastRepairTime = DateTime.Now;
+                
+                UnityEngine.Debug.Log("[VehiclePoolMonitor] Spawn throttling recovery completed");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] HandleSpawnThrottling error: " + ex);
+            }
+        }
+        
+        // ========================================================================
+        // INTERNAL COUNTER REPAIR
+        // ========================================================================
+        
+        /// <summary>
+        /// Rebuild m_infoCount array (tracks count per vehicle prefab) from actual live vehicles.
+        /// NEVER zeroes out blindly, preventing underflow and spawn locks.
+        /// </summary>
+        public static void RebuildInfoCounts(VehicleManager vm)
+        {
+            try
+            {
+                if (vm == null) return;
+
+                FieldInfo infoCountField = typeof(VehicleManager).GetField("m_infoCount",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                
+                if (infoCountField != null)
+                {
+                    Array infoCount = infoCountField.GetValue(vm) as Array;
+                    if (infoCount != null)
+                    {
+                        int[] counts = new int[infoCount.Length];
+                        Vehicle[] buffer = vm.m_vehicles.m_buffer;
+                        
+                        if (buffer != null)
+                        {
+                            for (int i = 1; i < buffer.Length; i++)
+                            {
+                                if ((buffer[i].m_flags & Vehicle.Flags.Created) != 0)
+                                {
+                                    ushort infoIndex = buffer[i].m_infoIndex;
+                                    if (infoIndex < counts.Length)
+                                    {
+                                        counts[infoIndex]++;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        for (int i = 0; i < infoCount.Length; i++)
+                        {
+                            infoCount.SetValue(counts[i], i);
+                        }
+                        
+                        UnityEngine.Debug.Log(string.Format(
+                            "[VehiclePoolMonitor] Rebuilt m_infoCount array ({0} entries from live vehicles)", infoCount.Length));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] RebuildInfoCounts error: " + ex);
+            }
+        }
+        
+        // ========================================================================
+        // DIAGNOSTICS
+        // ========================================================================
+        
+        /// <summary>
+        /// Force immediate repair (for console command)
+        /// </summary>
+        public static void ForceRepair()
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null)
+                {
+                    UnityEngine.Debug.LogWarning("[VehiclePoolMonitor] VehicleManager not loaded");
+                    return;
+                }
+                
+                UnityEngine.Debug.Log("[VehiclePoolMonitor] Manual repair triggered");
+                
+                int actual = CountActualVehicles(vm);
+                vm.m_vehicleCount = actual;
+                
+                // Rebuild info counts safely from live vehicles
+                RebuildInfoCounts(vm);
+                
+                UnityEngine.Debug.Log("[VehiclePoolMonitor] Manual repair completed");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehiclePoolMonitor] ForceRepair error: " + ex);
+            }
+        }
+        
+        private static string FormatTimeSince(DateTime time)
+        {
+            TimeSpan span = DateTime.Now - time;
+            if (span.TotalSeconds < 60)
+                return string.Format("{0:F0}s ago", span.TotalSeconds);
+            if (span.TotalMinutes < 60)
+                return string.Format("{0:F0}m ago", span.TotalMinutes);
+            return string.Format("{0:F0}h ago", span.TotalHours);
+        }
+    }
+
+    // ============================================================================
+    // TM:PE BUFFER AUTO-SYNC - Keep Extension Buffers in Sync
+    // ============================================================================
+    /// <summary>
+    /// Automatically synchronizes TM:PE's extension buffers with game's live buffers.
+    /// Prevents desync when roads are built/demolished or after save load.
+    /// </summary>
+    public static class TMPEBufferSync
+    {
+        // ========================================================================
+        // FIELDS
+        // ========================================================================
+        
+        private static int syncCount = 0;
+        private static DateTime lastSyncTime = DateTime.MinValue;
+        private static string lastSyncReason = "";
+        
+        // ========================================================================
+        // PUBLIC API
+        // ========================================================================
+        
+        /// <summary>
+        /// Initialize (placeholder for future use)
+        /// </summary>
+        public static void Initialize()
+        {
+            UnityEngine.Debug.Log("[TMPEBufferSync] Initialized");
+        }
+
+        private static uint lastNetworkSyncFrame = 0;
+
+        /// <summary>
+        /// Called when road network changes (e.g. road built or demolished)
+        /// </summary>
+        public static void OnNetworkModified()
+        {
+            try
+            {
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                uint currentFrame = sm != null ? sm.m_currentFrameIndex : 0;
+                // Debounce to at most once per 60 frames (~1s)
+                if (currentFrame - lastNetworkSyncFrame < 60) return;
+                lastNetworkSyncFrame = currentFrame;
+                SyncAllBuffers("NetworkModified");
+            }
+            catch { }
+        }
+        
+        /// <summary>
+        /// Sync all TM:PE extension buffers with game's live buffers.
+        /// This is the CORE fix for buffer desync causing routing errors.
+        /// </summary>
+        public static void SyncAllBuffers(string reason)
+        {
+            try
+            {
+                lastSyncReason = reason;
+                lastSyncTime = DateTime.Now;
+                syncCount++;
+                
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe == null)
+                {
+                    // TM:PE not loaded, nothing to sync
+                    return;
+                }
+                
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null) return;
+                
+                // Sync 1: Lane buffer
+                if (nm.m_lanes != null && nm.m_lanes.m_buffer != null)
+                {
+                    SyncBuffer(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions",
+                        "_laneBuffer", nm.m_lanes.m_buffer);
+                }
+                
+                // Sync 2: Segment buffer
+                if (nm.m_segments != null && nm.m_segments.m_buffer != null)
+                {
+                    SyncBuffer(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions",
+                        "_segBuffer", nm.m_segments.m_buffer);
+                }
+                
+                // Sync 3: Node buffer
+                if (nm.m_nodes != null && nm.m_nodes.m_buffer != null)
+                {
+                    SyncBuffer(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions",
+                        "_nodeBuffer", nm.m_nodes.m_buffer);
+                }
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[TMPEBufferSync] Buffers synced (reason: {0}). Total syncs: {1}",
+                    reason, syncCount));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[TMPEBufferSync] SyncAllBuffers error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Sync individual buffer by setting static field reference
+        /// </summary>
+        private static void SyncBuffer(Assembly tmpeAssembly, string typeName, string fieldName, object liveBuffer)
+        {
+            try
+            {
+                Type type = tmpeAssembly.GetType(typeName);
+                if (type == null)
+                {
+                    return;
+                }
+                
+                FieldInfo field = type.GetField(fieldName,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                
+                if (field == null)
+                {
+                    return;
+                }
+                
+                // Get current buffer
+                object currentBuffer = field.GetValue(null);
+                
+                // Check if already pointing to same buffer (optimization)
+                if (currentBuffer == liveBuffer)
+                {
+                    // Already synced, no action needed
+                    return;
+                }
+                
+                // Set new buffer reference (NOT a copy, just a reference)
+                field.SetValue(null, liveBuffer);
+                
+                Array arr = liveBuffer as Array;
+                int length = arr != null ? arr.Length : -1;
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[TMPEBufferSync] Synced {0}.{1} → live buffer ({2} elements)",
+                    type.Name, fieldName, length));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError(string.Format(
+                    "[TMPEBufferSync] SyncBuffer error for {0}.{1}: {2}",
+                    typeName, fieldName, ex));
+            }
+        }
+        
+        /// <summary>
+        /// Get status for diagnostics
+        /// </summary>
+        public static string GetStatus()
+        {
+            string timeSince = lastSyncTime == DateTime.MinValue
+                ? "Never"
+                : FormatTimeSince(lastSyncTime);
+            
+            return string.Format(
+                "Buffer Sync: Last: {0} ({1}) | Total: {2}",
+                timeSince, lastSyncReason, syncCount);
+        }
+        
+        private static string FormatTimeSince(DateTime time)
+        {
+            TimeSpan span = DateTime.Now - time;
+            if (span.TotalSeconds < 60)
+                return string.Format("{0:F0}s ago", span.TotalSeconds);
+            return string.Format("{0:F0}m ago", span.TotalMinutes);
+        }
+    }
+
+    // ============================================================================
+    // PATHFIND VALIDATOR - Clean Stale Path Cache
+    // ============================================================================
+    /// <summary>
+    /// Validates PathManager path cache and removes stale paths.
+    /// Stale paths reference lanes/segments that no longer exist,
+    /// causing vehicles to follow invalid routes and get stuck.
+    /// </summary>
+    public static class PathFindValidator
+    {
+        // ========================================================================
+        // FIELDS
+        // ========================================================================
+        
+        private static DateTime lastValidationTime = DateTime.MinValue;
+        private static int pathsCleaned = 0;
+        private static int totalValidations = 0;
+        private static bool validationInProgress = false;
+        private static readonly object validationLock = new object();
+        
+        // ========================================================================
+        // PUBLIC API
+        // ========================================================================
+        
+        /// <summary>
+        /// Initialize (placeholder for future use)
+        /// </summary>
+        public static void Initialize()
+        {
+            UnityEngine.Debug.Log("[PathFindValidator] Initialized");
+        }
+        
+        /// <summary>
+        /// Validate and clean all paths in PathManager.
+        /// WARNING: This can take 100-200ms, don't call every frame!
+        /// </summary>
+        public static void ValidateAndCleanPaths()
+        {
+            // Prevent concurrent validations
+            if (validationInProgress)
+            {
+                UnityEngine.Debug.LogWarning("[PathFindValidator] Validation already in progress");
+                return;
+            }
+            
+            lock (validationLock)
+            {
+                validationInProgress = true;
+            }
+            
+            try
+            {
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                
+                PathManager pm = Singleton<PathManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                
+                if (pm == null || nm == null)
+                {
+                    UnityEngine.Debug.LogWarning("[PathFindValidator] Managers not loaded");
+                    return;
+                }
+                
+                totalValidations++;
+                lastValidationTime = DateTime.Now;
+                
+                int cleaned = 0;
+                int scanned = 0;
+                
+                // Scan all path units (slot 0 is unused in Cities: Skylines)
+                for (uint i = 1; i < pm.m_pathUnits.m_buffer.Length; i++)
+                {
+                    byte flags = pm.m_pathUnits.m_buffer[i].m_pathFindFlags;
+                    if (flags != 0)
+                    {
+                        // Skip paths still calculating (FLAG_WAITING); only validate completed/ready paths
+                        if ((flags & PathUnit.FLAG_READY) == 0)
+                        {
+                            continue;
+                        }
+
+                        scanned++;
+                        
+                        if (!IsPathValid(pm, nm, i))
+                        {
+                            // Invalid path referencing demolished road, release it
+                            pm.ReleasePath(i);
+                            cleaned++;
+                        }
+                    }
+                }
+                
+                sw.Stop();
+                pathsCleaned += cleaned;
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[PathFindValidator] Validation complete: Scanned {0} ready paths, cleaned {1} stale paths in {2}ms",
+                    scanned, cleaned, sw.ElapsedMilliseconds));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[PathFindValidator] ValidateAndCleanPaths error: " + ex);
+            }
+            finally
+            {
+                lock (validationLock)
+                {
+                    validationInProgress = false;
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Get status for diagnostics
+        /// </summary>
+        public static string GetStatus()
+        {
+            string timeSince = lastValidationTime == DateTime.MinValue
+                ? "Never"
+                : FormatTimeSince(lastValidationTime);
+            
+            return string.Format(
+                "PathFind Validator: {0} validations, {1} paths cleaned | Last: {2}",
+                totalValidations, pathsCleaned, timeSince);
+        }
+        
+        // ========================================================================
+        // VALIDATION LOGIC
+        // ========================================================================
+        
+        /// <summary>
+        /// Check if a path is valid (all referenced segments and lanes exist and are created)
+        /// </summary>
+        private static bool IsPathValid(PathManager pm, NetManager nm, uint pathId)
+        {
+            try
+            {
+                PathUnit pathUnit = pm.m_pathUnits.m_buffer[pathId];
+                if (pathUnit.m_positionCount == 0 || pathUnit.m_positionCount > 12)
+                {
+                    return false;
+                }
+                
+                // Check all positions in path
+                for (int i = 0; i < pathUnit.m_positionCount; i++)
+                {
+                    PathUnit.Position pos;
+                    if (pathUnit.GetPosition(i, out pos))
+                    {
+                        ushort segId = pos.m_segment;
+                        if (segId == 0 || segId >= nm.m_segments.m_buffer.Length)
+                        {
+                            return false;
+                        }
+                        
+                        if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
+                        {
+                            return false;
+                        }
+                        
+                        NetInfo info = nm.m_segments.m_buffer[segId].Info;
+                        if (info == null || info.m_lanes == null || pos.m_lane >= info.m_lanes.Length)
+                        {
+                            return false;
+                        }
+                    }
+                }
+                
+                return true;
+            }
+            catch
+            {
+                return true; // Keep path on unexpected exception
+            }
+        }
+        
+        /// <summary>
+        /// Check if a segment ID is valid
+        /// </summary>
+        private static bool IsSegmentValid(NetManager nm, ushort segmentId)
+        {
+            try
+            {
+                // Check bounds
+                if (segmentId >= nm.m_segments.m_buffer.Length)
+                {
+                    return false;
+                }
+                
+                // Check Created flag
+                if ((nm.m_segments.m_buffer[segmentId].m_flags & NetSegment.Flags.Created) == 0)
+                {
+                    return false;
+                }
+                
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
+        private static string FormatTimeSince(DateTime time)
+        {
+            TimeSpan span = DateTime.Now - time;
+            if (span.TotalSeconds < 60)
+                return string.Format("{0:F0}s ago", span.TotalSeconds);
+            return string.Format("{0:F0}m ago", span.TotalMinutes);
+        }
+    }
+
+    // ============================================================================
+    // STUCK VEHICLE RECOVERY - Emergency Unstuck System
+    // ============================================================================
+    /// <summary>
+    /// Detects vehicles that haven't moved for extended periods and applies
+    /// escalating recovery methods: path reset → teleport → despawn/respawn.
+    /// Runs every 64 simulation frames.
+    /// </summary>
+    public static class StuckVehicleRecovery
+    {
+        // ========================================================================
+        // FIELDS & STRUCTS
+        // ========================================================================
+        
+        private class VehicleStuckInfo
+        {
+            public Vector3 LastPosition;
+            public int StuckFrames;
+            public uint PathUnit;
+            public int RecoveryLevel; // 0=none, 1=path reset, 2=teleport, 3=despawn
+        }
+        
+        private static Dictionary<ushort, VehicleStuckInfo> stuckVehicles = 
+            new Dictionary<ushort, VehicleStuckInfo>();
+        
+        // Configuration
+        private static readonly int scanIntervalFrames = 64;
+        private static readonly float movementThreshold = 0.1f; // meters
+        private static readonly float velocityThreshold = 0.1f; // m/s
+        
+        // Recovery thresholds (in frames @ 60fps)
+        private static readonly int level1Threshold = 600;  // 10 seconds
+        private static readonly int level2Threshold = 900;  // 15 seconds
+        private static readonly int level3Threshold = 1200; // 20 seconds
+        
+        // State
+        private static uint lastScanFrame = 0;
+        private static int totalScans = 0;
+        private static int level1Recoveries = 0;
+        private static int level2Recoveries = 0;
+        private static int level3Recoveries = 0;
+        
+        // ========================================================================
+        // PUBLIC API
+        // ========================================================================
+        
+        /// <summary>
+        /// Initialize (placeholder for future use)
+        /// </summary>
+        public static void Initialize()
+        {
+            UnityEngine.Debug.Log("[StuckVehicleRecovery] Initialized");
+        }
+        
+        /// <summary>
+        /// Scan all vehicles and recover stuck ones. Called from SimulationStep.
+        /// </summary>
+        public static void ScanAndRecover()
+        {
+            try
+            {
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (sm == null) return;
+                
+                uint currentFrame = sm.m_currentFrameIndex;
+                
+                // Only scan every N frames
+                if (currentFrame - lastScanFrame < scanIntervalFrames)
+                {
+                    return;
+                }
+                
+                lastScanFrame = currentFrame;
+                totalScans++;
+                
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null) return;
+                
+                int recoveredThisScan = 0;
+                List<ushort> toRemove = new List<ushort>();
+                
+                // Scan all vehicles in buffer
+                for (ushort i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
+                {
+                    if ((vm.m_vehicles.m_buffer[i].m_flags & Vehicle.Flags.Created) == 0)
+                    {
+                        // Vehicle doesn't exist, remove from tracking
+                        if (stuckVehicles.ContainsKey(i))
+                        {
+                            toRemove.Add(i);
+                        }
+                        continue;
+                    }
+                    
+                    Vehicle vehicle = vm.m_vehicles.m_buffer[i];
+                    
+                    // Skip vehicles that are not spawned, or are currently parking / loading
+                    if ((vehicle.m_flags & Vehicle.Flags.Spawned) == 0 ||
+                        (vehicle.m_flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) != 0)
+                    {
+                        if (stuckVehicles.ContainsKey(i)) toRemove.Add(i);
+                        continue;
+                    }
+                    
+                    // Check if road segment under the vehicle or in its path is demolished
+                    if (IsVehicleOnDestroyedSegment(vm, i, vehicle))
+                    {
+                        // Clean despawn immediately when road is demolished!
+                        vm.ReleaseVehicle(i);
+                        toRemove.Add(i);
+                        recoveredThisScan++;
+                        continue;
+                    }
+                    
+                    // Check if vehicle is stuck
+                    if (CheckVehicleMovement(i, vehicle))
+                    {
+                        // Vehicle moved, no action needed
+                        continue;
+                    }
+                    
+                    // Vehicle is stuck, apply recovery if needed
+                    if (ApplyRecoveryIfNeeded(vm, i))
+                    {
+                        recoveredThisScan++;
+                    }
+                }
+                
+                // Clean up tracking for deleted vehicles
+                foreach (ushort id in toRemove)
+                {
+                    stuckVehicles.Remove(id);
+                }
+                
+                if (recoveredThisScan > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format(
+                        "[StuckVehicleRecovery] Recovered {0} vehicles. Tracking: {1} potentially stuck",
+                        recoveredThisScan, stuckVehicles.Count));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[StuckVehicleRecovery] ScanAndRecover error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Clear all tracking (on level unload)
+        /// </summary>
+        public static void ClearCache()
+        {
+            stuckVehicles.Clear();
+            UnityEngine.Debug.Log("[StuckVehicleRecovery] Cache cleared");
+        }
+        
+        /// <summary>
+        /// Get status for diagnostics
+        /// </summary>
+        public static string GetStatus()
+        {
+            return string.Format(
+                "Stuck Recovery: Tracking {0} | Scans: {1} | Recoveries: L1={2} L2={3} L3={4}",
+                stuckVehicles.Count, totalScans, level1Recoveries, level2Recoveries, level3Recoveries);
+        }
+        
+        /// <summary>
+        /// Force recovery of all currently stuck vehicles (console command)
+        /// </summary>
+        public static void ForceRecoverAll()
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null) return;
+                
+                int recovered = 0;
+                List<ushort> vehicleIds = new List<ushort>(stuckVehicles.Keys);
+                
+                foreach (ushort vehicleId in vehicleIds)
+                {
+                    // Force Level 1 recovery for all
+                    if (ApplyLevel1Recovery(vm, vehicleId))
+                    {
+                        recovered++;
+                        stuckVehicles.Remove(vehicleId);
+                    }
+                }
+                
+                UnityEngine.Debug.Log(string.Format(
+                    "[StuckVehicleRecovery] Force recovery: {0} vehicles recovered", recovered));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[StuckVehicleRecovery] ForceRecoverAll error: " + ex);
+            }
+        }
+        
+        // ========================================================================
+        // MOVEMENT CHECKING & DEMOLISHED ROAD DETECTION
+        // ========================================================================
+        
+        /// <summary>
+        /// Check if a vehicle is situated on or routed through a demolished road segment
+        /// </summary>
+        public static bool IsVehicleOnDestroyedSegment(VehicleManager vm, ushort vehicleId, Vehicle vehicle)
+        {
+            try
+            {
+                NetManager nm = Singleton<NetManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return false;
+
+                if (vehicle.m_path != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
+                    vehicle.m_path < pm.m_pathUnits.m_buffer.Length)
+                {
+                    int posIdx = (int)(vehicle.m_pathPositionIndex >> 1);
+                    PathUnit.Position pPos;
+                    if (pm.m_pathUnits.m_buffer[vehicle.m_path].GetPosition(posIdx, out pPos))
+                    {
+                        ushort segId = pPos.m_segment;
+                        if (segId == 0 || segId >= nm.m_segments.m_buffer.Length ||
+                            (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
+                        {
+                            return true; // Road in route demolished!
+                        }
+                    }
+                }
+
+                Vector3 pos = vehicle.GetLastFramePosition();
+                if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) || pos.y < -50f || pos.y > 2000f)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Check if vehicle has moved since last check.
+        /// Returns true if moved, false if stuck.
+        /// </summary>
+        private static bool CheckVehicleMovement(ushort vehicleId, Vehicle vehicle)
+        {
+            try
+            {
+                Vector3 currentPos = vehicle.GetLastFramePosition();
+                Vector3 velocity = vehicle.GetLastFrameVelocity();
+                
+                if (!stuckVehicles.ContainsKey(vehicleId))
+                {
+                    // First time seeing this vehicle, start tracking
+                    stuckVehicles[vehicleId] = new VehicleStuckInfo
+                    {
+                        LastPosition = currentPos,
+                        StuckFrames = 0,
+                        PathUnit = vehicle.m_path,
+                        RecoveryLevel = 0
+                    };
+                    return true; // Not stuck yet
+                }
+                
+                VehicleStuckInfo info = stuckVehicles[vehicleId];
+                
+                // Check if moved
+                float distMoved = Vector3.Distance(currentPos, info.LastPosition);
+                float speed = velocity.magnitude;
+                
+                if (distMoved > movementThreshold || speed > velocityThreshold)
+                {
+                    // Vehicle moved! Reset tracking
+                    info.LastPosition = currentPos;
+                    info.StuckFrames = 0;
+                    info.RecoveryLevel = 0;
+                    return true; // Not stuck
+                }
+                
+                // Vehicle didn't move, increment stuck counter
+                info.StuckFrames += scanIntervalFrames;
+                info.LastPosition = currentPos;
+                
+                return false; // Still stuck
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError(string.Format(
+                    "[StuckVehicleRecovery] CheckVehicleMovement error for vehicle {0}: {1}",
+                    vehicleId, ex));
+                return true; // Assume not stuck on error
+            }
+        }
+        
+        // ========================================================================
+        // RECOVERY APPLICATION
+        // ========================================================================
+        
+        /// <summary>
+        /// Apply recovery if vehicle has been stuck long enough.
+        /// Returns true if recovery was applied.
+        /// </summary>
+        private static bool ApplyRecoveryIfNeeded(VehicleManager vm, ushort vehicleId)
+        {
+            if (!stuckVehicles.ContainsKey(vehicleId))
+            {
+                return false;
+            }
+            
+            VehicleStuckInfo info = stuckVehicles[vehicleId];
+            
+            // Determine recovery level based on stuck duration
+            if (info.StuckFrames >= level3Threshold && info.RecoveryLevel < 3)
+            {
+                // Level 3: Despawn/respawn (last resort)
+                return ApplyLevel3Recovery(vm, vehicleId, info);
+            }
+            else if (info.StuckFrames >= level2Threshold && info.RecoveryLevel < 2)
+            {
+                // Level 2: Teleport
+                return ApplyLevel2Recovery(vm, vehicleId, info);
+            }
+            else if (info.StuckFrames >= level1Threshold && info.RecoveryLevel < 1)
+            {
+                // Level 1: Path reset
+                return ApplyLevel1Recovery(vm, vehicleId, info);
+            }
+            
+            return false; // Not ready for recovery yet
+        }
+        
+        /// <summary>
+        /// Level 1 Recovery: Reset path, vehicle will request new pathfind
+        /// </summary>
+        private static bool ApplyLevel1Recovery(VehicleManager vm, ushort vehicleId)
+        {
+            VehicleStuckInfo info = stuckVehicles.ContainsKey(vehicleId) ? stuckVehicles[vehicleId] : null;
+            return ApplyLevel1Recovery(vm, vehicleId, info);
+        }
+        
+        private static bool ApplyLevel1Recovery(VehicleManager vm, ushort vehicleId, VehicleStuckInfo info)
+        {
+            try
+            {
+                Vehicle vehicle = vm.m_vehicles.m_buffer[vehicleId];
+                
+                UnityEngine.Debug.LogWarning(string.Format(
+                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 1 Recovery (path reset)",
+                    vehicleId, (info != null ? info.StuckFrames : 600) / 60.0f));
+                
+                PathManager pm = Singleton<PathManager>.instance;
+                if (pm != null && vehicle.m_path != 0)
+                {
+                    // Release old path
+                    pm.ReleasePath(vehicle.m_path);
+                }
+                
+                // Reset path fields and signal AI to search for a new path
+                vm.m_vehicles.m_buffer[vehicleId].m_path = 0;
+                vm.m_vehicles.m_buffer[vehicleId].m_pathPositionIndex = 0;
+                vm.m_vehicles.m_buffer[vehicleId].m_lastPathOffset = 0;
+                vm.m_vehicles.m_buffer[vehicleId].m_flags |= Vehicle.Flags.WaitingPath;
+                vm.m_vehicles.m_buffer[vehicleId].m_blockCounter = 0;
+                
+                if (info != null)
+                {
+                    info.RecoveryLevel = 1;
+                    info.StuckFrames = 0; // Reset counter to give it time
+                }
+                
+                level1Recoveries++;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError(string.Format(
+                    "[StuckVehicleRecovery] Level 1 recovery error for vehicle {0}: {1}",
+                    vehicleId, ex));
+                return false;
+            }
+        }
+        
+        /// <summary>
+        /// Level 2 Recovery: Teleport vehicle forward slightly
+        /// </summary>
+        private static bool ApplyLevel2Recovery(VehicleManager vm, ushort vehicleId, VehicleStuckInfo info)
+        {
+            try
+            {
+                Vehicle vehicle = vm.m_vehicles.m_buffer[vehicleId];
+                
+                UnityEngine.Debug.LogWarning(string.Format(
+                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 2 Recovery (teleport)",
+                    vehicleId, info.StuckFrames / 60.0f));
+                
+                // Get movement direction from last velocity or facing
+                Vector3 direction = vehicle.GetLastFrameData().m_velocity;
+                if (direction.sqrMagnitude < 0.01f)
+                {
+                    // No velocity, use vehicle rotation
+                    direction = vehicle.GetLastFrameData().m_rotation * Vector3.forward;
+                }
+                
+                direction.Normalize();
+                
+                // Teleport 5 units forward
+                Vector3 currentPos = vehicle.GetLastFramePosition();
+                Vector3 newPos = currentPos + (direction * 5f);
+                
+                // Set new position
+                vm.m_vehicles.m_buffer[vehicleId].SetTargetPos(0, newPos);
+                
+                info.RecoveryLevel = 2;
+                info.StuckFrames = 0; // Reset to give it another chance
+                info.LastPosition = newPos;
+                
+                level2Recoveries++;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError(string.Format(
+                    "[StuckVehicleRecovery] Level 2 recovery error for vehicle {0}: {1}",
+                    vehicleId, ex));
+                return false;
+            }
+        }
+        
+        /// <summary>
+        /// Level 3 Recovery: Despawn stuck vehicle cleanly via VehicleManager
+        /// </summary>
+        private static bool ApplyLevel3Recovery(VehicleManager vm, ushort vehicleId, VehicleStuckInfo info)
+        {
+            try
+            {
+                UnityEngine.Debug.LogWarning(string.Format(
+                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 3 Recovery (clean despawn)",
+                    vehicleId, (info != null ? info.StuckFrames : 1200) / 60.0f));
+                
+                // Release vehicle cleanly via VehicleManager
+                vm.ReleaseVehicle(vehicleId);
+                
+                // Remove from tracking
+                stuckVehicles.Remove(vehicleId);
+                
+                level3Recoveries++;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError(string.Format(
+                    "[StuckVehicleRecovery] Level 3 recovery error for vehicle {0}: {1}",
+                    vehicleId, ex));
+                return false;
+            }
+        }
+        
+        // ========================================================================
+        // DIAGNOSTICS
+        // ========================================================================
+        
+        /// <summary>
+        /// Reset all statistics
+        /// </summary>
+        public static void ResetStats()
+        {
+            totalScans = 0;
+            level1Recoveries = 0;
+            level2Recoveries = 0;
+            level3Recoveries = 0;
+        }
+    }
+
+    // ============================================================================
+    // DIAGNOSTICS UI - Console Commands & Status Panel
+    // ============================================================================
+    /// <summary>
+    /// Provides in-game diagnostics via console commands and hotkey commands.
+    /// Simplified implementation without UI panel (can be added later).
+    /// </summary>
+    public static class DiagnosticsUI
+    {
+        // ========================================================================
+        // FIELDS
+        // ========================================================================
+        
+        private static bool verboseLogging = false;
+        
+        // ========================================================================
+        // PUBLIC API
+        // ========================================================================
+        
+        /// <summary>
+        /// Initialize diagnostics system
+        /// </summary>
+        public static void Initialize()
+        {
+            try
+            {
+                UnityEngine.Debug.Log("[DiagnosticsUI] Initialized. Use debug console commands: mnc.status, mnc.repair, mnc.help");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[DiagnosticsUI] Initialize error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Execute status command
+        /// </summary>
+        public static void ExecuteStatusCommand()
+        {
+            UnityEngine.Debug.Log("========================================");
+            UnityEngine.Debug.Log("MORE NETWORK CAPACITY RENEW - STATUS");
+            UnityEngine.Debug.Log("========================================");
+            
+            // ArrayGuardian status
+            UnityEngine.Debug.Log("\n[ARRAY MONITORING]");
+            UnityEngine.Debug.Log(ArrayGuardian.GetValidationStatus());
+            UnityEngine.Debug.Log(ArrayGuardianV2.GetStatus());
+            
+            // Vehicle status
+            UnityEngine.Debug.Log("\n[VEHICLE POOL]");
+            UnityEngine.Debug.Log(VehiclePoolMonitor.GetStatus());
+            
+            // Buffer sync status
+            UnityEngine.Debug.Log("\n[BUFFER SYNC]");
+            UnityEngine.Debug.Log(TMPEBufferSync.GetStatus());
+            
+            // PathFind status
+            UnityEngine.Debug.Log("\n[PATHFIND CACHE]");
+            UnityEngine.Debug.Log(PathFindValidator.GetStatus());
+            
+            // Stuck vehicles status
+            UnityEngine.Debug.Log("\n[STUCK RECOVERY]");
+            UnityEngine.Debug.Log(StuckVehicleRecovery.GetStatus());
+            
+            UnityEngine.Debug.Log("========================================");
+        }
+        
+        /// <summary>
+        /// Execute repair command
+        /// </summary>
+        public static void ExecuteRepairCommand()
+        {
+            UnityEngine.Debug.Log("[DiagnosticsUI] Executing full repair...");
+            
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            
+            try
+            {
+                // Repair 1: Arrays
+                bool arraysOK = ArrayGuardian.RepairAllArrays();
+                UnityEngine.Debug.Log(string.Format("  Arrays repair: {0}", arraysOK ? "OK" : "FAILED"));
+                
+                // Repair 2: Buffers
+                TMPEBufferSync.SyncAllBuffers("ManualRepair");
+                UnityEngine.Debug.Log("  Buffer sync: OK");
+                
+                // Repair 3: Vehicle counts
+                VehiclePoolMonitor.ForceRepair();
+                UnityEngine.Debug.Log("  Vehicle counts: OK");
+                
+                // Repair 4: Path cache
+                PathFindValidator.ValidateAndCleanPaths();
+                UnityEngine.Debug.Log("  Path cache cleaned: OK");
+                
+                sw.Stop();
+                UnityEngine.Debug.Log(string.Format("[DiagnosticsUI] Full repair completed in {0}ms", sw.ElapsedMilliseconds));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[DiagnosticsUI] Repair command error: " + ex);
+            }
+        }
+        
+        /// <summary>
+        /// Cleanup on level unload
+        /// </summary>
+        public static void Cleanup()
+        {
+            UnityEngine.Debug.Log("[DiagnosticsUI] Cleanup completed");
+        }
+        
+        public static bool VerboseLogging
+        {
+            get { return verboseLogging; }
+            set { verboseLogging = value; }
+        }
+    }
+
+    // ============================================================================
+    // VEHICLE FIX PATCHES - Harmony Integration Points
+    // ============================================================================
+    /// <summary>
+    /// Harmony patches to integrate monitoring systems into game lifecycle.
+    /// All patches are Postfix to avoid conflicts with other mods.
+    /// </summary>
+    public static class VehicleFixPatches
+    {
+        private static uint lastSimulationFrame = 0;
+        
+        // ========================================================================
+        // PATCH: SimulationManager.SimulationStep (Postfix)
+        // ========================================================================
+        /// <summary>
+        /// Called every simulation frame. Used to trigger periodic checks.
+        /// </summary>
+        public static void SimulationStep_Postfix()
+        {
+            try
+            {
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (sm == null) return;
+                
+                uint currentFrame = sm.m_currentFrameIndex;
+                
+                // Prevent double-execution if called multiple times per frame
+                if (currentFrame == lastSimulationFrame)
+                {
+                    return;
+                }
+                lastSimulationFrame = currentFrame;
+                
+                // Every 60 frames (~1 second): Check vehicle pool
+                if (currentFrame % 60 == 0)
+                {
+                    VehiclePoolMonitor.CheckAndRepair();
+                }
+                
+                // Every 64 frames: Scan stuck vehicles
+                if (currentFrame % 64 == 0)
+                {
+                    StuckVehicleRecovery.ScanAndRecover();
+                }
+            }
+            catch (Exception ex)
+            {
+                if (DiagnosticsUI.VerboseLogging)
+                {
+                    UnityEngine.Debug.LogError("[VehicleFixPatches] SimulationStep error: " + ex);
+                }
+            }
+        }
+        
+        // ========================================================================
+        // PATCH: NetManager.UpdateSegmentRenderer (Postfix)
+        // ========================================================================
+        /// <summary>
+        /// Called when road network changes (roads placed, updated, demolished).
+        /// Automatically keeps TM:PE extension buffers synced with live game buffers.
+        /// </summary>
+        public static void NetManager_UpdateSegmentRenderer_Postfix(ushort segment, bool updateDescendant)
+        {
+            try
+            {
+                TMPEBufferSync.OnNetworkModified();
+            }
+            catch { }
+        }
+        
+        // ========================================================================
+        // UTILITY: Install All Patches
+        // ========================================================================
+        /// <summary>
+        /// Install all Harmony patches. Call from LoadingExtension.OnLevelLoaded()
+        /// </summary>
+        public static void InstallAllPatches(HarmonyInstance harmony)
+        {
+            try
+            {
+                // Patch 1: SimulationManager.SimulationStep
+                MethodInfo simStep = typeof(SimulationManager).GetMethod("SimulationStep",
+                    BindingFlags.Public | BindingFlags.Instance);
+                
+                if (simStep != null)
+                {
+                    MethodInfo postfix = typeof(VehicleFixPatches).GetMethod(
+                        nameof(SimulationStep_Postfix),
+                        BindingFlags.Public | BindingFlags.Static);
+                    
+                    harmony.Patch(simStep, postfix: new HarmonyMethod(postfix));
+                    UnityEngine.Debug.Log("[VehicleFixPatches] Patched SimulationManager.SimulationStep");
+                }
+
+                // Patch 2: NetManager.UpdateSegmentRenderer
+                MethodInfo usr = typeof(NetManager).GetMethod("UpdateSegmentRenderer",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (usr != null)
+                {
+                    MethodInfo usrPostfix = typeof(VehicleFixPatches).GetMethod(
+                        nameof(NetManager_UpdateSegmentRenderer_Postfix),
+                        BindingFlags.Public | BindingFlags.Static);
+                    
+                    harmony.Patch(usr, postfix: new HarmonyMethod(usrPostfix));
+                    UnityEngine.Debug.Log("[VehicleFixPatches] Patched NetManager.UpdateSegmentRenderer");
+                }
+                
+                UnityEngine.Debug.Log("[VehicleFixPatches] All patches installed");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[VehicleFixPatches] InstallAllPatches error: " + ex);
+            }
         }
     }
 }

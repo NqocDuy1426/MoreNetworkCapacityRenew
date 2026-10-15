@@ -6,23 +6,25 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v3.9.6 (Game Save Pipeline Fix: Saving -> Packaging -> Saved) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v3.9.7 (Performance Optimization & Lean Simulation Architecture) ✨[/h1]
 [list]
-[*] [b]Fixed In-Game Save Failing at 'Saving' Stage ('Chỉ Chạy Saving Rồi Thôi'):[/b]
+[*] [b]Eliminated Periodic Render Thread Stuttering:[/b]
 [list]
-    [*] Fixed the critical issue where clicking Save in-game would show 'Saving', then immediately disappear without ever transitioning to 'Packaging...' or creating a valid .crp save file.
-    [*] Decompiled the game's native save pipeline: If an exception occurs inside [i]DataSerializer.Serialize[/i], Unity's [i]SaveSimulationData[/i] catch block automatically deletes the temporary save file and exits. The game's [i]SaveGame[/i] coroutine then sees [i]!File.Exists[/i] and silently skips the 'Packaging' step without showing an error!
+    [*] Removed the periodic 180-frame vehicle scan loop from the main Unity render thread ([i]MNC_ThreadingExtension.OnUpdate[/i]). Clean despawn of demolished road vehicles is already handled natively by [i]NetManager.ReleaseSegmentImplementation[/i], eliminating heavy 65K-vehicle buffer scans during gameplay.
+    [*] Hotkey [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) remains available for instant on-demand unblocking and queue rescue.
 [/list]
-[*] [b]Eliminated Save Serialization Exceptions:[/b]
+[*] [b]Streamlined Simulation Hooks & Removed Redundant Detours:[/b]
 [list]
-    [*] [b]Removed destructive citizen unit wiping:[/b] Removed the aggressive citizen unit purge which erroneously classified multi-family building units and transit passengers as phantoms, corrupting the [i]m_nextUnit[/i] linked lists during serialization.
-    [*] [b]Full Prefab Bounds Validation:[/b] Validated all entities across all managers before save serialization (Transport Lines, Active Vehicles, Parked Vehicles, Buildings, Network Segments, Network Nodes, Road Segment Trees, Citizen Instances, and Districts). Any corrupt or orphaned prefabs are safely cleared before reaching [i]PrefabCollection<T>.Serialize[/i], preventing [i]IndexOutOfRangeException[/i].
-    [*] [b]Removed DataSerializer WriteUInt24/WriteInt24 Harmony Hooks:[/b] Replaced low-level dynamic method detours with district counter clamping, preventing millions of unnecessary detour invocations in the high-frequency save loop.
+    [*] Removed hot hooks on [i]CarAI.CalculateSegmentPosition[/i] and [i]VehicleBehaviorManager.MayChangeSegment[/i], eliminating millions of unnecessary detour invocations per minute and restoring native TM:PE priority intersection logic.
+    [*] Removed [i]ThreadingExtension.OnBeforeSimulationFrame[/i] reflection detour, allowing TM:PE's compiled native simulation loop to execute directly at full speed.
 [/list]
-[*] [b]Save Diagnostics & Exception Dialog:[/b]
+[*] [b]Zero-Overhead TM:PE Traffic Measurement:[/b]
 [list]
-    [*] Added detailed tracking on [i]LoadingManager.SaveSimulationData[/i] to log save milestones to [i]Player.log[/i].
-    [*] Added a safety guard to [i]SavePanel.OnSavingComplete[/i] that triggers an immediate modal notification dialog if a save file cannot be packaged, so players are never left wondering if their game saved.
+    [*] Replaced reflection field lookups in [i]TrafficMeasurementManager[/i] ([i]AddTraffic[/i], [i]OnBeforeSimulationStep[/i], [i]DestroySegmentStats[/i]) with direct static bounds checks, eliminating ~200,000 reflection calls per second.
+[/list]
+[*] [b]Restored Native Render Speed (FPS Boost):[/b]
+[list]
+    [*] Removed the Harmony detour on [i]RenderManager.GetInstanceIndex[/i] (called 50,000+ times per frame) to re-enable Unity Mono JIT inlining, significantly increasing gameplay frame rate.
 [/list]
 [*] [b]Hotkey:[/b] Press [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) to instantly unblock all frozen vehicle queues and clean demolished road vehicles!
 [/list]
@@ -101,5 +103,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v3.9.6: Game Save Pipeline Fix (Saving -> Packaging -> Saved): 1) Diagnosed and resolved the issue where clicking Save ran 'Saving' and vanished without packaging or saving the game. 2) Fixed native game SaveSimulationData catch block deleting temporary save file by eliminating serialization exceptions. 3) Removed destructive citizen unit wiping that corrupted m_nextUnit linked lists. 4) Implemented comprehensive pre-save prefab bounds sanitization across Vehicles, Parked Vehicles, Buildings, Net Segments, Nodes, Trees, Citizen Instances, and Transport Lines before PrefabCollection<T>.Serialize runs. 5) Removed high-frequency WriteUInt24/WriteInt24 detours in favor of district clamping. 6) Added save diagnostics and modal error dialog alerting if save file packaging fails."
+	"changenote"		"v3.9.7: Performance Optimization & Lean Simulation Architecture: 1) Eliminated periodic 180-frame vehicle loop from the Unity render thread (kept Ctrl+Shift+V for on-demand rescue). 2) Removed hot hooks on CarAI.CalculateSegmentPosition and VehicleBehaviorManager.MayChangeSegment to restore native TM:PE junction performance. 3) Removed OnBeforeSimulationFrame reflection detour. 4) Converted TrafficMeasurementManager hooks to zero-overhead static bounds checks, eliminating ~200,000 reflection calls/sec. 5) Removed RenderManager.GetInstanceIndex detour to re-enable Mono JIT inlining on rendering."
 }

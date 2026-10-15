@@ -1273,153 +1273,11 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 3. SegmentEndManager.GetIndex & GetSegmentAndNodeFromIndex
-                Type sem = tmpe.GetType("TrafficManager.Manager.Impl.SegmentEndManager");
-                if (sem != null)
-                {
-                    MethodInfo getIndex = sem.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(bool) }, null)
-                                       ?? sem.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
-                    if (getIndex != null)
-                    {
-                        var pre = getIndex.GetParameters()[0].ParameterType == typeof(uint)
-                            ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetIndex_Prefix))
-                            : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetIndex_ushort_Prefix));
-                        harmony.Patch(getIndex, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.GetIndex");
-                    }
-
-                    MethodInfo getSegNode = sem.GetMethod("GetSegmentAndNodeFromIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (getSegNode != null)
-                    {
-                        var prms = getSegNode.GetParameters();
-                        bool isUint = prms.Length >= 2 && prms[1].ParameterType == typeof(uint).MakeByRefType();
-                        var pre = isUint
-                            ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetSegmentAndNodeFromIndex_Prefix))
-                            : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetSegmentAndNodeFromIndex_ushort_Prefix));
-                        harmony.Patch(getSegNode, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.GetSegmentAndNodeFromIndex");
-                    }
-
-                    MethodInfo updEndM = sem.GetMethod("UpdateSegmentEnd", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
-                    if (updEndM != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_UpdateSegmentEnd_Prefix));
-                        harmony.Patch(updEndM, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.UpdateSegmentEnd");
-                    }
-                }
-
-                // 4. TurnOnRedManager.GetIndex
-                Type torm = tmpe.GetType("TrafficManager.Manager.Impl.TurnOnRedManager");
-                if (torm != null)
-                {
-                    MethodInfo getIndex = torm.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(bool) }, null)
-                                       ?? torm.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
-                    if (getIndex != null)
-                    {
-                        var pre = getIndex.GetParameters()[0].ParameterType == typeof(uint)
-                            ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TurnOnRedManager_GetIndex_Prefix))
-                            : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TurnOnRedManager_GetIndex_ushort_Prefix));
-                        harmony.Patch(getIndex, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TurnOnRedManager.GetIndex");
-                    }
-                }
-
-                // 5. TrafficMeasurementManager.GetDirIndex & data access
-                Type tmm = tmpe.GetType("TrafficManager.Manager.Impl.TrafficMeasurementManager");
-                if (tmm != null)
-                {
-                    try
-                    {
-                        foreach (var m in tmm.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-                        {
-                            if (m.Name == "GetDirIndex" && m.GetParameters().Length == 2)
-                            {
-                                var pre = m.GetParameters()[0].ParameterType == typeof(uint)
-                                    ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_GetDirIndex_Prefix))
-                                    : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_GetDirIndex_ushort_Prefix));
-                                harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficMeasurementManager.GetDirIndex");
-                                break;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TrafficMeasurementManager.GetDirIndex: " + ex);
-                    }
-
-                    try
-                    {
-                        MethodInfo addTrafficM = tmm.GetMethod("AddTraffic", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(byte), typeof(ushort) }, null);
-                        if (addTrafficM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_AddTraffic_Prefix));
-                            harmony.Patch(addTrafficM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficMeasurementManager.AddTraffic (safe Prefix)");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TrafficMeasurementManager.AddTraffic: " + ex);
-                    }
-
-                    try
-                    {
-                        MethodInfo onSimStepM = tmm.GetMethod("OnBeforeSimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(NetSegment).MakeByRefType() }, null);
-                        if (onSimStepM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_OnBeforeSimulationStep_Prefix));
-                            harmony.Patch(onSimStepM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficMeasurementManager.OnBeforeSimulationStep (safe Prefix)");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TrafficMeasurementManager.OnBeforeSimulationStep: " + ex);
-                    }
-
-                    try
-                    {
-                        MethodInfo destroyStatsM = tmm.GetMethod("DestroySegmentStats", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-                        if (destroyStatsM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_DestroySegmentStats_Prefix));
-                            harmony.Patch(destroyStatsM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficMeasurementManager.DestroySegmentStats (safe Prefix)");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TrafficMeasurementManager.DestroySegmentStats: " + ex);
-                    }
-                }
-
-                // 6. RoutingManager.GetLaneEndRoutingIndex
-                Type rm = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
-                if (rm != null)
-                {
-                    MethodInfo getIdx = rm.GetMethod("GetLaneEndRoutingIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (getIdx != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.RoutingManager_GetLaneEndRoutingIndex_Prefix));
-                        harmony.Patch(getIdx, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE RoutingManager.GetLaneEndRoutingIndex");
-                    }
-                }
-
-                // 7. TrafficLightSimulationManager.SimulationStep
-                Type tlsm = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
-                if (tlsm != null)
-                {
-                    MethodInfo simStep = tlsm.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                    if (simStep != null)
-                    {
-                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficLightSimulationManager_SimulationStep_Postfix));
-                        harmony.Patch(simStep, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficLightSimulationManager.SimulationStep");
-                    }
-                }
+                // 3-7 & 9. Hot-path methods (SegmentEndManager.GetIndex, TurnOnRedManager.GetIndex,
+                // TrafficMeasurementManager.GetDirIndex, RoutingManager.GetLaneEndRoutingIndex,
+                // TrafficLightSimulationManager.SimulationStep, SpeedLimitManager.GetGameSpeedLimit)
+                // are handled 100% natively and efficiently by MoreNetworkCapacity.Core transpilers
+                // without redundant Harmony prefix/postfix overhead.
 
                 // 8. TMPELifecycle.Load
                 Type lifecycleType = tmpe.GetType("TrafficManager.Lifecycle.TMPELifecycle");
@@ -1431,35 +1289,6 @@ namespace MoreNetworkCapacityRenew
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TMPELifecycle_Load_Postfix));
                         harmony.Patch(loadMethod, postfix: new HarmonyMethod(post));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TMPELifecycle.Load");
-                    }
-                }
-
-                // 9. SpeedLimitManager.GetGameSpeedLimit (Prefix safety guard for TM:PE NRE)
-                Type slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
-                if (slm != null)
-                {
-                    MethodInfo getSpeedM = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(NetInfo.Lane) }, null);
-                    if (getSpeedM != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Prefix));
-                        harmony.Patch(getSpeedM, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (Prefix)");
-                    }
-
-                    MethodInfo getSpeedM4 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(byte), typeof(uint), typeof(NetInfo.Lane) }, null);
-                    if (getSpeedM4 != null)
-                    {
-                        var pre4 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
-                        harmony.Patch(getSpeedM4, prefix: new HarmonyMethod(pre4));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (4-arg Prefix)");
-                    }
-
-                    MethodInfo getSpeedM1 = slm.GetMethod("GetGameSpeedLimit", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(uint) }, null);
-                    if (getSpeedM1 != null)
-                    {
-                        var pre1 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit1_Prefix));
-                        harmony.Patch(getSpeedM1, prefix: new HarmonyMethod(pre1));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit (1-arg Prefix)");
                     }
                 }
 
@@ -1552,6 +1381,7 @@ namespace MoreNetworkCapacityRenew
                 }
 
                 // 13. TrafficLightSimulationManager (SetUpTimedTrafficLight & LoadData)
+                Type tlsm = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
                 if (tlsm != null)
                 {
                     foreach (var m in tlsm.GetMethods(BindingFlags.Public | BindingFlags.Instance))
@@ -1700,7 +1530,7 @@ namespace MoreNetworkCapacityRenew
                 // 18. SpeedLimitManager.LoadData
                 try
                 {
-                    slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                    Type slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
                     if (slm != null)
                     {
                         foreach (var m in slm.GetMethods(BindingFlags.Public | BindingFlags.Instance))
@@ -1864,26 +1694,6 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CustomPathFind: " + ex);
-                }
-
-                // 26. VehicleBehaviorManager.MayDespawn (Native TM:PE despawn delegation for demolished roads)
-                try
-                {
-                    Type vbmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleBehaviorManager");
-                    if (vbmType != null)
-                    {
-                        MethodInfo mayDespawnM = vbmType.GetMethod("MayDespawn", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(Vehicle).MakeByRefType() }, null);
-                        if (mayDespawnM != null)
-                        {
-                            var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayDespawn_Postfix));
-                            harmony.Patch(mayDespawnM, postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayDespawn");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
                 }
 
                 // 27. UtilityManager.ClearTraffic & DespawnVehicles (City Logistics Reactivator & Traffic Spawning unblocker)
@@ -5041,79 +4851,34 @@ namespace MoreNetworkCapacityRenew
             }
         }
     }
-
-    [HarmonyPatch(typeof(NetManager), "UpdateSegmentColors", new Type[0])]
+    // Static color and render patches removed: Core already handles all color transpilation natively.
+    // RenderManager.m_indices is pre-warmed to 262,144 slots at load time by EnsureRenderManagerCapacity.
     public static class NetManagerUpdateSegmentColorsZeroPatch
     {
         public static void Postfix(NetManager __instance)
         {
-            if (__instance == null || __instance.m_segments == null || __instance.m_segments.m_buffer == null) return;
-            if (__instance.m_segments.m_buffer.Length > 36864)
-            {
-                __instance.UpdateSegmentColors(36864, (ushort)(__instance.m_segments.m_buffer.Length - 1));
-            }
         }
     }
 
-    [HarmonyPatch(typeof(NetManager), "UpdateNodeColors", new Type[0])]
     public static class NetManagerUpdateNodeColorsZeroPatch
     {
         public static void Postfix(NetManager __instance)
         {
-            if (__instance == null || __instance.m_nodes == null || __instance.m_nodes.m_buffer == null) return;
-            if (__instance.m_nodes.m_buffer.Length > 32768)
-            {
-                __instance.UpdateNodeColors(32768, (ushort)(__instance.m_nodes.m_buffer.Length - 1));
-            }
         }
     }
 
-    [HarmonyPatch(typeof(InfoManager), "SetActualMode")]
     public static class InfoManagerSetActualModePatch
     {
         public static void Postfix()
         {
-            try
-            {
-                var nm = Singleton<NetManager>.instance;
-                if (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
-                {
-                    nm.UpdateSegmentColors(0, (ushort)(nm.m_segments.m_buffer.Length - 1));
-                    nm.UpdateNodeColors(0, (ushort)(nm.m_nodes.m_buffer.Length - 1));
-                }
-            }
-            catch {}
         }
     }
 
-    [HarmonyPatch(typeof(RenderManager), "UpdateInstance", new Type[] { typeof(uint) })]
     public static class RenderManagerUpdateInstancePatch
     {
         public static bool Prefix(RenderManager __instance, uint holder)
         {
-            try
-            {
-                if (__instance == null) return false;
-                if (__instance.m_indices == null || holder >= (uint)__instance.m_indices.Length)
-                {
-                    int newSize = (int)Math.Max(holder + 4096, 262144);
-                    ushort[] oldArr = __instance.m_indices;
-                    ushort[] newArr = new ushort[newSize];
-                    for (int i = 0; i < newArr.Length; i++) newArr[i] = ushort.MaxValue;
-                    if (oldArr != null)
-                    {
-                        Array.Copy(oldArr, newArr, Math.Min(oldArr.Length, newArr.Length));
-                    }
-                    __instance.m_indices = newArr;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Dynamically expanded RenderManager.m_indices to {0} for holder {1}", newSize, holder));
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RenderManagerUpdateInstancePatch error: " + ex);
-                return false;
-            }
+            return true;
         }
     }
 
@@ -5757,10 +5522,7 @@ namespace MoreNetworkCapacityRenew
         {
             foreach (var instruction in instructions)
             {
-                if (instruction.opcode == OpCodes.Ldc_I4 && instruction.operand is int val && val == 262144)
-                {
-                    instruction.operand = 524288;
-                }
+                // Lanes remain at standard 262,144
                 yield return instruction;
             }
         }
@@ -5776,61 +5538,10 @@ namespace MoreNetworkCapacityRenew
             DiagnosticLogger.Checkpoint("DynamicPatcher.Start");
             try
             {
-                int patchedMethodCount = 0;
-                int patchedConstCount = 0;
+                // Assembly-CSharp and TM:PE constant transpilation is handled 100% natively
+                // by MoreNetworkCapacity.Core transpilers. Blindly scanning them caused double-patching,
+                // district grid corruption (512x512 = 262144), bitmask issues, and massive FPS drop.
 
-                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                if (tmpe != null)
-                {
-                    foreach (Type type in tmpe.GetTypes())
-                    {
-                        if (type.Namespace != null && (type.Namespace.StartsWith("TrafficManager") || type.Namespace.StartsWith("CSUtil.Commons") || type.Namespace.StartsWith("SharedEnvironment")))
-                        {
-                            int result = PatchType(harmony, type);
-                            if (result > 0) patchedMethodCount++;
-                            patchedConstCount += result;
-                        }
-                    }
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Patched {0} constants in {1} TM:PE methods", patchedConstCount, patchedMethodCount));
-                }
-
-                try
-                {
-                    Assembly baseAssembly = Assembly.Load("Assembly-CSharp");
-                    if (baseAssembly != null)
-                    {
-                        string[] safeTypes = new string[] {
-                            "NetManager", "CoverageManager",
-                            "TransportManager", "TransportLine", "TransportTool", "TransportNode",
-                            "PathManager", "DistrictManager", "ZoneBlock", "BuildingDecoration",
-                            "NetAdjust", "UnlockManager", "EventManager", "Building",
-                            "NetTool", "BuildingTool",
-                            "RoadBaseAI", "CarAI", "VehicleAI", "PassengerCarAI", "BusAI", "TrainAI",
-                            "NetAI", "RoadAI", "TrainTrackAI", "PedestrianPathAI", 
-                            "NetSegment", "NetNode", "NetLane", "Vehicle", "Citizen", "CitizenInstance"
-                        };
-
-                        int patchedCount2 = 0;
-                        int patchedConstCount2 = 0;
-                        foreach (Type type in baseAssembly.GetTypes())
-                        {
-                            string checkName = type.Name;
-                            if (type.DeclaringType != null) checkName = type.DeclaringType.Name;
-                            
-                            if (Array.IndexOf(safeTypes, checkName) >= 0)
-                            {
-                                int result = PatchType(harmony, type);
-                                if (result > 0) patchedCount2++;
-                                patchedConstCount2 += result;
-                            }
-                        }
-                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Patched {0} constants in {1} Assembly-CSharp methods", patchedConstCount2, patchedCount2));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Assembly-CSharp patch error: " + ex);
-                }
 
                 try
                 {
@@ -5972,7 +5683,7 @@ namespace MoreNetworkCapacityRenew
                             if (il[i] == 0x20) // ldc.i4
                             {
                                 int val = il[i + 1] | (il[i + 2] << 8) | (il[i + 3] << 16) | (il[i + 4] << 24);
-                                if (val == 36864 || val == 32768 || val == 36863 || val == 32767 || val == 73728 || val == 73727 || val == 262144 || val == 262143)
+                                if (val == 36864 || val == 32768 || val == 36863 || val == 32767 || val == 73728 || val == 73727)
                                 {
                                     hasConstant = true;
                                     break;
@@ -6002,7 +5713,7 @@ namespace MoreNetworkCapacityRenew
                             if (il[i] == 0x20) // ldc.i4
                             {
                                 int val = il[i + 1] | (il[i + 2] << 8) | (il[i + 3] << 16) | (il[i + 4] << 24);
-                                if (val == 36864 || val == 32768 || val == 36863 || val == 32767 || val == 73728 || val == 73727 || val == 262144 || val == 262143)
+                                if (val == 36864 || val == 32768 || val == 36863 || val == 32767 || val == 73728 || val == 73727)
                                 {
                                     hasConstant = true;
                                     break;
@@ -6058,7 +5769,7 @@ namespace MoreNetworkCapacityRenew
                 var instruction = codes[i];
                 if (instruction.opcode == OpCodes.Ldc_I4 && instruction.operand is int val)
                 {
-                    if (val == 36864 || val == 32768 || val == 36863 || val == 32767 || val == 73728 || val == 73727 || val == 262144 || val == 262143)
+                    if (val == 36864 || val == 32768 || val == 36863 || val == 32767 || val == 73728 || val == 73727)
                     {
                         bool shouldChange = false;
 
@@ -6110,8 +5821,6 @@ namespace MoreNetworkCapacityRenew
                             else if (val == 32767 || val == 36863) expectedVal = 65023;
                             else if (val == 73728) expectedVal = 130048;
                             else if (val == 73727) expectedVal = 130047;
-                            else if (val == 262144) expectedVal = 524288;
-                            else if (val == 262143) expectedVal = 524287;
 
                             instruction.operand = expectedVal;
                         }

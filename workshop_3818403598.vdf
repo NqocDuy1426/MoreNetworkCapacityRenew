@@ -6,22 +6,23 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v3.9.2 (100% TM:PE Native Control & FPS Optimization) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v3.9.3 (Vehicle Spawning Restored & Bulldozed Road Despawn Fix) ✨[/h1]
 [list]
-[*] [b]100% TM:PE Native Autonomy Restored:[/b]
+[*] [b]Permanent Fix for Vehicle Spawning Drops:[/b]
 [list]
-    [*] Completely removed all intrusive Harmony hooks on TM:PE's [i]CustomPathFind[/i] ([i]GetLaneDirection[/i], [i]ProcessItemMain[/i], [i]PathFindImplementation[/i]) and [i]SpeedLimitManager[/i].
-    [*] TM:PE now has 100% full, uncompromised native authority over vehicle pathfinding algorithms, lane switching, routing arrows, and custom speed limits.
-    [*] Retained only memory buffer expansions so TM:PE arrays safely support 65,536 nodes/segments and 524,288 lanes without crashing.
+    [*] Prevented unhandled [i]NullReferenceException[/i] in TM:PE's [i]SpeedLimitManager.GetGameSpeedLimit[/i] during road construction and segment alterations.
+    [*] Restored smooth, continuous pathfinding across all 4 worker threads, enabling uninterrupted vehicle and cargo spawning across the entire city.
 [/list]
-[*] [b]Major Simulation FPS & CPU Performance Restoration:[/b]
+[*] [b]Auto-Despawn for Bulldozed & Demolished Road Vehicles:[/b]
 [list]
-    [*] Eliminated redundant [i]NetManager.SimulationStepImpl[/i] C# reflection loop.
-    [*] Expanded network simulation slices (65K nodes & segments) are handled at maximum speed directly by [i]MoreNetworkCapacity.Core[/i]'s high-performance IL transpiler.
-    [*] Eliminates CPU simulation stutter and restores smooth simulation FPS.
+    [*] Fixed the stubborn ghost vehicles hovering in mid-air when roads are demolished!
+    [*] Hooked [i]NetManager.ReleaseSegmentImplementation[/i] to instantly despawn vehicles driving on a demolished road segment.
+    [*] Patched TM:PE's [i]VehicleBehaviorManager.MayDespawn[/i] so that vehicles whose roads were destroyed are cleanly released instead of being frozen in mid-air by TM:PE's no-despawn setting. Live traffic at red lights and jams remains 100% protected!
+    [*] Added automatic ghost vehicle cleaner on level load and periodic background sweep.
+    [*] Hotkey: Press [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) to instantly clean all stranded/ghost vehicles on demand!
 [/list]
-[*] [b]Permanent Save UInt24 Overflow Protection (v3.9.1):[/b] Universal safety clamping on [i]DataSerializer.WriteUInt24[/i] & [i]WriteInt24[/i] and pre-save district sanitization to guarantee 100% successful save serialization.
-[*] [b]Phantom CitizenUnits Auto-Sanitization (v3.4):[/b] Built-in high-performance [b]CitizenUnit Auto-Sanitizer[/b] runs on load and pre-save, safely cleaning dangling pointers down to 0 phantom units (Hotkey: [b]Ctrl + Shift + C[/b] / [b]Cmd + Shift + C[/b]).
+[*] [b]100% TM:PE Native Control Preserved:[/b] TM:PE retains full authority over lane routing arrows, timed traffic lights, priority rules, and pathfinding.
+[*] [b]Savegame Reliability & Full 64K Capacity:[/b] Full protection against UInt24 overflows and zero data loss on save.
 [/list]
 
 [hr][/hr]
@@ -98,5 +99,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v3.9.2: 1) 100% TM:PE Native Control: Removed all intrusive hooks on CustomPathFind and SpeedLimitManager; TM:PE completely controls vehicle routing, pathfinding algorithms, lane arrows, and speed limits. 2) Major FPS Boost: Removed duplicate NetManager simulation loop in favor of native Core IL transpiler. 3) Full Savegame Reliability maintained."
+	"changenote"		"v3.9.3: 1) Fixed Vehicle Spawning Drops: Prevented unhandled NullReferenceException in SpeedLimitManager.GetGameSpeedLimit during road changes, restoring uninterrupted pathfinding and rapid vehicle spawns. 2) Fixed Bulldozed Road Ghost Vehicles: Added real-time auto-despawn on road destruction (NetManager.ReleaseSegmentImplementation) and patched TM:PE MayDespawn to allow natural vehicle removal when roads under them are bulldozed. 3) Added ghost vehicle cleaner on level load & hotkey (Ctrl/Cmd + Shift + V)."
 }

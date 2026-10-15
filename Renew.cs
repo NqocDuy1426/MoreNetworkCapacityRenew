@@ -541,6 +541,27 @@ namespace MoreNetworkCapacityRenew
             return cachedTMPEAssembly;
         }
 
+        private static Assembly cachedTMPEApiAssembly = null;
+
+        public static Assembly GetTMPEApiAssembly()
+        {
+            if (cachedTMPEApiAssembly != null) return cachedTMPEApiAssembly;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name == "TMPE.API")
+                {
+                    cachedTMPEApiAssembly = asm;
+                    return asm;
+                }
+            }
+            try
+            {
+                cachedTMPEApiAssembly = Assembly.Load("TMPE.API");
+            }
+            catch { }
+            return cachedTMPEApiAssembly ?? GetTMPEAssembly();
+        }
+
         public static void Apply(HarmonyInstance harmony)
         {
             try
@@ -1256,13 +1277,72 @@ namespace MoreNetworkCapacityRenew
                         {
                             var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayDespawn_Postfix));
                             harmony.Patch(mayDespawnM, postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayDespawn (allowing dead/demolished vehicle despawn)");
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayDespawn");
+                        }
+
+                        // 27. VehicleBehaviorManager.MayChangeSegment (Prevent false 0-speed junction/highway traps)
+                        MethodInfo mcs14 = vbmType.GetMethod("MayChangeSegment", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                            typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(float),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(NetSegment).MakeByRefType(), typeof(ushort), typeof(uint),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(NetNode).MakeByRefType(), typeof(uint),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(float).MakeByRefType()
+                        }, null);
+                        if (mcs14 != null)
+                        {
+                            var postMcs = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment14_Postfix));
+                            harmony.Patch(mcs14, postfix: new HarmonyMethod(postMcs));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (14-arg Postfix)");
+                        }
+
+                        MethodInfo mcs12 = vbmType.GetMethod("MayChangeSegment", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                            typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(float),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(NetSegment).MakeByRefType(), typeof(ushort), typeof(uint),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(NetNode).MakeByRefType(), typeof(uint),
+                            typeof(float).MakeByRefType()
+                        }, null);
+                        if (mcs12 != null)
+                        {
+                            var postMcs12 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment12_Postfix));
+                            harmony.Patch(mcs12, postfix: new HarmonyMethod(postMcs12));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (12-arg Postfix)");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
+                }
+
+                // 28. CarAI.CalculateSegmentPosition (Anti-Zero-Speed Trap: Guarantee vehicles accelerate and move)
+                try
+                {
+                    MethodInfo csp13 = typeof(CarAI).GetMethod("CalculateSegmentPosition", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                        typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(PathUnit.Position), typeof(PathUnit.Position),
+                        typeof(uint), typeof(byte), typeof(PathUnit.Position), typeof(uint), typeof(byte), typeof(int),
+                        typeof(UnityEngine.Vector3).MakeByRefType(), typeof(UnityEngine.Vector3).MakeByRefType(), typeof(float).MakeByRefType()
+                    }, null);
+                    if (csp13 != null)
+                    {
+                        var postCsp13 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CarAI_CalculateSegmentPosition13_Postfix));
+                        harmony.Patch(csp13, postfix: new HarmonyMethod(postCsp13));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CarAI.CalculateSegmentPosition (13-arg Postfix: anti-zero-speed trap)");
+                    }
+
+                    MethodInfo csp8 = typeof(CarAI).GetMethod("CalculateSegmentPosition", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                        typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(PathUnit.Position),
+                        typeof(uint), typeof(byte),
+                        typeof(UnityEngine.Vector3).MakeByRefType(), typeof(UnityEngine.Vector3).MakeByRefType(), typeof(float).MakeByRefType()
+                    }, null);
+                    if (csp8 != null)
+                    {
+                        var postCsp8 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CarAI_CalculateSegmentPosition8_Postfix));
+                        harmony.Patch(csp8, postfix: new HarmonyMethod(postCsp8));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CarAI.CalculateSegmentPosition (8-arg Postfix: anti-zero-speed trap)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CarAI.CalculateSegmentPosition: " + ex);
                 }
             }
             catch (Exception ex)
@@ -1338,6 +1418,10 @@ namespace MoreNetworkCapacityRenew
 
                 // 5b. SpeedLimitManager capacity & initialize default speeds
                 EnsureSpeedLimitManagerCapacity(tmpe);
+
+                // 5c. ExtLaneManager capacity (expand from 262,144 to 524,288 lanes) & Cache ExtVehicle fields
+                EnsureExtLaneManagerCapacity(tmpe);
+                CacheExtVehicleFields(tmpe);
 
                 // 6. GenericArrayCache
                 ResizeGenericArrayCaches(tmpe);
@@ -2092,6 +2176,117 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureSpeedLimitManagerCapacity error: " + ex);
+            }
+        }
+
+        private static Array s_extVehiclesArray = null;
+        private static FieldInfo s_extVehicleJunctionTransitStateField = null;
+        private static FieldInfo s_extVehicleWaitTimeField = null;
+        private static FieldInfo s_extVehicleLastTransitStateUpdateField = null;
+
+        public static void CacheExtVehicleFields(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type evmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtVehicleManager");
+                if (evmType == null) return;
+
+                FieldInfo instField = evmType.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                object inst = (instField != null) ? instField.GetValue(null) : null;
+                if (inst == null) return;
+
+                PropertyInfo extVehiclesProp = evmType.GetProperty("ExtVehicles", BindingFlags.Public | BindingFlags.Instance);
+                if (extVehiclesProp != null)
+                {
+                    s_extVehiclesArray = extVehiclesProp.GetValue(inst, null) as Array;
+                }
+
+                Assembly apiAsm = GetTMPEApiAssembly() ?? tmpe;
+                Type extVehicleType = apiAsm.GetType("TrafficManager.API.Traffic.Data.ExtVehicle");
+                if (extVehicleType != null)
+                {
+                    s_extVehicleJunctionTransitStateField = extVehicleType.GetField("junctionTransitState", BindingFlags.Public | BindingFlags.Instance);
+                    s_extVehicleWaitTimeField = extVehicleType.GetField("waitTime", BindingFlags.Public | BindingFlags.Instance);
+                    s_extVehicleLastTransitStateUpdateField = extVehicleType.GetField("lastTransitStateUpdate", BindingFlags.Public | BindingFlags.Instance);
+                }
+            }
+            catch { }
+        }
+
+        public static void UnstickVehicle(ushort vehicleId)
+        {
+            try
+            {
+                if (s_extVehiclesArray != null && vehicleId < s_extVehiclesArray.Length && s_extVehicleJunctionTransitStateField != null)
+                {
+                    object extVeh = s_extVehiclesArray.GetValue(vehicleId);
+                    if (extVeh != null)
+                    {
+                        s_extVehicleJunctionTransitStateField.SetValue(extVeh, 3); // Leave (3)
+                        if (s_extVehicleWaitTimeField != null) s_extVehicleWaitTimeField.SetValue(extVeh, 0);
+                        if (s_extVehicleLastTransitStateUpdateField != null) s_extVehicleLastTransitStateUpdateField.SetValue(extVeh, 0u);
+                        s_extVehiclesArray.SetValue(extVeh, vehicleId);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void EnsureExtLaneManagerCapacity(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type elmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtLaneManager");
+                if (elmType == null) return;
+
+                Type extLaneType = tmpe.GetType("TrafficManager.Manager.Impl.ExtLaneManager+ExtLane") ?? tmpe.GetType("TrafficManager.Manager.Impl.ExtLaneManager/ExtLane");
+                if (extLaneType == null) return;
+
+                FieldInfo instField = elmType.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                object inst = (instField != null) ? instField.GetValue(null) : null;
+                if (inst == null)
+                {
+                    PropertyInfo instProp = elmType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                    if (instProp != null) inst = instProp.GetValue(null, null);
+                }
+                if (inst == null) return;
+
+                FieldInfo lanesField = elmType.GetField("lanes", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                if (lanesField == null) return;
+
+                Array oldLanes = lanesField.GetValue(inst) as Array;
+                int targetSize = 524288;
+                if (oldLanes == null || oldLanes.Length < targetSize)
+                {
+                    Array newLanes = Array.CreateInstance(extLaneType, targetSize);
+                    int oldLen = 0;
+                    if (oldLanes != null)
+                    {
+                        oldLen = oldLanes.Length;
+                        Array.Copy(oldLanes, newLanes, oldLen);
+                    }
+
+                    FieldInfo laneIndexField = extLaneType.GetField("laneIndex", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    object item = Activator.CreateInstance(extLaneType);
+                    if (laneIndexField != null)
+                    {
+                        laneIndexField.SetValue(item, -1);
+                    }
+
+                    for (int i = oldLen; i < targetSize; i++)
+                    {
+                        newLanes.SetValue(item, i);
+                    }
+
+                    lanesField.SetValue(inst, newLanes);
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded TM:PE ExtLaneManager.lanes: {0} -> {1}", oldLen, targetSize));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error in EnsureExtLaneManagerCapacity: " + ex);
             }
         }
 
@@ -3797,8 +3992,6 @@ namespace MoreNetworkCapacityRenew
 
         public static void VehicleBehaviorManager_MayDespawn_Postfix(ushort vehicleId, ref Vehicle vehicleData, ref bool __result)
         {
-            if (__result) return;
-
             try
             {
                 uint pathId = vehicleData.m_path;
@@ -3838,6 +4031,20 @@ namespace MoreNetworkCapacityRenew
                                 return;
                             }
                         }
+
+                        // Path is completely valid! DO NOT despawn! If blocked, UNSTICK IT!
+                        if (vehicleData.m_blockCounter >= 5)
+                        {
+                            vehicleData.m_blockCounter = 0;
+                            if (vehicleData.m_targetPos0.w < 0.1f) vehicleData.m_targetPos0.w = 1.5f;
+                            if (vehicleData.m_targetPos1.w < 0.1f) vehicleData.m_targetPos1.w = 1.5f;
+                            if (vehicleData.m_targetPos2.w < 0.1f) vehicleData.m_targetPos2.w = 1.5f;
+                            if (vehicleData.m_targetPos3.w < 0.1f) vehicleData.m_targetPos3.w = 1.5f;
+
+                            TMPECompatibility.UnstickVehicle(vehicleId);
+                            __result = false;
+                            return;
+                        }
                     }
                 }
                 else if ((vehicleData.m_flags & (Vehicle.Flags.WaitingPath | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
@@ -3850,6 +4057,225 @@ namespace MoreNetworkCapacityRenew
                 }
             }
             catch { }
+        }
+
+        public static void RestoreVehicleSpeedIfNeeded(
+            ushort vehicleID, 
+            ref Vehicle vehicleData, 
+            PathUnit.Position position, 
+            uint laneID, 
+            PathUnit.Position prevPos, 
+            ref float maxSpeed)
+        {
+            try
+            {
+                if (maxSpeed > 0.05f) return;
+
+                if (vehicleData.m_path == 0) return;
+                if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
+
+                // Legitimate stops: arriving at destination, parking, or waiting for loading/path
+                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath)) != 0)
+                {
+                    return;
+                }
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null || nm.m_lanes == null || nm.m_lanes.m_buffer == null)
+                {
+                    maxSpeed = 1.25f;
+                    return;
+                }
+
+                ushort curSegId = position.m_segment;
+                ushort prevSegId = prevPos.m_segment;
+                ushort checkSegId = curSegId != 0 ? curSegId : prevSegId;
+                if (checkSegId == 0 || checkSegId >= nm.m_segments.m_buffer.Length)
+                {
+                    maxSpeed = 1.25f;
+                    return;
+                }
+
+                NetInfo info = nm.m_segments.m_buffer[checkSegId].Info;
+                if (info == null)
+                {
+                    maxSpeed = 1.25f;
+                    return;
+                }
+
+                bool isHighway = (info.m_netAI != null && info.m_netAI.IsHighway());
+                if (isHighway)
+                {
+                    float segSpeed = 2.0f;
+                    if (info.m_lanes != null && position.m_lane < info.m_lanes.Length && info.m_lanes[position.m_lane] != null)
+                    {
+                        segSpeed = UnityEngine.Mathf.Max(info.m_lanes[position.m_lane].m_speedLimit, 1.5f);
+                    }
+                    maxSpeed = segSpeed;
+                    return;
+                }
+
+                // Check target node for genuine Red Traffic Light
+                ushort startNode = nm.m_segments.m_buffer[checkSegId].m_startNode;
+                ushort endNode = nm.m_segments.m_buffer[checkSegId].m_endNode;
+                ushort targetNodeId = (position.m_offset > 128) ? endNode : startNode;
+
+                if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
+                {
+                    NetNode.Flags nodeFlags = nm.m_nodes.m_buffer[targetNodeId].m_flags;
+                    if ((nodeFlags & NetNode.Flags.TrafficLights) != 0)
+                    {
+                        RoadBaseAI.TrafficLightState vState, pState;
+                        RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[checkSegId], 
+                            Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
+                            out vState, out pState);
+
+                        if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
+                        {
+                            return;
+                        }
+                    }
+                }
+
+                // Not a red light: restore positive target speed so the vehicle accelerates
+                float targetSpeed = 1.25f;
+                if (info.m_lanes != null && position.m_lane < info.m_lanes.Length && info.m_lanes[position.m_lane] != null)
+                {
+                    targetSpeed = UnityEngine.Mathf.Max(info.m_lanes[position.m_lane].m_speedLimit, 1.0f);
+                }
+                maxSpeed = targetSpeed;
+            }
+            catch { }
+        }
+
+        public static void VehicleBehaviorManager_MayChangeSegment14_Postfix(
+            ushort frontVehicleId, 
+            ref Vehicle vehicleData, 
+            float sqrVelocity, 
+            ref PathUnit.Position prevPos, 
+            ref NetSegment prevSegment, 
+            ushort prevTargetNodeId, 
+            uint prevLaneID, 
+            ref PathUnit.Position position, 
+            ushort targetNodeId, 
+            ref NetNode targetNode, 
+            uint laneID, 
+            ref PathUnit.Position nextPosition, 
+            ushort nextTargetNodeId, 
+            ref float maxSpeed, 
+            ref bool __result)
+        {
+            HandleMayChangeSegmentOverride(frontVehicleId, ref vehicleData, sqrVelocity, ref prevPos, ref prevSegment, prevTargetNodeId, prevLaneID, ref position, targetNodeId, ref targetNode, laneID, ref maxSpeed, ref __result);
+        }
+
+        public static void VehicleBehaviorManager_MayChangeSegment12_Postfix(
+            ushort frontVehicleId, 
+            ref Vehicle vehicleData, 
+            float sqrVelocity, 
+            ref PathUnit.Position prevPos, 
+            ref NetSegment prevSegment, 
+            ushort prevTargetNodeId, 
+            uint prevLaneID, 
+            ref PathUnit.Position position, 
+            ushort targetNodeId, 
+            ref NetNode targetNode, 
+            uint laneID, 
+            ref float maxSpeed, 
+            ref bool __result)
+        {
+            HandleMayChangeSegmentOverride(frontVehicleId, ref vehicleData, sqrVelocity, ref prevPos, ref prevSegment, prevTargetNodeId, prevLaneID, ref position, targetNodeId, ref targetNode, laneID, ref maxSpeed, ref __result);
+        }
+
+        private static void HandleMayChangeSegmentOverride(
+            ushort frontVehicleId, 
+            ref Vehicle vehicleData, 
+            float sqrVelocity, 
+            ref PathUnit.Position prevPos, 
+            ref NetSegment prevSegment, 
+            ushort prevTargetNodeId, 
+            uint prevLaneID, 
+            ref PathUnit.Position position, 
+            ushort targetNodeId, 
+            ref NetNode targetNode, 
+            uint laneID, 
+            ref float maxSpeed, 
+            ref bool __result)
+        {
+            try
+            {
+                if (__result) return;
+
+                if (vehicleData.m_path == 0) return;
+                if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
+                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath)) != 0) return;
+
+                NetInfo prevInfo = prevSegment.Info;
+                bool isHighway = (prevInfo != null && prevInfo.m_netAI != null && prevInfo.m_netAI.IsHighway());
+                if (isHighway)
+                {
+                    __result = true;
+                    if (maxSpeed < 0.1f)
+                    {
+                        maxSpeed = (prevInfo.m_lanes != null && position.m_lane < prevInfo.m_lanes.Length && prevInfo.m_lanes[position.m_lane] != null)
+                            ? UnityEngine.Mathf.Max(prevInfo.m_lanes[position.m_lane].m_speedLimit, 2.0f)
+                            : 2.0f;
+                    }
+                    return;
+                }
+
+                if ((targetNode.m_flags & NetNode.Flags.TrafficLights) != 0)
+                {
+                    RoadBaseAI.TrafficLightState vState, pState;
+                    RoadBaseAI.GetTrafficLightState(targetNodeId, ref prevSegment, 
+                        Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
+                        out vState, out pState);
+
+                    if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
+                    {
+                        return;
+                    }
+                }
+
+                __result = true;
+                if (maxSpeed < 0.1f)
+                {
+                    maxSpeed = (prevInfo != null && prevInfo.m_lanes != null && position.m_lane < prevInfo.m_lanes.Length && prevInfo.m_lanes[position.m_lane] != null)
+                        ? UnityEngine.Mathf.Max(prevInfo.m_lanes[position.m_lane].m_speedLimit, 1.0f)
+                        : 1.25f;
+                }
+            }
+            catch { }
+        }
+
+        public static void CarAI_CalculateSegmentPosition13_Postfix(
+            ushort vehicleID, 
+            ref Vehicle vehicleData, 
+            PathUnit.Position nextPosition, 
+            PathUnit.Position position, 
+            uint laneID, 
+            byte offset, 
+            PathUnit.Position prevPos, 
+            uint prevLaneID, 
+            byte prevOffset, 
+            int index, 
+            ref UnityEngine.Vector3 pos, 
+            ref UnityEngine.Vector3 dir, 
+            ref float maxSpeed)
+        {
+            RestoreVehicleSpeedIfNeeded(vehicleID, ref vehicleData, position, laneID, prevPos, ref maxSpeed);
+        }
+
+        public static void CarAI_CalculateSegmentPosition8_Postfix(
+            ushort vehicleID, 
+            ref Vehicle vehicleData, 
+            PathUnit.Position position, 
+            uint laneID, 
+            byte offset, 
+            ref UnityEngine.Vector3 pos, 
+            ref UnityEngine.Vector3 dir, 
+            ref float maxSpeed)
+        {
+            RestoreVehicleSpeedIfNeeded(vehicleID, ref vehicleData, position, laneID, position, ref maxSpeed);
         }
     }
 
@@ -6363,6 +6789,69 @@ namespace MoreNetworkCapacityRenew
             catch { }
             return released;
         }
+
+        public static int UnstickFrozenVehicles()
+        {
+            int unblocked = 0;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null ||
+                    nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null ||
+                    pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null)
+                    return 0;
+
+                int vCount = vm.m_vehicles.m_buffer.Length;
+                int segCount = nm.m_segments.m_buffer.Length;
+                int pathCount = pm.m_pathUnits.m_buffer.Length;
+
+                for (ushort i = 1; i < vCount; i++)
+                {
+                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
+                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
+                        continue;
+
+                    VehicleInfo info = vm.m_vehicles.m_buffer[i].Info;
+                    if (info == null || (info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
+                        continue;
+
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Arriving | Vehicle.Flags.WaitingPath)) != 0)
+                        continue;
+
+                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
+                    if (pathId != 0 && pathId < (uint)pathCount)
+                    {
+                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f)
+                        {
+                            int posIdx = (int)(vm.m_vehicles.m_buffer[i].m_pathPositionIndex >> 1);
+                            PathUnit.Position pPos;
+                            if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
+                            {
+                                if (pPos.m_segment != 0 && pPos.m_segment < segCount &&
+                                    (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) != 0)
+                                {
+                                    vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos0.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos1.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos1.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos2.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos2.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos3.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos3.w = 1.5f;
+
+                                    TMPECompatibility.UnstickVehicle(i);
+                                    unblocked++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return unblocked;
+        }
     }
 
     public class MNC_ThreadingExtension : ThreadingExtensionBase
@@ -6371,20 +6860,22 @@ namespace MoreNetworkCapacityRenew
 
         public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
         {
-            // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles on demand
+            // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles and unblock frozen queues on demand
             if ((UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand))
                 && (UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift))
                 && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.V))
             {
                 int cleaned = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) cleaned " + cleaned + " dead/floating vehicles.");
+                int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) cleaned " + cleaned + " dead vehicles and unblocked " + unblocked + " frozen vehicles.");
             }
 
             _frameCounter++;
-            if (_frameCounter >= 300)
+            if (_frameCounter >= 180)
             {
                 _frameCounter = 0;
                 VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
+                VehicleAndTransportRepair.UnstickFrozenVehicles();
             }
         }
     }

@@ -6,23 +6,26 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v3.9.3 (Vehicle Spawning Restored & Bulldozed Road Despawn Fix) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v3.9.5 (Vehicles Refusing to Move Fix & 524K ExtLaneManager Expansion) ✨[/h1]
 [list]
-[*] [b]Permanent Fix for Vehicle Spawning Drops:[/b]
+[*] [b]Fixed Vehicles Refusing to Move on Valid Routes ('Không Chịu Đi'):[/b]
 [list]
-    [*] Prevented unhandled [i]NullReferenceException[/i] in TM:PE's [i]SpeedLimitManager.GetGameSpeedLimit[/i] during road construction and segment alterations.
-    [*] Restored smooth, continuous pathfinding across all 4 worker threads, enabling uninterrupted vehicle and cargo spawning across the entire city.
+    [*] Diagnosed and resolved the game-wide zero-speed deadlock where vehicles with valid routes, intact path units, and clear destinations would freeze at 0 velocity and refuse to accelerate.
+    [*] Added a safety guard to TM:PE's [i]VehicleBehaviorManager.MayChangeSegment[/i] and [i]CarAI.CalculateSegmentPosition[/i] preventing vehicles on highways and non-signal roads from being trapped in permanent 0-speed [i]Blocked[/i] states.
+    [*] Ensured vehicles on highways (which have no traffic lights or pedestrian crossings) are never assigned 0 maxSpeed.
+    [*] Added an automated queue unblocking engine that detects stopped vehicles with valid paths, resets their blocked counter, and kicks off acceleration along their route.
 [/list]
-[*] [b]Auto-Despawn for Bulldozed & Demolished Road Vehicles:[/b]
+[*] [b]Expanded TM:PE ExtLaneManager to 524,288 Lanes:[/b]
 [list]
-    [*] Fixed the stubborn ghost vehicles hovering in mid-air when roads are demolished!
-    [*] Hooked [i]NetManager.ReleaseSegmentImplementation[/i] to instantly despawn vehicles driving on a demolished road segment.
-    [*] Patched TM:PE's [i]VehicleBehaviorManager.MayDespawn[/i] so that vehicles whose roads were destroyed are cleanly released instead of being frozen in mid-air by TM:PE's no-despawn setting. Live traffic at red lights and jams remains 100% protected!
-    [*] Added automatic ghost vehicle cleaner on level load and periodic background sweep.
-    [*] Hotkey: Press [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) to instantly clean all stranded/ghost vehicles on demand!
+    [*] TM:PE's internal [i]ExtLaneManager.lanes[/i] was originally fixed at 262,144 lanes. In 64K network cities, lanes exceed 262K, triggering unhandled [i]IndexOutOfRangeException[/i] on lane queries.
+    [*] Dynamically expanded [i]ExtLaneManager.lanes[/i] to full 524,288 capacity with proper [i]laneIndex = -1[/i] initialization, eliminating crashes in lane arrow validation and speed limit lookups.
 [/list]
-[*] [b]100% TM:PE Native Control Preserved:[/b] TM:PE retains full authority over lane routing arrows, timed traffic lights, priority rules, and pathfinding.
-[*] [b]Savegame Reliability & Full 64K Capacity:[/b] Full protection against UInt24 overflows and zero data loss on save.
+[*] [b]Protected Valid Vehicles from Accidental Despawning:[/b]
+[list]
+    [*] Refined [i]VehicleBehaviorManager.MayDespawn[/i] so that vehicles with valid routes are actively unstuck and allowed to drive instead of being deleted after 150 frames.
+    [*] Clean despawn remains strictly reserved for vehicles whose road segments were bulldozed or demolished.
+[/list]
+[*] [b]Hotkey:[/b] Press [b]Ctrl + Shift + V[/b] (or [b]Cmd + Shift + V[/b] on Mac) to instantly unblock all frozen queues and clean demolished road vehicles!
 [/list]
 
 [hr][/hr]
@@ -99,5 +102,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v3.9.4: Comprehensive NullReferenceException & Memory Guard Audit: 1) Fully hardened SpeedLimitManager against null laneInfo, unallocated segment buffers, and out-of-bounds lanes with direct O(1) lane resolution. 2) Hardened VehicleBehaviorManager.MayDespawn, NetManager.SimulationStepImpl, and color update routines against unallocated node and segment buffers. 3) Bulletproofed SanitizeNetwork, ReleasePhantomCitizen, and RestoreAllTransportLines with fail-safe null and bounds guards. 4) Fixed ImprovedPublicTransport line initialization by creating instances for newly expanded line slots and guarding reflection calls. 5) Secured MoveIt and KianCommons static buffer synchronizers against null manager buffers."
+	"changenote"		"v3.9.5: Fix Vehicles Refusing to Move ('Không Chịu Đi') & 524K ExtLaneManager Expansion: 1) Fixed vehicles with valid routes freezing at 0 speed by patching TM:PE VehicleBehaviorManager.MayChangeSegment and CarAI.CalculateSegmentPosition against false 0-speed Blocked traps. 2) Ensured highway segments never assign 0 maxSpeed. 3) Expanded TM:PE ExtLaneManager.lanes from 262,144 to full 524,288 capacity with laneIndex=-1 initialization, eliminating unhandled IndexOutOfRangeException. 4) Added background unsticking and hotkey (Ctrl+Shift+V) to wake up and accelerate queued vehicles along their routes. 5) Protected valid vehicles from being accidentally despawned."
 }

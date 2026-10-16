@@ -5562,15 +5562,28 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static Exception Finalizer(Exception __exception)
+        public static void OnSaveSimulationException(Exception ex)
         {
-            if (__exception != null)
+            if (ex != null)
             {
-                LastSaveSimulationException = __exception;
-                LogSaveDebug("CRITICAL: Unhandled exception in SaveSimulationData iterator MoveNext: " + __exception);
-                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SaveSimulationData iterator caught unhandled exception:\n" + __exception);
+                LastSaveSimulationException = ex;
+                LogSaveDebug("CRITICAL: SaveSimulationData serialization caught unhandled exception:\n" + ex);
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SaveSimulationData serialization caught unhandled exception:\n" + ex);
             }
-            return __exception;
+        }
+
+        public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo mCapture = typeof(SaveSimulationDataSafetyPatch).GetMethod(nameof(OnSaveSimulationException), BindingFlags.Public | BindingFlags.Static);
+            foreach (var inst in instructions)
+            {
+                if (inst.opcode == OpCodes.Pop)
+                {
+                    inst.opcode = OpCodes.Call;
+                    inst.operand = mCapture;
+                }
+                yield return inst;
+            }
         }
 
         public static void Postfix(object __instance, bool __result)
@@ -7556,6 +7569,20 @@ namespace MoreNetworkCapacityRenew
             PatchEightyOne2(harmony);
         }
 
+        public static void EnsureEightyOne2Patched()
+        {
+            if (_eightyOne2Patched) return;
+            try
+            {
+                var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.ThirdParty");
+                PatchEightyOne2(harmony);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureEightyOne2Patched error: " + ex);
+            }
+        }
+
         private static void PatchEightyOne2(HarmonyInstance harmony)
         {
             if (_eightyOne2Patched || harmony == null) return;
@@ -7572,73 +7599,118 @@ namespace MoreNetworkCapacityRenew
                 }
                 if (eightyOneAsm == null) return;
 
+                int patchedCount = 0;
+
                 // 1. Patch ElectricityManagerDataPatches.CustomSerialize
-                Type elecPatches = eightyOneAsm.GetType("EightyOne2.Patches.ElectricityManagerDataPatches");
-                if (elecPatches != null)
+                try
                 {
-                    MethodInfo mCustomSerialize = elecPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (mCustomSerialize != null)
+                    Type elecPatches = eightyOneAsm.GetType("EightyOne2.Patches.ElectricityManagerDataPatches");
+                    if (elecPatches != null)
                     {
-                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Electricity_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.ElectricityManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        MethodInfo mCustomSerialize = elecPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mCustomSerialize != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Electricity_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.ElectricityManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch EightyOne2 Electricity error: " + ex);
                 }
 
                 // 2. Patch WaterManagerDataPatches.CustomSerialize
-                Type waterPatches = eightyOneAsm.GetType("EightyOne2.Patches.WaterManagerDataPatches");
-                if (waterPatches != null)
+                try
                 {
-                    MethodInfo mCustomSerialize = waterPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (mCustomSerialize != null)
+                    Type waterPatches = eightyOneAsm.GetType("EightyOne2.Patches.WaterManagerDataPatches");
+                    if (waterPatches != null)
                     {
-                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Water_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.WaterManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        MethodInfo mCustomSerialize = waterPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mCustomSerialize != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Water_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.WaterManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch EightyOne2 Water error: " + ex);
                 }
 
                 // 3. Patch DistrictManagerDataPatches.CustomSerialize
-                Type distPatches = eightyOneAsm.GetType("EightyOne2.Patches.DistrictManagerDataPatches");
-                if (distPatches != null)
+                try
                 {
-                    MethodInfo mCustomSerialize = distPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (mCustomSerialize != null)
+                    Type distPatches = eightyOneAsm.GetType("EightyOne2.Patches.DistrictManagerDataPatches");
+                    if (distPatches != null)
                     {
-                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_District_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.DistrictManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        MethodInfo mCustomSerialize = distPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mCustomSerialize != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_District_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.DistrictManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch EightyOne2 District error: " + ex);
                 }
 
                 // 4. Patch GameAreaManagerDataPatches.CustomSerialize
-                Type areaPatches = eightyOneAsm.GetType("EightyOne2.Patches.GameAreaManagerDataPatches");
-                if (areaPatches != null)
+                try
                 {
-                    MethodInfo mCustomSerialize = areaPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (mCustomSerialize != null)
+                    Type areaPatches = eightyOneAsm.GetType("EightyOne2.Patches.GameAreaManagerDataPatches");
+                    if (areaPatches != null)
                     {
-                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_GameArea_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.GameAreaManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        MethodInfo mCustomSerialize = areaPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mCustomSerialize != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_GameArea_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.GameAreaManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch EightyOne2 GameArea error: " + ex);
                 }
 
                 // 5. Patch ImmaterialResourceManagerDataPatches.CustomSerialize
-                Type imresPatches = eightyOneAsm.GetType("EightyOne2.Patches.ImmaterialResourceManagerDataPatches");
-                if (imresPatches != null)
+                try
                 {
-                    MethodInfo mCustomSerialize = imresPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (mCustomSerialize != null)
+                    Type imresPatches = eightyOneAsm.GetType("EightyOne2.Patches.ImmaterialResourceManagerDataPatches");
+                    if (imresPatches != null)
                     {
-                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Immaterial_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.ImmaterialResourceManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        MethodInfo mCustomSerialize = imresPatches.GetMethod("CustomSerialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mCustomSerialize != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(EightyOne2_Immaterial_CustomSerialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(mCustomSerialize, prefix: new HarmonyMethod(pre));
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked EightyOne2.ImmaterialResourceManagerDataPatches.CustomSerialize with bounds-safe prefix!");
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch EightyOne2 Immaterial error: " + ex);
+                }
 
-                _eightyOne2Patched = true;
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully applied EightyOne2 serialization safety patches!");
+                if (patchedCount > 0)
+                {
+                    _eightyOne2Patched = true;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully applied {0} EightyOne2 serialization safety patches!", patchedCount));
+                }
             }
             catch (Exception ex)
             {
@@ -7996,16 +8068,16 @@ namespace MoreNetworkCapacityRenew
             catch { }
         }
 
-        public static bool EightyOne2_Electricity_CustomSerialize_Prefix(ElectricityManager.Cell[] cells, ElectricityManager.PulseGroup[] pulseGroups, ElectricityManager.PulseUnit[] pulseUnits, ref ElectricityManager.Cell[] __result)
+        public static bool EightyOne2_Electricity_CustomSerialize_Prefix(ElectricityManager.Cell[] electricityGrid, ElectricityManager.PulseGroup[] pulseGroups, ElectricityManager.PulseUnit[] pulseUnits, ref ElectricityManager.Cell[] __result)
         {
             try
             {
                 InitEightyOne2Delegates();
 
                 ElectricityManager.Cell[] safeCells = new ElectricityManager.Cell[65536];
-                if (cells != null)
+                if (electricityGrid != null)
                 {
-                    if (cells.Length >= 213444)
+                    if (electricityGrid.Length >= 213444)
                     {
                         for (int z = 0; z < 256; z++)
                         {
@@ -8013,14 +8085,14 @@ namespace MoreNetworkCapacityRenew
                             {
                                 int src = (z + 103) * 462 + x + 103;
                                 int dst = z * 256 + x;
-                                safeCells[dst] = cells[src];
+                                safeCells[dst] = electricityGrid[src];
                             }
                         }
                     }
                     else
                     {
-                        int len = Math.Min(cells.Length, safeCells.Length);
-                        Array.Copy(cells, safeCells, len);
+                        int len = Math.Min(electricityGrid.Length, safeCells.Length);
+                        Array.Copy(electricityGrid, safeCells, len);
                     }
                 }
 
@@ -8062,16 +8134,16 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool EightyOne2_Water_CustomSerialize_Prefix(WaterManager.Cell[] cells, WaterManager.PulseUnit[] pulseUnits, WaterManager.PulseUnit[] pulseUnits2, WaterManager.PulseUnit[] pulseUnits3, ref WaterManager.Cell[] __result)
+        public static bool EightyOne2_Water_CustomSerialize_Prefix(WaterManager.Cell[] waterGrid, WaterManager.PulseUnit[] waterPulseUnits, WaterManager.PulseUnit[] sewagePulseUnits, WaterManager.PulseUnit[] heatingPulseUnits, ref WaterManager.Cell[] __result)
         {
             try
             {
                 InitEightyOne2Delegates();
 
                 WaterManager.Cell[] safeCells = new WaterManager.Cell[65536];
-                if (cells != null)
+                if (waterGrid != null)
                 {
-                    if (cells.Length >= 213444)
+                    if (waterGrid.Length >= 213444)
                     {
                         for (int z = 0; z < 256; z++)
                         {
@@ -8079,61 +8151,61 @@ namespace MoreNetworkCapacityRenew
                             {
                                 int src = (z + 103) * 462 + x + 103;
                                 int dst = z * 256 + x;
-                                safeCells[dst] = cells[src];
+                                safeCells[dst] = waterGrid[src];
                             }
                         }
                     }
                     else
                     {
-                        int len = Math.Min(cells.Length, safeCells.Length);
-                        Array.Copy(cells, safeCells, len);
+                        int len = Math.Min(waterGrid.Length, safeCells.Length);
+                        Array.Copy(waterGrid, safeCells, len);
                     }
                 }
 
                 // 1. Water PulseUnits
-                if (pulseUnits != null && s_mGetExpWaterPulseUnits != null)
+                if (waterPulseUnits != null && s_mGetExpWaterPulseUnits != null)
                 {
                     Array expUnits = s_mGetExpWaterPulseUnits.Invoke(null, null) as Array;
                     if (expUnits != null)
                     {
-                        int uCount = Math.Min(pulseUnits.Length, expUnits.Length);
-                        SafeCopyPulseUnits(expUnits, pulseUnits, uCount);
-                        for (int i = uCount; i < pulseUnits.Length; i++)
+                        int uCount = Math.Min(waterPulseUnits.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, waterPulseUnits, uCount);
+                        for (int i = uCount; i < waterPulseUnits.Length; i++)
                         {
-                            pulseUnits[i].m_x = 0;
-                            pulseUnits[i].m_z = 0;
+                            waterPulseUnits[i].m_x = 0;
+                            waterPulseUnits[i].m_z = 0;
                         }
                     }
                 }
 
                 // 2. Sewage PulseUnits
-                if (pulseUnits2 != null && s_mGetExpSewagePulseUnits != null)
+                if (sewagePulseUnits != null && s_mGetExpSewagePulseUnits != null)
                 {
                     Array expUnits = s_mGetExpSewagePulseUnits.Invoke(null, null) as Array;
                     if (expUnits != null)
                     {
-                        int uCount = Math.Min(pulseUnits2.Length, expUnits.Length);
-                        SafeCopyPulseUnits(expUnits, pulseUnits2, uCount);
-                        for (int i = uCount; i < pulseUnits2.Length; i++)
+                        int uCount = Math.Min(sewagePulseUnits.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, sewagePulseUnits, uCount);
+                        for (int i = uCount; i < sewagePulseUnits.Length; i++)
                         {
-                            pulseUnits2[i].m_x = 0;
-                            pulseUnits2[i].m_z = 0;
+                            sewagePulseUnits[i].m_x = 0;
+                            sewagePulseUnits[i].m_z = 0;
                         }
                     }
                 }
 
                 // 3. Heating PulseUnits
-                if (pulseUnits3 != null && s_mGetExpHeatingPulseUnits != null)
+                if (heatingPulseUnits != null && s_mGetExpHeatingPulseUnits != null)
                 {
                     Array expUnits = s_mGetExpHeatingPulseUnits.Invoke(null, null) as Array;
                     if (expUnits != null)
                     {
-                        int uCount = Math.Min(pulseUnits3.Length, expUnits.Length);
-                        SafeCopyPulseUnits(expUnits, pulseUnits3, uCount);
-                        for (int i = uCount; i < pulseUnits3.Length; i++)
+                        int uCount = Math.Min(heatingPulseUnits.Length, expUnits.Length);
+                        SafeCopyPulseUnits(expUnits, heatingPulseUnits, uCount);
+                        for (int i = uCount; i < heatingPulseUnits.Length; i++)
                         {
-                            pulseUnits3[i].m_x = 0;
-                            pulseUnits3[i].m_z = 0;
+                            heatingPulseUnits[i].m_x = 0;
+                            heatingPulseUnits[i].m_z = 0;
                         }
                     }
                 }
@@ -8149,20 +8221,20 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool EightyOne2_District_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.Byte encodedArray, DistrictManager.Cell[] cells)
+        public static bool EightyOne2_District_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.Byte encodedArray, DistrictManager.Cell[] districtCellArray)
         {
             try
             {
                 if (encodedArray == null) return false;
 
-                if (cells != null && cells.Length >= 810000)
+                if (districtCellArray != null && districtCellArray.Length >= 810000)
                 {
                     for (int z = 0; z < 512; z++)
                     {
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_district1);
+                            encodedArray.Write(districtCellArray[idx].m_district1);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8170,7 +8242,7 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_district2);
+                            encodedArray.Write(districtCellArray[idx].m_district2);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8178,7 +8250,7 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_district3);
+                            encodedArray.Write(districtCellArray[idx].m_district3);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8186,7 +8258,7 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_district4);
+                            encodedArray.Write(districtCellArray[idx].m_district4);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8194,7 +8266,7 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_alpha1);
+                            encodedArray.Write(districtCellArray[idx].m_alpha1);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8202,7 +8274,7 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_alpha2);
+                            encodedArray.Write(districtCellArray[idx].m_alpha2);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8210,7 +8282,7 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_alpha3);
+                            encodedArray.Write(districtCellArray[idx].m_alpha3);
                         }
                     }
                     for (int z = 0; z < 512; z++)
@@ -8218,36 +8290,36 @@ namespace MoreNetworkCapacityRenew
                         for (int x = 0; x < 512; x++)
                         {
                             int idx = (z + 194) * 900 + x + 194;
-                            encodedArray.Write(cells[idx].m_alpha4);
+                            encodedArray.Write(districtCellArray[idx].m_alpha4);
                         }
                     }
                     return false;
                 }
 
-                int limit = Math.Min(cells != null ? cells.Length : 0, 262144);
+                int limit = Math.Min(districtCellArray != null ? districtCellArray.Length : 0, 262144);
                 // 1
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district1);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_district1);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 2
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district2);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_district2);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 3
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district3);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_district3);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 4
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_district4);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_district4);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 5
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha1);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_alpha1);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 6
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha2);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_alpha2);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 7
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha3);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_alpha3);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
                 // 8
-                for (int i = 0; i < limit; i++) encodedArray.Write(cells[i].m_alpha4);
+                for (int i = 0; i < limit; i++) encodedArray.Write(districtCellArray[i].m_alpha4);
                 for (int i = limit; i < 262144; i++) encodedArray.Write((byte)0);
 
                 return false;
@@ -8259,26 +8331,26 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool EightyOne2_GameArea_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.Byte encodedArray, GameAreaManager gam)
+        public static bool EightyOne2_GameArea_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.Byte encodedArray, GameAreaManager instance)
         {
             try
             {
                 if (encodedArray == null) return false;
-                if (gam != null && gam.m_areaGrid != null && gam.m_areaGrid.Length >= 81)
+                if (instance != null && instance.m_areaGrid != null && instance.m_areaGrid.Length >= 81)
                 {
                     for (int z = 0; z < 5; z++)
                     {
                         for (int x = 0; x < 5; x++)
                         {
                             int idx = (z + 2) * 9 + x + 2;
-                            encodedArray.Write((byte)gam.m_areaGrid[idx]);
+                            encodedArray.Write((byte)instance.m_areaGrid[idx]);
                         }
                     }
                     return false;
                 }
 
-                int limit = gam != null && gam.m_areaGrid != null ? Math.Min(gam.m_areaGrid.Length, 25) : 0;
-                for (int i = 0; i < limit; i++) encodedArray.Write((byte)gam.m_areaGrid[i]);
+                int limit = instance != null && instance.m_areaGrid != null ? Math.Min(instance.m_areaGrid.Length, 25) : 0;
+                for (int i = 0; i < limit; i++) encodedArray.Write((byte)instance.m_areaGrid[i]);
                 for (int i = limit; i < 25; i++) encodedArray.Write((byte)0);
                 return false;
             }
@@ -8289,12 +8361,12 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool EightyOne2_Immaterial_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.UShort encodedArray, ushort[] buffer)
+        public static bool EightyOne2_Immaterial_CustomSerialize_Prefix(ColossalFramework.IO.EncodedArray.UShort encodedArray, ushort[] localResourceArray)
         {
             try
             {
                 if (encodedArray == null) return false;
-                if (buffer != null && buffer.Length >= 7087500)
+                if (localResourceArray != null && localResourceArray.Length >= 7087500)
                 {
                     for (int z = 0; z < 256; z++)
                     {
@@ -8303,15 +8375,15 @@ namespace MoreNetworkCapacityRenew
                             int baseIdx = ((z + 97) * 450 + x + 97) * 35;
                             for (int r = 0; r < 35; r++)
                             {
-                                encodedArray.Write(buffer[baseIdx + r]);
+                                encodedArray.Write(localResourceArray[baseIdx + r]);
                             }
                         }
                     }
                     return false;
                 }
 
-                int limit = buffer != null ? Math.Min(buffer.Length, 2293760) : 0;
-                for (int i = 0; i < limit; i++) encodedArray.Write(buffer[i]);
+                int limit = localResourceArray != null ? Math.Min(localResourceArray.Length, 2293760) : 0;
+                for (int i = 0; i < limit; i++) encodedArray.Write(localResourceArray[i]);
                 for (int i = limit; i < 2293760; i++) encodedArray.Write((ushort)0);
                 return false;
             }
@@ -9247,14 +9319,31 @@ namespace MoreNetworkCapacityRenew
                         {
                             MethodInfo pre = typeof(SaveSimulationDataSafetyPatch).GetMethod(nameof(SaveSimulationDataSafetyPatch.Prefix), BindingFlags.Public | BindingFlags.Static);
                             MethodInfo post = typeof(SaveSimulationDataSafetyPatch).GetMethod(nameof(SaveSimulationDataSafetyPatch.Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(moveNext, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingManager.<SaveSimulationData>c__IteratorC.MoveNext with diagnostic exception tracker.");
+                            MethodInfo trans = typeof(SaveSimulationDataSafetyPatch).GetMethod(nameof(SaveSimulationDataSafetyPatch.Transpiler), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(moveNext, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post), transpiler: new HarmonyMethod(trans));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingManager.<SaveSimulationData>c__IteratorC.MoveNext with diagnostic exception tracker and interceptor.");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SaveSimulationData iterator: " + ex);
+                }
+
+                // 2c. Patch DataSerializer.WriteUInt24 to clamp any value > 16,777,215 to 16,777,215
+                try
+                {
+                    MethodInfo writeUInt24M = typeof(ColossalFramework.IO.DataSerializer).GetMethod("WriteUInt24", BindingFlags.Public | BindingFlags.Instance);
+                    if (writeUInt24M != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(DataSerializer_WriteUInt24_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(writeUInt24M, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DataSerializer.WriteUInt24 with bounds clamp guard.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DataSerializer.WriteUInt24: " + ex);
                 }
 
                 // 3. PreSaveSanitization in SimulationManager.Data.Serialize already sanitizes all Prefab indices before saving.
@@ -9368,9 +9457,29 @@ namespace MoreNetworkCapacityRenew
             if (__exception != null)
             {
                 SaveSimulationDataSafetyPatch.LastSaveSimulationException = __exception;
+                SaveSimulationDataSafetyPatch.LogSaveDebug("CRITICAL: Exception inside SimulationManager.Data.Serialize: " + __exception);
                 UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] CRITICAL: Exception inside SimulationManager.Data.Serialize: " + __exception);
             }
             return __exception;
+        }
+
+        public static Exception DistrictManager_Data_Serialize_Finalizer(Exception __exception)
+        {
+            if (__exception != null)
+            {
+                SaveSimulationDataSafetyPatch.LastSaveSimulationException = __exception;
+                SaveSimulationDataSafetyPatch.LogSaveDebug("CRITICAL: Exception inside DistrictManager.Data.Serialize: " + __exception);
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] CRITICAL: Exception inside DistrictManager.Data.Serialize: " + __exception);
+            }
+            return __exception;
+        }
+
+        public static void DataSerializer_WriteUInt24_Prefix(ref uint value)
+        {
+            if (value > 16777215u)
+            {
+                value = 16777215u;
+            }
         }
 
         public static void TransportManager_Data_Serialize_Prefix(object __instance, ColossalFramework.IO.DataSerializer s)
@@ -9431,6 +9540,7 @@ namespace MoreNetworkCapacityRenew
 
         public static void PreSaveSanitization()
         {
+            try { ThirdPartyCompatibility.EnsureEightyOne2Patched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureEightyOne2 error: " + ex); }
             try { ArrayGuardian.ExpandAllArrays(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave ArrayGuardian error: " + ex); }
             try { SanitizeDistricts(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeDistricts error: " + ex); }
             try { SanitizeTransportLines(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTransportLines error: " + ex); }
@@ -9443,6 +9553,52 @@ namespace MoreNetworkCapacityRenew
             try { EconomyCompatibility.SanitizeEconomyAndTransport(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave SanitizeEconomy error: " + ex); }
         }
 
+        private static void ClampAgeData(ref DistrictAgeData data, ref int sanitized)
+        {
+            if (data.m_tempCount > 16777215u) { data.m_tempCount = 16777215u; sanitized++; }
+            if (data.m_finalCount > 16777215u) { data.m_finalCount = 16777215u; sanitized++; }
+        }
+
+        private static void ClampPopData(ref DistrictPopulationData data, ref int sanitized)
+        {
+            if (data.m_tempCount > 16777215u) { data.m_tempCount = 16777215u; sanitized++; }
+            if (data.m_finalCount > 16777215u) { data.m_finalCount = 16777215u; sanitized++; }
+        }
+
+        private static void ClampPrivateData(ref DistrictPrivateData data, ref int sanitized)
+        {
+            if (data.m_tempLevel1 > 16777215u) { data.m_tempLevel1 = 16777215u; sanitized++; }
+            if (data.m_tempLevel2 > 16777215u) { data.m_tempLevel2 = 16777215u; sanitized++; }
+            if (data.m_tempLevel3 > 16777215u) { data.m_tempLevel3 = 16777215u; sanitized++; }
+            if (data.m_tempLevel4 > 16777215u) { data.m_tempLevel4 = 16777215u; sanitized++; }
+            if (data.m_tempLevel5 > 16777215u) { data.m_tempLevel5 = 16777215u; sanitized++; }
+            if (data.m_tempBuildingArea > 16777215u) { data.m_tempBuildingArea = 16777215u; sanitized++; }
+            if (data.m_finalBuildingArea > 16777215u) { data.m_finalBuildingArea = 16777215u; sanitized++; }
+            if (data.m_tempAliveCount > 16777215u) { data.m_tempAliveCount = 16777215u; sanitized++; }
+            if (data.m_finalAliveCount > 16777215u) { data.m_finalAliveCount = 16777215u; sanitized++; }
+        }
+
+        private static void ClampEducationData(ref DistrictEducationData data, ref int sanitized)
+        {
+            if (data.m_tempCount > 16777215u) { data.m_tempCount = 16777215u; sanitized++; }
+            if (data.m_tempUnemployed > 16777215u) { data.m_tempUnemployed = 16777215u; sanitized++; }
+            if (data.m_tempHomeless > 16777215u) { data.m_tempHomeless = 16777215u; sanitized++; }
+            if (data.m_finalCount > 16777215u) { data.m_finalCount = 16777215u; sanitized++; }
+            if (data.m_finalUnemployed > 16777215u) { data.m_finalUnemployed = 16777215u; sanitized++; }
+            if (data.m_finalHomeless > 16777215u) { data.m_finalHomeless = 16777215u; sanitized++; }
+            if (data.m_tempEligibleWorkers > 16777215u) { data.m_tempEligibleWorkers = 16777215u; sanitized++; }
+            if (data.m_finalEligibleWorkers > 16777215u) { data.m_finalEligibleWorkers = 16777215u; sanitized++; }
+        }
+
+        private static void ClampTouristData(ref DistrictTouristData data, ref int sanitized)
+        {
+            if (data.m_tempVisits > 16777215u) { data.m_tempVisits = 16777215u; sanitized++; }
+            if (data.m_finalVisits > 16777215u) { data.m_finalVisits = 16777215u; sanitized++; }
+            if (data.m_averageVisits > 16777215u) { data.m_averageVisits = 16777215u; sanitized++; }
+            if (data.m_tempCount > 16777215u) { data.m_tempCount = 16777215u; sanitized++; }
+            if (data.m_finalCount > 16777215u) { data.m_finalCount = 16777215u; sanitized++; }
+        }
+
         public static int SanitizeDistricts()
         {
             int sanitized = 0;
@@ -9451,26 +9607,56 @@ namespace MoreNetworkCapacityRenew
                 DistrictManager dm = Singleton<DistrictManager>.instance;
                 if (dm == null || dm.m_districts == null || dm.m_districts.m_buffer == null) return 0;
 
-                const uint MAX_24 = 16777215u;
-
                 for (int i = 0; i < dm.m_districts.m_buffer.Length; i++)
                 {
                     if (dm.m_districts.m_buffer[i].m_flags != District.Flags.None)
                     {
-                        if (dm.m_districts.m_buffer[i].m_childData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_childData.m_tempCount = MAX_24; sanitized++; }
-                        if (dm.m_districts.m_buffer[i].m_childData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_childData.m_finalCount = MAX_24; sanitized++; }
+                        // All 23 DistrictAgeData fields
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_childData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_teenData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_youngData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_adultData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_seniorData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_childHealthData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_seniorHealthData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_childSickData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_seniorSickData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_deadSeniorsData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_ageAtDeathData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_elementaryEligibleData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_highschoolEligibleData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_universityEligibleData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_birthData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_deathData, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_education1Data, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_education2Data, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_education3Data, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_student1Data, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_student2Data, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_student3Data, ref sanitized);
+                        ClampAgeData(ref dm.m_districts.m_buffer[i].m_libraryVisitorData, ref sanitized);
 
-                        if (dm.m_districts.m_buffer[i].m_teenData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_teenData.m_tempCount = MAX_24; sanitized++; }
-                        if (dm.m_districts.m_buffer[i].m_teenData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_teenData.m_finalCount = MAX_24; sanitized++; }
+                        // Population Data
+                        ClampPopData(ref dm.m_districts.m_buffer[i].m_populationData, ref sanitized);
 
-                        if (dm.m_districts.m_buffer[i].m_youngData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_youngData.m_tempCount = MAX_24; sanitized++; }
-                        if (dm.m_districts.m_buffer[i].m_youngData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_youngData.m_finalCount = MAX_24; sanitized++; }
+                        // Education Data (4 fields)
+                        ClampEducationData(ref dm.m_districts.m_buffer[i].m_educated0Data, ref sanitized);
+                        ClampEducationData(ref dm.m_districts.m_buffer[i].m_educated1Data, ref sanitized);
+                        ClampEducationData(ref dm.m_districts.m_buffer[i].m_educated2Data, ref sanitized);
+                        ClampEducationData(ref dm.m_districts.m_buffer[i].m_educated3Data, ref sanitized);
 
-                        if (dm.m_districts.m_buffer[i].m_adultData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_adultData.m_tempCount = MAX_24; sanitized++; }
-                        if (dm.m_districts.m_buffer[i].m_adultData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_adultData.m_finalCount = MAX_24; sanitized++; }
+                        // Tourist Data (3 fields)
+                        ClampTouristData(ref dm.m_districts.m_buffer[i].m_tourist1Data, ref sanitized);
+                        ClampTouristData(ref dm.m_districts.m_buffer[i].m_tourist2Data, ref sanitized);
+                        ClampTouristData(ref dm.m_districts.m_buffer[i].m_tourist3Data, ref sanitized);
 
-                        if (dm.m_districts.m_buffer[i].m_seniorData.m_tempCount > MAX_24) { dm.m_districts.m_buffer[i].m_seniorData.m_tempCount = MAX_24; sanitized++; }
-                        if (dm.m_districts.m_buffer[i].m_seniorData.m_finalCount > MAX_24) { dm.m_districts.m_buffer[i].m_seniorData.m_finalCount = MAX_24; sanitized++; }
+                        // Private Data (6 fields)
+                        ClampPrivateData(ref dm.m_districts.m_buffer[i].m_residentialData, ref sanitized);
+                        ClampPrivateData(ref dm.m_districts.m_buffer[i].m_commercialData, ref sanitized);
+                        ClampPrivateData(ref dm.m_districts.m_buffer[i].m_visitorData, ref sanitized);
+                        ClampPrivateData(ref dm.m_districts.m_buffer[i].m_industrialData, ref sanitized);
+                        ClampPrivateData(ref dm.m_districts.m_buffer[i].m_officeData, ref sanitized);
+                        ClampPrivateData(ref dm.m_districts.m_buffer[i].m_playerData, ref sanitized);
                     }
                 }
                 if (sanitized > 0)

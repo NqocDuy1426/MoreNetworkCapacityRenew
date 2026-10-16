@@ -1992,19 +1992,41 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TrafficLightManager: " + ex);
                 }
 
-                // 18. SpeedLimitManager.LoadData
+                // 18. SpeedLimitManager.LoadData & GetGameSpeedLimit safe fallbacks
                 try
                 {
                     Type slm = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
                     if (slm != null)
                     {
-                        foreach (var m in slm.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                        foreach (var m in slm.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
                         {
                             if (m.Name == "LoadData")
                             {
                                 var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.GenericManager_LoadData_Postfix));
                                 harmony.Patch(m, postfix: new HarmonyMethod(post));
                                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.LoadData");
+                            }
+                            else if (m.Name == "GetGameSpeedLimit")
+                            {
+                                var p = m.GetParameters();
+                                if (p.Length == 2 && p[0].ParameterType == typeof(uint) && p[1].ParameterType == typeof(NetInfo.Lane))
+                                {
+                                    var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Prefix));
+                                    harmony.Patch(m, prefix: new HarmonyMethod(pre));
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(uint, NetInfo.Lane)");
+                                }
+                                else if (p.Length == 4 && p[0].ParameterType == typeof(ushort) && p[2].ParameterType == typeof(uint))
+                                {
+                                    var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
+                                    harmony.Patch(m, prefix: new HarmonyMethod(pre));
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(ushort, byte, uint, NetInfo.Lane)");
+                                }
+                                else if (p.Length == 1 && p[0].ParameterType == typeof(uint))
+                                {
+                                    var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit1_Prefix));
+                                    harmony.Patch(m, prefix: new HarmonyMethod(pre));
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(uint)");
+                                }
                             }
                         }
                     }
@@ -2137,7 +2159,27 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching JunctionRestrictionsTool: " + ex);
                 }
 
-                // 23. CustomPathFind (Awake, PathFindImplementation, GetLaneDirection, ProcessItemMain)
+                // 22b. SavedGameOptions.get_Instance (Safe auto-initialization prefix)
+                try
+                {
+                    Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
+                    if (sgoType != null)
+                    {
+                        MethodInfo getInstM = sgoType.GetMethod("get_Instance", BindingFlags.Public | BindingFlags.Static);
+                        if (getInstM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SavedGameOptions_get_Instance_Prefix));
+                            harmony.Patch(getInstM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SavedGameOptions.get_Instance (auto-ensure prefix)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SavedGameOptions: " + ex);
+                }
+
+                // 23. CustomPathFind (Awake, PathFindImplementation, GetLaneDirection, ProcessItemMain, CanUseLane)
                 try
                 {
                     Type cpfType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathFind");
@@ -2151,9 +2193,37 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
                         }
 
-                        // Only Awake buffer sizing is kept so CustomPathFind arrays accommodate 65K networks.
-                        // All pathfinding algorithms, lane directions, and vehicle routing remain 100% under TM:PE authority!
+                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pfiM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
+                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (safe validation & recovery)");
+                        }
 
+                        MethodInfo gldM = cpfType.GetMethod("GetLaneDirection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+                        if (gldM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_GetLaneDirection_Prefix));
+                            harmony.Patch(gldM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.GetLaneDirection (safe bounds prefix)");
+                        }
+
+                        MethodInfo pimM = cpfType.GetMethod("ProcessItemMain", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pimM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemMain_Prefix));
+                            harmony.Patch(pimM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemMain (validation prefix)");
+                        }
+
+                        MethodInfo culM = cpfType.GetMethod("CanUseLane", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (culM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_CanUseLane_Prefix));
+                            harmony.Patch(culM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.CanUseLane (safe bounds prefix)");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -2246,6 +2316,7 @@ namespace MoreNetworkCapacityRenew
                 EnsureExtSegmentManagerCapacity(tmpe);
 
                 // 4b. GeometryManager, RoutingManager, VehicleRestrictions, CustomSegmentLights, TrafficLightSimulations, TrafficPriority, JunctionRestrictions, TurnOnRed
+                EnsureSavedGameOptions(tmpe);
                 EnsureGeometryManagerCapacity(tmpe);
                 EnsureRoutingManagerCapacity(tmpe);
                 EnsureVehicleRestrictionsCapacity(tmpe);
@@ -2722,6 +2793,45 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureVehicleRestrictionsCapacity error: " + ex);
+            }
+        }
+
+        public static void EnsureSavedGameOptions(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
+                if (sgoType == null) return;
+
+                FieldInfo fInst = sgoType.GetField("<Instance>k__BackingField", BindingFlags.NonPublic | BindingFlags.Static);
+                object inst = fInst != null ? fInst.GetValue(null) : null;
+                if (inst == null)
+                {
+                    MethodInfo createM = sgoType.GetMethod("Create", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (createM != null)
+                    {
+                        createM.Invoke(null, null);
+                    }
+                    else
+                    {
+                        MethodInfo ensureM = sgoType.GetMethod("Ensure", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (ensureM != null)
+                        {
+                            ensureM.Invoke(null, null);
+                        }
+                        else
+                        {
+                            object newInst = Activator.CreateInstance(sgoType);
+                            if (fInst != null) fInst.SetValue(null, newInst);
+                        }
+                    }
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialized TM:PE SavedGameOptions.Instance");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureSavedGameOptions error: " + ex);
             }
         }
 
@@ -3541,16 +3651,9 @@ namespace MoreNetworkCapacityRenew
                     if (liveSegs != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", liveSegs);
                     if (liveLanes != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", liveLanes);
 
-                    try
-                    {
-                        Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
-                        if (sgoType != null)
-                        {
-                            MethodInfo ensureM = sgoType.GetMethod("Ensure", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                            if (ensureM != null) ensureM.Invoke(null, null);
-                        }
-                    }
-                    catch { }
+                    EnsureSavedGameOptions(tmpe);
+                    EnsureSpeedLimitManagerCapacity(tmpe);
+                    EnsureVehicleRestrictionsCapacity(tmpe);
                 }
 
                 var visitedPathFinds = new HashSet<object>();
@@ -4125,6 +4228,7 @@ namespace MoreNetworkCapacityRenew
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
+                    TMPECompatibility.EnsureSavedGameOptions(tmpe);
                     TMPECompatibility.EnsureVehicleRestrictionsCapacity(tmpe);
                 }
             }
@@ -4496,6 +4600,9 @@ namespace MoreNetworkCapacityRenew
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
+                    TMPECompatibility.EnsureSavedGameOptions(tmpe);
+                    TMPECompatibility.EnsureSpeedLimitManagerCapacity(tmpe);
+                    TMPECompatibility.EnsureVehicleRestrictionsCapacity(tmpe);
                     TMPECompatibility.RecalculateLiveSegments(tmpe);
                 }
             }
@@ -4684,9 +4791,48 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
+        public static void SavedGameOptions_get_Instance_Prefix()
+        {
+            try
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    TMPECompatibility.EnsureSavedGameOptions(tmpe);
+                }
+            }
+            catch { }
+        }
+
+        public static bool CustomPathFind_CanUseLane_Prefix(
+            ushort segmentId,
+            NetInfo segmentInfo,
+            int laneIndex,
+            NetInfo.Lane laneInfo,
+            uint laneId,
+            ref bool __result)
+        {
+            if (segmentInfo == null || laneInfo == null)
+            {
+                __result = true;
+                return false;
+            }
+            return true;
+        }
+
         public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
         {
             if (unit == 0) return false;
+            try
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    TMPECompatibility.EnsureSavedGameOptions(tmpe);
+                }
+            }
+            catch { }
+
             if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
                 return true;
 
@@ -11484,7 +11630,7 @@ namespace MoreNetworkCapacityRenew
         /// Called when road network changes (roads placed, updated, demolished).
         /// Automatically keeps TM:PE extension buffers synced with live game buffers.
         /// </summary>
-        public static void NetManager_UpdateSegmentRenderer_Postfix(ushort segment, bool updateDescendant)
+        public static void NetManager_UpdateSegmentRenderer_Postfix(ushort segment, bool updateGroup)
         {
             try
             {

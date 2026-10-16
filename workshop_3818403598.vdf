@@ -106,5 +106,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.2.1 - EightyOne2 Save Crash Resolution & Traffic Flow Recovery: FIXED: IndexOutOfRangeException in EightyOne2 ElectricityManagerDataPatches / WaterManagerDataPatches CustomSerialize during save serialization (caused by MNC 65K expanded pulse units exceeding 81 Tiles 2 32K array buffers, resulting in aborted saves and deleted simulation files). Implemented high-performance dynamic serialization with automatic bounds safety. FIXED: Permanent stuck vehicles, vehicle decay, and clear traffic respawn lockup."
+	"changenote"		"v4.2.2 - Traffic Pathfinder Stabilization & Vehicle Stop/Freeze Fix: FIXED: 59,900+ CustomPathFind.PathFindImplementation NullReferenceExceptions in TM:PE PathFindThread (caused by uninitialized SavedGameOptions.Instance and missing speed limit lookups returning 0 speed). Vehicles drove a short distance and permanently froze at segment transitions because continuation path requests failed. Added automatic SavedGameOptions initialization prefix, SpeedLimitManager.GetGameSpeedLimit 3-way crashproof fallbacks, CustomPathFind bounds validation, and fixed UpdateSegmentRenderer parameter mismatch."
 }

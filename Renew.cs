@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.0 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.1 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()

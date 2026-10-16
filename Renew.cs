@@ -9310,7 +9310,7 @@ namespace MoreNetworkCapacityRenew
                 }
                 catch { }
 
-                // 3. Patch PathManager.WaitForAllPaths & PathManager.Data.Serialize (Deadlock defense)
+                // 3. Patch PathManager.WaitForAllPaths (Deadlock defense)
                 try
                 {
                     MethodInfo wfap = typeof(PathManager).GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.Instance);
@@ -9320,97 +9320,16 @@ namespace MoreNetworkCapacityRenew
                         harmony.Patch(wfap, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.WaitForAllPaths with safe bounded timeout defense (Priority.First).");
                     }
-
-                    Type pmDataType = typeof(PathManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (pmDataType != null)
-                    {
-                        MethodInfo pmSer = pmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
-                        if (pmSer != null)
-                        {
-                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(pmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.Data.Serialize with diagnostic tracker and postfix.");
-                        }
-                    }
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager serialization: " + ex);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager WaitForAllPaths: " + ex);
                 }
 
-                // 4. Patch VehicleManager, TreeManager, BuildingManager, CitizenManager & DistrictManager serialization
-                try
-                {
-                    Type vmDataType = typeof(VehicleManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (vmDataType != null)
-                    {
-                        MethodInfo vmSer = vmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
-                        if (vmSer != null)
-                        {
-                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(VehicleManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(VehicleManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(vmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched VehicleManager.Data.Serialize with diagnostic tracker and postfix.");
-                        }
-                    }
-
-                    Type tmDataType2 = typeof(TreeManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (tmDataType2 != null)
-                    {
-                        MethodInfo tmSer2 = tmDataType2.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
-                        if (tmSer2 != null)
-                        {
-                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(TreeManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(TreeManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(tmSer2, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TreeManager.Data.Serialize with diagnostic tracker and postfix.");
-                        }
-                    }
-
-                    Type bmDataType = typeof(BuildingManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (bmDataType != null)
-                    {
-                        MethodInfo bmSer = bmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
-                        if (bmSer != null)
-                        {
-                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(BuildingManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(BuildingManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(bmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched BuildingManager.Data.Serialize with diagnostic tracker and postfix.");
-                        }
-                    }
-
-                    Type cmDataType = typeof(CitizenManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (cmDataType != null)
-                    {
-                        MethodInfo cmSer = cmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
-                        if (cmSer != null)
-                        {
-                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(CitizenManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(CitizenManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(cmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CitizenManager.Data.Serialize with diagnostic tracker and postfix.");
-                        }
-                    }
-
-                    Type dmDataType = typeof(DistrictManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (dmDataType != null)
-                    {
-                        MethodInfo dmSer = dmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
-                        if (dmSer != null)
-                        {
-                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(DistrictManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(DistrictManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
-                            harmony.Patch(dmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DistrictManager.Data.Serialize with diagnostic tracker and postfix.");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching Manager serialization: " + ex);
-                }
+                // Do NOT patch external manager Data.Serialize methods (TreeManager, VehicleManager, BuildingManager,
+                // CitizenManager, DistrictManager, PathManager) with Harmony! Mods like TreeUnlimiter (Unlimited Trees),
+                // More Vehicles, and More Buildings detour these methods using RedirectionHelper native jumps.
+                // Applying Harmony hooks clobbers their detours and breaks custom serialization (causing EndDeserialize tag mismatch).
 
                 // 2b. Patch LoadingManager.<SaveSimulationData>c__IteratorC.MoveNext (Save diagnostics & exception tracking)
                 try

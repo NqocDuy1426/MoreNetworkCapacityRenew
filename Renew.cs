@@ -1710,8 +1710,8 @@ namespace MoreNetworkCapacityRenew
                     if (wfapM != null)
                     {
                         var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
-                        harmony.Patch(wfapM, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.WaitForAllPaths (deadlock defense prefix)");
+                        harmony.Patch(wfapM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.WaitForAllPaths (deadlock defense prefix, Priority.First)");
                     }
                 }
 
@@ -2154,8 +2154,8 @@ namespace MoreNetworkCapacityRenew
                         if (wfapM != null)
                         {
                             var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
-                            harmony.Patch(wfapM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.WaitForAllPaths (deadlock defense prefix)");
+                            harmony.Patch(wfapM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.WaitForAllPaths (deadlock defense prefix, Priority.First)");
                         }
                     }
                 }
@@ -5516,9 +5516,16 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                LastSaveSimulationException = null;
                 if (__instance != null)
                 {
+                    FieldInfo fPC = __instance.GetType().GetField("$PC", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fPC != null)
+                    {
+                        int pc = Convert.ToInt32(fPC.GetValue(__instance));
+                        if (pc != 0) return; // Only execute on the first MoveNext invocation (before serialization begins)
+                    }
+
+                    LastSaveSimulationException = null;
                     FieldInfo fFilename = __instance.GetType().GetField("filename", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     string fname = (fFilename != null) ? (fFilename.GetValue(__instance) as string) : "unknown";
                     CurrentSavingFilename = fname;
@@ -5568,8 +5575,7 @@ namespace MoreNetworkCapacityRenew
             {
                 if (__result)
                 {
-                    LogSaveDebug("=== SaveSimulationData COMPLETED SUCCESSFULLY! ===");
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData COMPLETED SUCCESSFULLY! ===");
+                    LogSaveDebug("=== SaveSimulationData STEP YIELDED (result=true) ===");
                 }
                 else
                 {
@@ -5580,11 +5586,11 @@ namespace MoreNetworkCapacityRenew
                     }
                     else
                     {
-                        LogSaveDebug("=== SaveSimulationData FAILED (unknown reason) ===");
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData FAILED (unknown reason) ===");
+                        LogSaveDebug("=== SaveSimulationData COMPLETED CLEANLY! (result=false) ===");
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData COMPLETED CLEANLY! ===");
                     }
+                    CurrentSavingFilename = null;
                 }
-                CurrentSavingFilename = null;
             }
             catch (Exception ex)
             {
@@ -9269,13 +9275,14 @@ namespace MoreNetworkCapacityRenew
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportManager.Data.AfterDeserialize for line sanitization.");
                     }
 
-                    // 1b. Patch TransportManager.Data.Serialize (Pre-Save sanitization)
+                    // 1b. Patch TransportManager.Data.Serialize (Pre-Save sanitization & diagnostics)
                     MethodInfo tmSer = tmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
                     if (tmSer != null)
                     {
                         MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(TransportManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(tmSer, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportManager.Data.Serialize with pre-save sanitization.");
+                        MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(TransportManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(tmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportManager.Data.Serialize with pre-save sanitization and diagnostic tracker.");
                     }
                 }
 
@@ -9287,8 +9294,8 @@ namespace MoreNetworkCapacityRenew
                     if (simSer != null)
                     {
                         MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(SimulationManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(simSer, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationManager.Data.Serialize with universal pre-save sanitization and safe serialization.");
+                        harmony.Patch(simSer, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationManager.Data.Serialize with universal pre-save sanitization (Priority.First).");
                     }
                 }
 
@@ -9310,8 +9317,8 @@ namespace MoreNetworkCapacityRenew
                     if (wfap != null)
                     {
                         MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_WaitForAllPaths_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(wfap, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.WaitForAllPaths with safe bounded timeout defense.");
+                        harmony.Patch(wfap, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.WaitForAllPaths with safe bounded timeout defense (Priority.First).");
                     }
 
                     Type pmDataType = typeof(PathManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
@@ -9332,7 +9339,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager serialization: " + ex);
                 }
 
-                // 4. Patch VehicleManager.Data.Serialize & TreeManager.Data.Serialize
+                // 4. Patch VehicleManager, TreeManager, BuildingManager, CitizenManager & DistrictManager serialization
                 try
                 {
                     Type vmDataType = typeof(VehicleManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
@@ -9360,10 +9367,49 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TreeManager.Data.Serialize with diagnostic tracker and postfix.");
                         }
                     }
+
+                    Type bmDataType = typeof(BuildingManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (bmDataType != null)
+                    {
+                        MethodInfo bmSer = bmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (bmSer != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(BuildingManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(BuildingManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(bmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched BuildingManager.Data.Serialize with diagnostic tracker and postfix.");
+                        }
+                    }
+
+                    Type cmDataType = typeof(CitizenManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (cmDataType != null)
+                    {
+                        MethodInfo cmSer = cmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (cmSer != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(CitizenManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(CitizenManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(cmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CitizenManager.Data.Serialize with diagnostic tracker and postfix.");
+                        }
+                    }
+
+                    Type dmDataType = typeof(DistrictManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (dmDataType != null)
+                    {
+                        MethodInfo dmSer = dmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (dmSer != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(DistrictManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(DistrictManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(dmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DistrictManager.Data.Serialize with diagnostic tracker and postfix.");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching Vehicle/Tree serialization: " + ex);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching Manager serialization: " + ex);
                 }
 
                 // 2b. Patch LoadingManager.<SaveSimulationData>c__IteratorC.MoveNext (Save diagnostics & exception tracking)
@@ -9690,28 +9736,6 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static Exception SimulationManager_Data_Serialize_Finalizer(Exception __exception)
-        {
-            if (__exception != null)
-            {
-                SaveSimulationDataSafetyPatch.LastSaveSimulationException = __exception;
-                SaveSimulationDataSafetyPatch.LogSaveDebug("CRITICAL: Exception inside SimulationManager.Data.Serialize: " + __exception);
-                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] CRITICAL: Exception inside SimulationManager.Data.Serialize: " + __exception);
-            }
-            return __exception;
-        }
-
-        public static Exception DistrictManager_Data_Serialize_Finalizer(Exception __exception)
-        {
-            if (__exception != null)
-            {
-                SaveSimulationDataSafetyPatch.LastSaveSimulationException = __exception;
-                SaveSimulationDataSafetyPatch.LogSaveDebug("CRITICAL: Exception inside DistrictManager.Data.Serialize: " + __exception);
-                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] CRITICAL: Exception inside DistrictManager.Data.Serialize: " + __exception);
-            }
-            return __exception;
-        }
-
         public static void DataSerializer_WriteUInt24_Prefix(ref uint value)
         {
             if (value > 16777215u)
@@ -9858,12 +9882,48 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("TransportManager.Data.Serialize: BEGIN");
                 SanitizeTransportLines();
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TransportManager_Data_Serialize_Prefix error: " + ex);
             }
+        }
+
+        public static void TransportManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("TransportManager.Data.Serialize: COMPLETED CLEANLY!");
+        }
+
+        public static void BuildingManager_Data_Serialize_Prefix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("BuildingManager.Data.Serialize: BEGIN");
+        }
+
+        public static void BuildingManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("BuildingManager.Data.Serialize: COMPLETED CLEANLY!");
+        }
+
+        public static void CitizenManager_Data_Serialize_Prefix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("CitizenManager.Data.Serialize: BEGIN");
+        }
+
+        public static void CitizenManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("CitizenManager.Data.Serialize: COMPLETED CLEANLY!");
+        }
+
+        public static void DistrictManager_Data_Serialize_Prefix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("DistrictManager.Data.Serialize: BEGIN");
+        }
+
+        public static void DistrictManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("DistrictManager.Data.Serialize: COMPLETED CLEANLY!");
         }
 
         public static bool PrefabCollection_TransportInfo_Serialize_Prefix(uint index)

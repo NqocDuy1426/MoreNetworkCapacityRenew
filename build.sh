@@ -16,6 +16,12 @@ echo "=========================================================="
 echo "🚀 Building $MOD_NAME (MoreNetworkCapacity Renew by NgocDuy)..."
 echo "=========================================================="
 
+# 0. Compile and run test suite
+echo "0️⃣ Running Test Suite before build..."
+mcs -r:"$CECIL_DLL" run_tests.cs -out:run_tests.exe
+mono run_tests.exe
+echo "✅ Test Suite passed 100%."
+
 # 1. Build and run strip_iusermod tool
 echo "1️⃣ Generating clean core engine (MoreNetworkCapacity.Core.dll)..."
 mcs -r:"$CECIL_DLL" strip_iusermod.cs -out:strip_iusermod.exe

@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.2.5 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.0 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1694,7 +1694,7 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 10. CustomPathManager.UpdateWithPathManagerValues (Postfix)
+                // 10. CustomPathManager.UpdateWithPathManagerValues (Postfix) & WaitForAllPaths (Prefix)
                 Type cpmType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathManager");
                 if (cpmType != null)
                 {
@@ -1704,6 +1704,14 @@ namespace MoreNetworkCapacityRenew
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathManager_UpdateWithPathManagerValues_Postfix));
                         harmony.Patch(upmvM, postfix: new HarmonyMethod(post));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.UpdateWithPathManagerValues (Postfix)");
+                    }
+
+                    MethodInfo wfapM = cpmType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (wfapM != null)
+                    {
+                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
+                        harmony.Patch(wfapM, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.WaitForAllPaths (deadlock defense prefix)");
                     }
                 }
 
@@ -2096,7 +2104,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching JunctionRestrictionsTool: " + ex);
                 }
 
-                // 23. CustomPathFind (Awake capacity expansion only; inner-loop pathfinder methods run at full native speed)
+                // 23. CustomPathFind (Awake capacity expansion, segment validation guards & deadlock defense)
                 try
                 {
                     Type cpfType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathFind");
@@ -2108,6 +2116,46 @@ namespace MoreNetworkCapacityRenew
                             var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_Awake_Postfix));
                             harmony.Patch(awakeM, postfix: new HarmonyMethod(post));
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
+                        }
+
+                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pfiM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
+                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (bounds validation prefix)");
+                        }
+
+                        MethodInfo gldM = cpfType.GetMethod("GetLaneDirection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (gldM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_GetLaneDirection_Prefix));
+                            harmony.Patch(gldM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.GetLaneDirection (safe bounds prefix)");
+                        }
+
+                        MethodInfo pimM = cpfType.GetMethod("ProcessItemMain", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pimM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemMain_Prefix));
+                            harmony.Patch(pimM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemMain (validation prefix)");
+                        }
+
+                        MethodInfo culM = cpfType.GetMethod("CanUseLane", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (culM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_CanUseLane_Prefix));
+                            harmony.Patch(culM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.CanUseLane (safe bounds prefix)");
+                        }
+
+                        MethodInfo wfapM = cpfType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (wfapM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
+                            harmony.Patch(wfapM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.WaitForAllPaths (deadlock defense prefix)");
                         }
                     }
                 }
@@ -4600,6 +4648,197 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static bool CustomPathFind_GetLaneDirection_Prefix(
+            PathUnit.Position pathPos,
+            ref NetInfo.Direction direction,
+            ref NetInfo.LaneType laneType,
+            ref VehicleInfo.VehicleType vehicleType)
+        {
+            ushort segmentId = pathPos.m_segment;
+            if (segmentId == 0 || segmentId >= 65024)
+            {
+                direction = NetInfo.Direction.None;
+                laneType = NetInfo.LaneType.None;
+                vehicleType = VehicleInfo.VehicleType.None;
+                return false;
+            }
+            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null || segmentId >= NetManager.instance.m_segments.m_buffer.Length)
+            {
+                direction = NetInfo.Direction.None;
+                laneType = NetInfo.LaneType.None;
+                vehicleType = VehicleInfo.VehicleType.None;
+                return false;
+            }
+
+            NetSegment[] segments = NetManager.instance.m_segments.m_buffer;
+            if ((segments[segmentId].m_flags & NetSegment.Flags.Created) == 0)
+            {
+                direction = NetInfo.Direction.None;
+                laneType = NetInfo.LaneType.None;
+                vehicleType = VehicleInfo.VehicleType.None;
+                return false;
+            }
+
+            NetInfo info = segments[segmentId].Info;
+            if (info == null || info.m_lanes == null || pathPos.m_lane >= info.m_lanes.Length)
+            {
+                direction = NetInfo.Direction.None;
+                laneType = NetInfo.LaneType.None;
+                vehicleType = VehicleInfo.VehicleType.None;
+                return false;
+            }
+
+            NetInfo.Lane lane = info.m_lanes[pathPos.m_lane];
+            if (lane == null)
+            {
+                direction = NetInfo.Direction.None;
+                laneType = NetInfo.LaneType.None;
+                vehicleType = VehicleInfo.VehicleType.None;
+                return false;
+            }
+
+            direction = lane.m_finalDirection;
+            laneType = lane.m_laneType;
+            vehicleType = lane.m_vehicleType;
+
+            if ((segments[segmentId].m_flags & NetSegment.Flags.Invert) != 0)
+            {
+                direction = NetInfo.InvertDirection(direction);
+            }
+            return false;
+        }
+
+        public static bool CustomPathFind_ProcessItemMain_Prefix(
+            ref NetSegment prevSegment,
+            ushort nextNodeId,
+            ref NetNode nextNode)
+        {
+            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null)
+            {
+                return false;
+            }
+            if (nextNodeId == 0 || (nextNode.m_flags & NetNode.Flags.Created) == 0 || nextNode.Info == null || nextNode.Info.m_class == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CustomPathFind_CanUseLane_Prefix(
+            ushort segmentId,
+            NetInfo segmentInfo,
+            int laneIndex,
+            NetInfo.Lane laneInfo,
+            uint laneId,
+            ref bool __result)
+        {
+            if (segmentInfo == null || laneInfo == null)
+            {
+                __result = true;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
+        {
+            if (unit == 0) return false;
+
+            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                return true;
+
+            NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
+            int segCount = segBuffer.Length;
+
+            ushort startSeg = data.m_position00.m_segment;
+            if (startSeg != 0)
+            {
+                if (startSeg >= segCount)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+                if ((segBuffer[startSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[startSeg].Info == null || segBuffer[startSeg].Info.m_lanes == null)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+            }
+
+            ushort endSeg = data.m_position01.m_segment;
+            if (endSeg != 0)
+            {
+                if (endSeg >= segCount)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+                if ((segBuffer[endSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[endSeg].Info == null || segBuffer[endSeg].Info.m_lanes == null)
+                {
+                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public static bool WaitForAllPaths_Prefix(object __instance)
+        {
+            if (__instance == null) return false;
+            try
+            {
+                Type t = __instance.GetType();
+                FieldInfo fLock = t.GetField("queueLock_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? t.GetField("m_queueLock", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fFirst = t.GetField("queueFirst_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                                ?? t.GetField("m_queueFirst", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fCalc = t.GetField("calculating_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? t.GetField("m_calculating", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fTerm = t.GetField("terminated_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? t.GetField("m_terminated", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                if (fLock == null) return true;
+                object lockObj = fLock.GetValue(__instance);
+                if (lockObj == null) return false;
+
+                if (!System.Threading.Monitor.TryEnter(lockObj, 2000))
+                {
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("WaitForAllPaths_Prefix: lock timeout on " + t.Name + ", continuing safely.");
+                    return false;
+                }
+
+                try
+                {
+                    int loop = 0;
+                    while (loop++ < 15)
+                    {
+                        uint qFirst = fFirst != null ? Convert.ToUInt32(fFirst.GetValue(__instance)) : 0;
+                        uint calc = fCalc != null ? Convert.ToUInt32(fCalc.GetValue(__instance)) : 0;
+                        bool term = fTerm != null && Convert.ToBoolean(fTerm.GetValue(__instance));
+
+                        if (term || (qFirst == 0 && calc == 0))
+                        {
+                            break;
+                        }
+
+                        System.Threading.Monitor.Wait(lockObj, 100);
+                    }
+                }
+                finally
+                {
+                    System.Threading.Monitor.Exit(lockObj);
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("WaitForAllPaths_Prefix error: " + ex);
+                return false;
+            }
+        }
+
 
         public static bool VehicleAICommons_CustomCalculateTargetSpeed_Prefix(
             NetInfo info,
@@ -4732,47 +4971,55 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
+        private static bool s_threadingReflectionInitialized = false;
+        private static PropertyInfo s_sgoInstanceProp = null;
+        private static FieldInfo s_sgoTimedLightsField = null;
+        private static FieldInfo s_tlsmInstanceField = null;
+        private static PropertyInfo s_tlsmInstanceProp = null;
+        private static MethodInfo s_tlsmSimStepMethod = null;
+
         public static bool ThreadingExtension_OnBeforeSimulationFrame_Prefix()
         {
             try
             {
-                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                if (tmpe == null) return false;
-
-                Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
-                if (sgoType != null)
+                if (!s_threadingReflectionInitialized)
                 {
-                    PropertyInfo pOpt = sgoType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
-                    object opt = pOpt != null ? pOpt.GetValue(null, null) : null;
-                    if (opt == null) return false;
+                    Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                    if (tmpe != null)
+                    {
+                        Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
+                        if (sgoType != null)
+                        {
+                            s_sgoInstanceProp = sgoType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                            s_sgoTimedLightsField = sgoType.GetField("timedLightsEnabled", BindingFlags.Public | BindingFlags.Instance);
+                        }
+                        Type tlsm = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                        if (tlsm != null)
+                        {
+                            s_tlsmInstanceField = tlsm.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                            s_tlsmInstanceProp = tlsm.GetProperty("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                            s_tlsmSimStepMethod = tlsm.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                        }
+                        s_threadingReflectionInitialized = true;
+                    }
+                }
 
-                    FieldInfo fTimed = sgoType.GetField("timedLightsEnabled", BindingFlags.Public | BindingFlags.Instance);
-                    if (fTimed != null && !(bool)fTimed.GetValue(opt))
+                if (s_sgoInstanceProp != null && s_sgoTimedLightsField != null)
+                {
+                    object opt = s_sgoInstanceProp.GetValue(null, null);
+                    if (opt == null || !(bool)s_sgoTimedLightsField.GetValue(opt))
                     {
                         return false;
                     }
                 }
 
-                Type tlsm = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
-                if (tlsm != null)
+                if (s_tlsmSimStepMethod != null)
                 {
-                    FieldInfo fInst = tlsm.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    PropertyInfo pInst = tlsm.GetProperty("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    object inst = fInst != null ? fInst.GetValue(null) : (pInst != null ? pInst.GetValue(null, null) : null);
-                    if (inst == null)
+                    object inst = s_tlsmInstanceField != null ? s_tlsmInstanceField.GetValue(null) : (s_tlsmInstanceProp != null ? s_tlsmInstanceProp.GetValue(null, null) : null);
+                    if (inst != null)
                     {
-                        return false;
+                        s_tlsmSimStepMethod.Invoke(inst, null);
                     }
-
-                    try
-                    {
-                        MethodInfo simStep = tlsm.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                        if (simStep != null)
-                        {
-                            simStep.Invoke(inst, null);
-                        }
-                    }
-                    catch { }
                 }
                 return false;
             }
@@ -5319,24 +5566,25 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                if (!__result)
+                if (__result)
                 {
-                    if (!string.IsNullOrEmpty(CurrentSavingFilename) && !System.IO.File.Exists(CurrentSavingFilename))
+                    LogSaveDebug("=== SaveSimulationData COMPLETED SUCCESSFULLY! ===");
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData COMPLETED SUCCESSFULLY! ===");
+                }
+                else
+                {
+                    if (LastSaveSimulationException != null)
                     {
-                        if (LastSaveSimulationException == null)
-                        {
-                            LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization (an unhandled exception occurred during manager serialization).");
-                        }
-                        LogSaveDebug("=== SaveSimulationData FAILED: Output file deleted during serialization! ===");
-                        UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] === SaveSimulationData FAILED: Output file deleted during serialization! ===");
+                        LogSaveDebug("=== SaveSimulationData FAILED with exception: " + LastSaveSimulationException.Message + " ===");
+                        UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] === SaveSimulationData FAILED with exception: " + LastSaveSimulationException);
                     }
                     else
                     {
-                        LogSaveDebug("=== SaveSimulationData completed successfully ===");
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData completed successfully ===");
-                        CurrentSavingFilename = null;
+                        LogSaveDebug("=== SaveSimulationData FAILED (unknown reason) ===");
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] === SaveSimulationData FAILED (unknown reason) ===");
                     }
                 }
+                CurrentSavingFilename = null;
             }
             catch (Exception ex)
             {
@@ -5378,15 +5626,6 @@ namespace MoreNetworkCapacityRenew
             {
                 FieldInfo fIsSaving = typeof(SavePanel).GetField("m_IsSaving", BindingFlags.NonPublic | BindingFlags.Static);
                 if (fIsSaving != null) fIsSaving.SetValue(null, false);
-
-                if (!string.IsNullOrEmpty(SaveSimulationDataSafetyPatch.CurrentSavingFilename) && !System.IO.File.Exists(SaveSimulationDataSafetyPatch.CurrentSavingFilename))
-                {
-                    errorOnSaving = true;
-                    if (SaveSimulationDataSafetyPatch.LastSaveSimulationException == null)
-                    {
-                        SaveSimulationDataSafetyPatch.LastSaveSimulationException = new System.IO.IOException("Simulation file was deleted during save serialization (an unhandled exception aborted save serialization).");
-                    }
-                }
 
                 if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null)
                 {
@@ -5888,6 +6127,30 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                // Ensure any ongoing packaging task completes before unloading level
+                try
+                {
+                    SavePanel sp = UnityEngine.Object.FindObjectOfType<SavePanel>();
+                    if (sp != null)
+                    {
+                        FieldInfo fTask = typeof(SavePanel).GetField("m_PackageSaveTask", BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fTask != null)
+                        {
+                            var task = fTask.GetValue(sp) as ColossalFramework.Threading.Task;
+                            if (task != null && !task.hasEnded)
+                            {
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Waiting for SavePanel.m_PackageSaveTask to finish packaging before level unload...");
+                                task.Wait();
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SavePanel.m_PackageSaveTask packaging completed.");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Guard SavePanel packaging task error: " + ex);
+                }
+
                 // NEW v4.1: Stop monitoring systems
                 ArrayGuardianV2.StopMonitoring();
                 StuckVehicleRecovery.ClearCache();
@@ -7141,11 +7404,12 @@ namespace MoreNetworkCapacityRenew
                     string name = asm.GetName().Name;
                     if (name == "IPTEssentials" || name == "ImprovedPublicTransport3" || name == "ImprovedPublicTransport2")
                     {
-                        Type[] types = new Type[] {
+                        // 1. Expand CachedNodeData.m_cachedNodeData (stops and stations)
+                        Type[] nodeTypes = new Type[] {
                             asm.GetType("ImprovedPublicTransport2.Data.CachedNodeData"),
                             asm.GetType("ImprovedPublicTransport.Data.CachedNodeData")
                         };
-                        foreach (var type in types)
+                        foreach (var type in nodeTypes)
                         {
                             if (type != null)
                             {
@@ -7160,6 +7424,31 @@ namespace MoreNetworkCapacityRenew
                                         Array.Copy(arr, newArr, arr.Length);
                                         field.SetValue(null, newArr);
                                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized {0}.m_cachedNodeData from {1} to 65024 ({2})", type.FullName, arr.Length, context));
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Expand CachedVehicleData.m_cachedVehicleData (prevent IndexOutOfRange for vehicle ID >= 16384)
+                        Type[] vehicleTypes = new Type[] {
+                            asm.GetType("ImprovedPublicTransport2.Data.CachedVehicleData"),
+                            asm.GetType("ImprovedPublicTransport.Data.CachedVehicleData")
+                        };
+                        foreach (var type in vehicleTypes)
+                        {
+                            if (type != null)
+                            {
+                                FieldInfo field = type.GetField("m_cachedVehicleData", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+                                if (field != null)
+                                {
+                                    Array arr = field.GetValue(null) as Array;
+                                    if (arr != null && arr.Length < 65536)
+                                    {
+                                        Type elem = arr.GetType().GetElementType();
+                                        Array newArr = Array.CreateInstance(elem, 65536);
+                                        Array.Copy(arr, newArr, arr.Length);
+                                        field.SetValue(null, newArr);
+                                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized {0}.m_cachedVehicleData from {1} to 65536 ({2})", type.FullName, arr.Length, context));
                                     }
                                 }
                             }
@@ -8696,7 +8985,7 @@ namespace MoreNetworkCapacityRenew
 
         public static void RestoreLinesFromBackupCRP()
         {
-            string backupPath = "/Users/nqocduy/Library/Application Support/Colossal Order/Cities_Skylines/Saves/QuangNinh backup .crp";
+            string backupPath = System.IO.Path.Combine(ColossalFramework.IO.DataLocation.saveLocation, "QuangNinh backup .crp");
             if (!File.Exists(backupPath))
             {
                 try
@@ -8999,8 +9288,82 @@ namespace MoreNetworkCapacityRenew
                     {
                         MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(SimulationManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
                         harmony.Patch(simSer, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationManager.Data.Serialize with universal pre-save sanitization.");
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationManager.Data.Serialize with universal pre-save sanitization and safe serialization.");
                     }
+                }
+
+                // Initialize SimulationManager.SYNCHRONIZE_TIMEOUT to prevent tight spin loops in any mod
+                try
+                {
+                    if (SimulationManager.SYNCHRONIZE_TIMEOUT <= 0)
+                    {
+                        SimulationManager.SYNCHRONIZE_TIMEOUT = 500;
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialized SimulationManager.SYNCHRONIZE_TIMEOUT = 500ms (anti-spin guard).");
+                    }
+                }
+                catch { }
+
+                // 3. Patch PathManager.WaitForAllPaths & PathManager.Data.Serialize (Deadlock defense)
+                try
+                {
+                    MethodInfo wfap = typeof(PathManager).GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.Instance);
+                    if (wfap != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_WaitForAllPaths_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(wfap, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.WaitForAllPaths with safe bounded timeout defense.");
+                    }
+
+                    Type pmDataType = typeof(PathManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (pmDataType != null)
+                    {
+                        MethodInfo pmSer = pmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (pmSer != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(pmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.Data.Serialize with diagnostic tracker and postfix.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager serialization: " + ex);
+                }
+
+                // 4. Patch VehicleManager.Data.Serialize & TreeManager.Data.Serialize
+                try
+                {
+                    Type vmDataType = typeof(VehicleManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (vmDataType != null)
+                    {
+                        MethodInfo vmSer = vmDataType.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (vmSer != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(VehicleManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(VehicleManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(vmSer, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched VehicleManager.Data.Serialize with diagnostic tracker and postfix.");
+                        }
+                    }
+
+                    Type tmDataType2 = typeof(TreeManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (tmDataType2 != null)
+                    {
+                        MethodInfo tmSer2 = tmDataType2.GetMethod("Serialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (tmSer2 != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(TreeManager_Data_Serialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(TreeManager_Data_Serialize_Postfix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(tmSer2, prefix: new HarmonyMethod(pre), postfix: new HarmonyMethod(post));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TreeManager.Data.Serialize with diagnostic tracker and postfix.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching Vehicle/Tree serialization: " + ex);
                 }
 
                 // 2b. Patch LoadingManager.<SaveSimulationData>c__IteratorC.MoveNext (Save diagnostics & exception tracking)
@@ -9133,17 +9496,197 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static void SimulationManager_Data_Serialize_Prefix(object __instance, ColossalFramework.IO.DataSerializer s)
+        private static FieldInfo s_fBuildIndexHistory = null;
+        private static FieldInfo s_fManagers = null;
+        private static bool s_simFieldsReflected = false;
+
+        private static void EnsureSimulationFields()
         {
+            if (s_simFieldsReflected) return;
             try
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SimulationManager.Data.Serialize Prefix: Running PreSaveSanitization...");
-                PreSaveSanitization();
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSaveSanitization completed cleanly.");
+                s_fBuildIndexHistory = typeof(SimulationManager).GetField("m_buildIndexHistory", BindingFlags.NonPublic | BindingFlags.Instance);
+                s_fManagers = typeof(SimulationManager).GetField("m_managers", BindingFlags.NonPublic | BindingFlags.Static);
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] PreSaveSanitization top-level exception: " + ex);
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] Error reflecting SimulationManager fields: " + ex);
+            }
+            finally
+            {
+                s_simFieldsReflected = true;
+            }
+        }
+
+        private static uint[] GetBuildIndexHistory(SimulationManager sim)
+        {
+            EnsureSimulationFields();
+            if (s_fBuildIndexHistory != null && sim != null)
+            {
+                return s_fBuildIndexHistory.GetValue(sim) as uint[];
+            }
+            return null;
+        }
+
+        private static FastList<ISimulationManager> GetSimulationManagers()
+        {
+            EnsureSimulationFields();
+            if (s_fManagers != null)
+            {
+                return s_fManagers.GetValue(null) as FastList<ISimulationManager>;
+            }
+            return null;
+        }
+
+        private static void WriteSerializableDataStorageSafely(ColossalFramework.IO.DataSerializer s, SimulationManager sim)
+        {
+            if (sim == null || sim.m_serializableDataStorage == null)
+            {
+                s.WriteUInt32(0u);
+                return;
+            }
+
+            var storage = sim.m_serializableDataStorage;
+            bool lockTaken = false;
+            try
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("m_serializableDataStorage: Acquiring lock (timeout 2000ms)...");
+                lockTaken = System.Threading.Monitor.TryEnter(storage, 2000);
+                if (!lockTaken)
+                {
+                    string warn = "[MoreNetworkCapacityRenew] Notice: Monitor.TryEnter on m_serializableDataStorage timed out after 2000ms. Snapshotting safely to prevent save freeze!";
+                    SaveSimulationDataSafetyPatch.LogSaveDebug(warn);
+                    UnityEngine.Debug.LogWarning(warn);
+                }
+                else
+                {
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("m_serializableDataStorage: Lock acquired successfully.");
+                }
+
+                KeyValuePair<string, byte[]>[] entries = null;
+                try
+                {
+                    entries = new KeyValuePair<string, byte[]>[storage.Count];
+                    int idx = 0;
+                    foreach (var kvp in storage)
+                    {
+                        if (idx < entries.Length)
+                        {
+                            entries[idx++] = kvp;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("Notice: direct storage enumeration threw: " + ex.Message + ". Falling back to Enumerable snapshot.");
+                    entries = System.Linq.Enumerable.ToArray(storage);
+                }
+
+                int count = entries != null ? entries.Length : 0;
+                s.WriteUInt32((uint)count);
+                for (int i = 0; i < count; i++)
+                {
+                    s.WriteUniqueString(entries[i].Key ?? string.Empty);
+                    s.WriteByteArray(entries[i].Value ?? new byte[0]);
+                }
+
+                string msg = string.Format("Successfully serialized {0} custom mod data items from m_serializableDataStorage.", count);
+                SaveSimulationDataSafetyPatch.LogSaveDebug(msg);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] " + msg);
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    System.Threading.Monitor.Exit(storage);
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("m_serializableDataStorage: Lock released.");
+                }
+            }
+        }
+
+        public static bool SimulationManager_Data_Serialize_Prefix(object __instance, ColossalFramework.IO.DataSerializer s)
+        {
+            try
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("SimulationManager.Data.Serialize Prefix: Running PreSaveSanitization...");
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SimulationManager.Data.Serialize Prefix: Running PreSaveSanitization...");
+                PreSaveSanitization();
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSaveSanitization completed cleanly.");
+                SaveSimulationDataSafetyPatch.LogSaveDebug("PreSaveSanitization completed cleanly.");
+
+                LoadingManager lm = Singleton<LoadingManager>.instance;
+                if (lm != null && lm.m_loadingProfilerSimulation != null)
+                {
+                    lm.m_loadingProfilerSimulation.BeginSerialize(s, "SimulationManager");
+                }
+
+                SimulationManager sim = Singleton<SimulationManager>.instance;
+                if (sim != null)
+                {
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("Invoking ISerializableDataExtension.OnSaveData()...");
+                    if (sim.m_SerializableDataWrapper != null)
+                    {
+                        sim.m_SerializableDataWrapper.OnSaveData();
+                    }
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("OnSaveData() completed.");
+
+                    s.WriteUInt32(sim.m_currentTickIndex);
+                    s.WriteUInt32(sim.m_currentFrameIndex);
+                    s.WriteUInt32(sim.m_currentBuildIndex);
+                    s.WriteULong64(sim.m_randomizer.seed);
+                    s.WriteUInt32(sim.m_dayTimeOffsetFrames);
+
+                    uint[] buildIndexHistory = GetBuildIndexHistory(sim);
+                    if (buildIndexHistory != null)
+                    {
+                        for (int i = 0; i < buildIndexHistory.Length; i++)
+                        {
+                            s.WriteUInt32(buildIndexHistory[i]);
+                        }
+                    }
+                    else
+                    {
+                        for (int i = 0; i < 1000; i++)
+                        {
+                            s.WriteUInt32(0);
+                        }
+                    }
+
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("Gathering simulation manager data containers...");
+                    FastList<ColossalFramework.IO.IDataContainer> dataContainers = new FastList<ColossalFramework.IO.IDataContainer>();
+                    FastList<ISimulationManager> managers = GetSimulationManagers();
+                    if (managers != null)
+                    {
+                        for (int j = 0; j < managers.m_size; j++)
+                        {
+                            if (managers.m_buffer[j] != null)
+                            {
+                                managers.m_buffer[j].GetData(dataContainers);
+                            }
+                        }
+                    }
+                    SaveSimulationDataSafetyPatch.LogSaveDebug(string.Format("Writing {0} simulation manager data containers...", dataContainers.m_size));
+                    s.WriteObjectArray<ColossalFramework.IO.IDataContainer>(dataContainers.ToArray());
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("Manager data containers serialized successfully.");
+
+                    // Safely write m_serializableDataStorage without infinite spin loop
+                    WriteSerializableDataStorageSafely(s, sim);
+                }
+
+                if (lm != null && lm.m_loadingProfilerSimulation != null)
+                {
+                    lm.m_loadingProfilerSimulation.EndSerialize(s, "SimulationManager");
+                }
+
+                SaveSimulationDataSafetyPatch.LogSaveDebug("SimulationManager.Data.Serialize Prefix: COMPLETED CLEANLY!");
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SimulationManager.Data.Serialize Prefix: COMPLETED CLEANLY!");
+                return false; // Skip original method containing buggy infinite spin loop
+            }
+            catch (Exception ex)
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("CRITICAL: Exception in SimulationManager_Data_Serialize_Prefix: " + ex);
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] CRITICAL: Exception in SimulationManager_Data_Serialize_Prefix: " + ex);
+                return true; // Fallback to original method if something unexpected failed
             }
         }
 
@@ -9175,6 +9718,140 @@ namespace MoreNetworkCapacityRenew
             {
                 value = 16777215u;
             }
+        }
+
+        public static void SafeWaitForAllPaths(object pf)
+        {
+            if (pf == null) return;
+            try
+            {
+                Type t = pf.GetType();
+                FieldInfo fLock = t.GetField("queueLock_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? t.GetField("m_queueLock", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fFirst = t.GetField("queueFirst_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                                ?? t.GetField("m_queueFirst", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fCalc = t.GetField("calculating_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? t.GetField("m_calculating", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fTerm = t.GetField("terminated_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? t.GetField("m_terminated", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                if (fLock == null) return;
+                object lockObj = fLock.GetValue(pf);
+                if (lockObj == null) return;
+
+                if (!System.Threading.Monitor.TryEnter(lockObj, 2000))
+                {
+                    SaveSimulationDataSafetyPatch.LogSaveDebug("SafeWaitForAllPaths: lock timeout on " + t.Name + ", skipping wait safely.");
+                    return;
+                }
+
+                try
+                {
+                    int loop = 0;
+                    while (loop++ < 15)
+                    {
+                        uint qFirst = fFirst != null ? Convert.ToUInt32(fFirst.GetValue(pf)) : 0;
+                        uint calc = fCalc != null ? Convert.ToUInt32(fCalc.GetValue(pf)) : 0;
+                        bool term = fTerm != null && Convert.ToBoolean(fTerm.GetValue(pf));
+
+                        if (term || (qFirst == 0 && calc == 0))
+                        {
+                            break;
+                        }
+
+                        System.Threading.Monitor.Wait(lockObj, 100);
+                    }
+                }
+                finally
+                {
+                    System.Threading.Monitor.Exit(lockObj);
+                }
+            }
+            catch (Exception ex)
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("SafeWaitForAllPaths exception: " + ex);
+            }
+        }
+
+        public static bool PathManager_WaitForAllPaths_Prefix(PathManager __instance)
+        {
+            try
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("PathManager.WaitForAllPaths: BEGIN safe wait...");
+                if (__instance != null)
+                {
+                    FieldInfo fPfs = typeof(PathManager).GetField("m_pathfinds", BindingFlags.NonPublic | BindingFlags.Instance);
+                    Array pfs = fPfs != null ? fPfs.GetValue(__instance) as Array : null;
+                    if (pfs != null)
+                    {
+                        for (int i = 0; i < pfs.Length; i++)
+                        {
+                            SafeWaitForAllPaths(pfs.GetValue(i));
+                        }
+                    }
+                }
+
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    Type cpmType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathManager");
+                    if (cpmType != null)
+                    {
+                        FieldInfo fInst = cpmType.GetField("_instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        object cpm = fInst != null ? fInst.GetValue(null) : null;
+                        if (cpm != null)
+                        {
+                            FieldInfo fPfs = cpmType.GetField("_replacementPathFinds", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            Array pfs = fPfs != null ? fPfs.GetValue(cpm) as Array : null;
+                            if (pfs != null)
+                            {
+                                for (int i = 0; i < pfs.Length; i++)
+                                {
+                                    SafeWaitForAllPaths(pfs.GetValue(i));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SaveSimulationDataSafetyPatch.LogSaveDebug("PathManager.WaitForAllPaths: COMPLETED CLEANLY!");
+                return false; // Skip original unconstrained spin loop!
+            }
+            catch (Exception ex)
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("PathManager.WaitForAllPaths prefix exception: " + ex);
+                return false;
+            }
+        }
+
+        public static void PathManager_Data_Serialize_Prefix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("PathManager.Data.Serialize: BEGIN");
+        }
+
+        public static void PathManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("PathManager.Data.Serialize: COMPLETED CLEANLY!");
+        }
+
+        public static void VehicleManager_Data_Serialize_Prefix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("VehicleManager.Data.Serialize: BEGIN");
+        }
+
+        public static void VehicleManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("VehicleManager.Data.Serialize: COMPLETED CLEANLY!");
+        }
+
+        public static void TreeManager_Data_Serialize_Prefix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("TreeManager.Data.Serialize: BEGIN");
+        }
+
+        public static void TreeManager_Data_Serialize_Postfix()
+        {
+            SaveSimulationDataSafetyPatch.LogSaveDebug("TreeManager.Data.Serialize: COMPLETED CLEANLY!");
         }
 
         public static void TransportManager_Data_Serialize_Prefix(object __instance, ColossalFramework.IO.DataSerializer s)
@@ -10934,9 +11611,42 @@ namespace MoreNetworkCapacityRenew
                     if (buffer[i].m_leadingVehicle != 0)
                         continue;
 
-                    // Skip vehicles that are parked or waiting/loading
-                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) != 0)
+                    // Skip vehicles that are parked, waiting, arriving, leaving, stopped, or inside buildings
+                    const Vehicle.Flags IGNORE_FLAGS = 
+                        Vehicle.Flags.Stopped | 
+                        Vehicle.Flags.Leaving | 
+                        Vehicle.Flags.Arriving | 
+                        Vehicle.Flags.Parking | 
+                        Vehicle.Flags.WaitingLoading | 
+                        Vehicle.Flags.WaitingSpace | 
+                        Vehicle.Flags.WaitingCargo | 
+                        Vehicle.Flags.WaitingTarget | 
+                        Vehicle.Flags.WaitingPath | 
+                        Vehicle.Flags.InsideBuilding;
+
+                    if ((flags & IGNORE_FLAGS) != 0)
+                    {
+                        // Anti-deadlock for public transport boarding (Bus, Tram, Trolleybus, Train, Metro):
+                        // If vehicle is stopped at a station and wait counter is high, clear stuck boarding flags
+                        // so VehicleAI.CanLeave returns true and the vehicle can smoothly leave the stop.
+                        if ((flags & Vehicle.Flags.Stopped) != 0 && buffer[i].m_waitCounter > 60)
+                        {
+                            ClearStuckBoardingCitizens(buffer[i].m_citizenUnits);
+                        }
+
+                        // Stalled WaitingPath Recovery:
+                        // If vehicle is stuck waiting for a path for too long (> 250 ticks), cleanly release
+                        if ((flags & Vehicle.Flags.WaitingPath) != 0)
+                        {
+                            if (buffer[i].m_waitCounter > 250)
+                            {
+                                vm.ReleaseVehicle((ushort)i);
+                                totalRecoveries++;
+                                continue;
+                            }
+                        }
                         continue;
+                    }
 
                     // 1. Road Demolition Check:
                     // If the current path position of the vehicle leads to a demolished segment,
@@ -10963,31 +11673,65 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
 
-                    // 2. Severe Blockage / Ghost Vehicle Check:
-                    // ONLY trigger if vehicle has been blocked for >= 250 ticks.
-                    // DO NOT invalidate paths of vehicles in normal traffic or waiting at traffic lights!
-                    if (buffer[i].m_blockCounter >= 250)
+                    // 2. Corrupted / Ghost Vehicle Check:
+                    // If a vehicle has NaN position coordinates, release it.
+                    Vector3 pos = buffer[i].GetLastFramePosition();
+                    if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z))
                     {
-                        Vector3 pos = buffer[i].GetLastFramePosition();
-                        if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) || buffer[i].m_path == 0)
-                        {
-                            vm.ReleaseVehicle((ushort)i);
-                            totalRecoveries++;
-                            continue;
-                        }
+                        vm.ReleaseVehicle((ushort)i);
+                        totalRecoveries++;
+                        continue;
+                    }
 
-                        VehicleInfo info = buffer[i].Info;
-                        if (info != null && info.m_vehicleAI != null)
+                    // If a vehicle has been completely blocked for >= 255 ticks with NO path (and not waiting for path),
+                    // cleanly release it to prevent eternal ghost blockage.
+                    // All other vehicle physics, queuing, and TM:PE routing are strictly left to vanilla game & TM:PE.
+                    if (buffer[i].m_blockCounter >= 255 && buffer[i].m_path == 0)
+                    {
+                        vm.ReleaseVehicle((ushort)i);
+                        totalRecoveries++;
+                        continue;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Anti-deadlock mechanism for public transport boarding:
+        /// Clears stuck CitizenInstance.Flags.Entering flags on passengers if a bus/tram has been
+        /// waiting at a stop for too long (> 80 ticks), allowing VehicleAI.CanLeave to return true.
+        /// </summary>
+        public static void ClearStuckBoardingCitizens(uint unitID)
+        {
+            try
+            {
+                CitizenManager cm = Singleton<CitizenManager>.instance;
+                if (cm == null || cm.m_units == null || cm.m_units.m_buffer == null ||
+                    cm.m_citizens == null || cm.m_citizens.m_buffer == null ||
+                    cm.m_instances == null || cm.m_instances.m_buffer == null) return;
+
+                int loop = 0;
+                while (unitID != 0 && loop++ < 16)
+                {
+                    if (unitID >= cm.m_units.m_buffer.Length) break;
+                    uint nextUnit = cm.m_units.m_buffer[unitID].m_nextUnit;
+                    for (int j = 0; j < 5; j++)
+                    {
+                        uint citizen = cm.m_units.m_buffer[unitID].GetCitizen(j);
+                        if (citizen != 0 && citizen < cm.m_citizens.m_buffer.Length)
                         {
-                            info.m_vehicleAI.InvalidatePath((ushort)i, ref buffer[i], (ushort)i, ref buffer[i]);
-                            buffer[i].m_blockCounter = 100; // Reset counter to allow path recalculation
-                        }
-                        else
-                        {
-                            vm.ReleaseVehicle((ushort)i);
-                            totalRecoveries++;
+                            ushort instance = cm.m_citizens.m_buffer[citizen].m_instance;
+                            if (instance != 0 && instance < cm.m_instances.m_buffer.Length)
+                            {
+                                if ((cm.m_instances.m_buffer[instance].m_flags & CitizenInstance.Flags.EnteringVehicle) != 0)
+                                {
+                                    cm.m_instances.m_buffer[instance].m_flags &= ~CitizenInstance.Flags.EnteringVehicle;
+                                }
+                            }
                         }
                     }
+                    unitID = nextUnit;
                 }
             }
             catch { }

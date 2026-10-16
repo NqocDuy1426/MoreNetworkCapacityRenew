@@ -1128,8 +1128,8 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew by NgocDuy";
-        public string Description => "Expands network node and segment capacity to 64K with Mac stability, TM:PE compatibility, traffic lights & accurate traffic flow simulation. Renewed by NgocDuy.";
+        public string Name => "More Network Capacity Renew v4.2.4 by NgocDuy";
+        public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
         {
@@ -2159,27 +2159,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching JunctionRestrictionsTool: " + ex);
                 }
 
-                // 22b. SavedGameOptions.get_Instance (Safe auto-initialization prefix)
-                try
-                {
-                    Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
-                    if (sgoType != null)
-                    {
-                        MethodInfo getInstM = sgoType.GetMethod("get_Instance", BindingFlags.Public | BindingFlags.Static);
-                        if (getInstM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SavedGameOptions_get_Instance_Prefix));
-                            harmony.Patch(getInstM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SavedGameOptions.get_Instance (auto-ensure prefix)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SavedGameOptions: " + ex);
-                }
-
-                // 23. CustomPathFind (Awake, PathFindImplementation, GetLaneDirection, ProcessItemMain, CanUseLane)
+                // 23. CustomPathFind (Awake capacity expansion only; inner-loop pathfinder methods run at full native speed)
                 try
                 {
                     Type cpfType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathFind");
@@ -2191,38 +2171,6 @@ namespace MoreNetworkCapacityRenew
                             var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_Awake_Postfix));
                             harmony.Patch(awakeM, postfix: new HarmonyMethod(post));
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
-                        }
-
-                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pfiM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
-                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (safe validation & recovery)");
-                        }
-
-                        MethodInfo gldM = cpfType.GetMethod("GetLaneDirection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
-                        if (gldM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_GetLaneDirection_Prefix));
-                            harmony.Patch(gldM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.GetLaneDirection (safe bounds prefix)");
-                        }
-
-                        MethodInfo pimM = cpfType.GetMethod("ProcessItemMain", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pimM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemMain_Prefix));
-                            harmony.Patch(pimM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemMain (validation prefix)");
-                        }
-
-                        MethodInfo culM = cpfType.GetMethod("CanUseLane", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (culM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_CanUseLane_Prefix));
-                            harmony.Patch(culM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.CanUseLane (safe bounds prefix)");
                         }
                     }
                 }
@@ -4715,162 +4663,6 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool CustomPathFind_GetLaneDirection_Prefix(
-            PathUnit.Position pathPos,
-            ref NetInfo.Direction direction,
-            ref NetInfo.LaneType laneType,
-            ref VehicleInfo.VehicleType vehicleType)
-        {
-            ushort segmentId = pathPos.m_segment;
-            if (segmentId == 0 || segmentId >= 65024)
-            {
-                direction = NetInfo.Direction.None;
-                laneType = NetInfo.LaneType.None;
-                vehicleType = VehicleInfo.VehicleType.None;
-                return false;
-            }
-            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null || segmentId >= NetManager.instance.m_segments.m_buffer.Length)
-            {
-                direction = NetInfo.Direction.None;
-                laneType = NetInfo.LaneType.None;
-                vehicleType = VehicleInfo.VehicleType.None;
-                return false;
-            }
-
-            NetSegment[] segments = NetManager.instance.m_segments.m_buffer;
-            if ((segments[segmentId].m_flags & NetSegment.Flags.Created) == 0)
-            {
-                direction = NetInfo.Direction.None;
-                laneType = NetInfo.LaneType.None;
-                vehicleType = VehicleInfo.VehicleType.None;
-                return false;
-            }
-
-            NetInfo info = segments[segmentId].Info;
-            if (info == null || info.m_lanes == null || pathPos.m_lane >= info.m_lanes.Length)
-            {
-                direction = NetInfo.Direction.None;
-                laneType = NetInfo.LaneType.None;
-                vehicleType = VehicleInfo.VehicleType.None;
-                return false;
-            }
-
-            NetInfo.Lane lane = info.m_lanes[pathPos.m_lane];
-            if (lane == null)
-            {
-                direction = NetInfo.Direction.None;
-                laneType = NetInfo.LaneType.None;
-                vehicleType = VehicleInfo.VehicleType.None;
-                return false;
-            }
-
-            direction = lane.m_finalDirection;
-            laneType = lane.m_laneType;
-            vehicleType = lane.m_vehicleType;
-
-            if ((segments[segmentId].m_flags & NetSegment.Flags.Invert) != 0)
-            {
-                direction = NetInfo.InvertDirection(direction);
-            }
-            return false;
-        }
-
-        public static bool CustomPathFind_ProcessItemMain_Prefix(
-            ref NetSegment prevSegment,
-            ushort nextNodeId,
-            ref NetNode nextNode)
-        {
-            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null)
-            {
-                return false;
-            }
-            if (nextNodeId == 0 || (nextNode.m_flags & NetNode.Flags.Created) == 0 || nextNode.Info == null || nextNode.Info.m_class == null)
-            {
-                return false;
-            }
-            return true;
-        }
-
-        public static void SavedGameOptions_get_Instance_Prefix()
-        {
-            try
-            {
-                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                if (tmpe != null)
-                {
-                    TMPECompatibility.EnsureSavedGameOptions(tmpe);
-                }
-            }
-            catch { }
-        }
-
-        public static bool CustomPathFind_CanUseLane_Prefix(
-            ushort segmentId,
-            NetInfo segmentInfo,
-            int laneIndex,
-            NetInfo.Lane laneInfo,
-            uint laneId,
-            ref bool __result)
-        {
-            if (segmentInfo == null || laneInfo == null)
-            {
-                __result = true;
-                return false;
-            }
-            return true;
-        }
-
-        public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
-        {
-            if (unit == 0) return false;
-            try
-            {
-                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                if (tmpe != null)
-                {
-                    TMPECompatibility.EnsureSavedGameOptions(tmpe);
-                }
-            }
-            catch { }
-
-            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
-                return true;
-
-            NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
-            int segCount = segBuffer.Length;
-
-            ushort startSeg = data.m_position00.m_segment;
-            if (startSeg != 0)
-            {
-                if (startSeg >= segCount)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
-                if ((segBuffer[startSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[startSeg].Info == null || segBuffer[startSeg].Info.m_lanes == null)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
-            }
-
-            ushort endSeg = data.m_position01.m_segment;
-            if (endSeg != 0)
-            {
-                if (endSeg >= segCount)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
-                if ((segBuffer[endSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[endSeg].Info == null || segBuffer[endSeg].Info.m_lanes == null)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
-            }
-
-            return true;
-        }
 
         public static bool VehicleAICommons_CustomCalculateTargetSpeed_Prefix(
             NetInfo info,
@@ -9049,44 +8841,13 @@ namespace MoreNetworkCapacityRenew
 
         public static void NetManager_ReleaseSegmentImplementation_Postfix(ushort segment)
         {
-            if (segment == 0) return;
-            try
-            {
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                PathManager pm = Singleton<PathManager>.instance;
-                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null || pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null)
-                    return;
+            if (segment == 0 || Singleton<NetManager>.instance == null || Singleton<NetManager>.instance.m_segments == null) return;
+            NetManager_ReleaseSegmentImplementation_Postfix(segment, ref Singleton<NetManager>.instance.m_segments.m_buffer[segment], false);
+        }
 
-                int vCount = vm.m_vehicles.m_buffer.Length;
-                int pathCount = pm.m_pathUnits.m_buffer.Length;
-                for (int i = 1; i < vCount; i++)
-                {
-                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
-                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
-                        continue;
-
-                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
-                        continue;
-
-                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
-                    byte pathIdx = vm.m_vehicles.m_buffer[i].m_pathPositionIndex;
-                    if (pathId != 0 && pathId < (uint)pathCount)
-                    {
-                        int posIdx = (int)(pathIdx >> 1);
-                        PathUnit.Position pPos;
-                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
-                        {
-                            if (pPos.m_segment == segment)
-                            {
-                                try { pm.ReleasePath(pathId); } catch { }
-                                vm.m_vehicles.m_buffer[i].m_path = 0;
-                                vm.ReleaseVehicle((ushort)i);
-                            }
-                        }
-                    }
-                }
-            }
-            catch { }
+        public static void NetManager_ReleaseSegmentImplementation_Postfix(ushort segment, ref NetSegment data, bool keepNodes)
+        {
+            VehicleFixPatches.NetManager_ReleaseSegmentImplementation_Postfix(segment, ref data, keepNodes);
         }
 
         public static int CleanDemolishedRoadVehicles()
@@ -10431,7 +10192,7 @@ namespace MoreNetworkCapacityRenew
         private static int consecutiveStaticChecks = 0;
         
         // Configuration
-        private static readonly int checkIntervalFrames = 60; // Check every second
+        private static readonly int checkIntervalFrames = 1800; // Check every 30 seconds
         private static readonly int staticThreshold = 120; // 120 consecutive static counts (~2 mins)
         
         // Diagnostics
@@ -10462,7 +10223,7 @@ namespace MoreNetworkCapacityRenew
                     "[VehiclePoolMonitor] Initialized. Reported={0}, Actual={1}, Buffer size={2}",
                     reportedCount, actualCount, vm.m_vehicles.m_buffer.Length));
                 
-                if (actualCount != reportedCount)
+                if (Math.Abs(actualCount - reportedCount) > 10)
                 {
                     UnityEngine.Debug.LogWarning("[VehiclePoolMonitor] Initial count mismatch detected! Repairing...");
                     HandleCountMismatch(vm, actualCount, reportedCount);
@@ -10502,8 +10263,8 @@ namespace MoreNetworkCapacityRenew
                 int actualCount = CountActualVehicles(vm);
                 int reportedCount = vm.m_vehicleCount;
                 
-                // Check 1: Count mismatch
-                if (actualCount != reportedCount)
+                // Check 1: Count mismatch (only repair if significant divergence > 10)
+                if (Math.Abs(actualCount - reportedCount) > 10)
                 {
                     HandleCountMismatch(vm, actualCount, reportedCount);
                 }
@@ -11186,7 +10947,7 @@ namespace MoreNetworkCapacityRenew
             new Dictionary<ushort, VehicleStuckInfo>();
         
         // Configuration
-        private static readonly int scanIntervalFrames = 64;
+        private static readonly int scanIntervalFrames = 256; // ~4.2 seconds
         private static readonly float movementThreshold = 0.1f; // meters
         private static readonly float velocityThreshold = 0.1f; // m/s
         
@@ -11259,6 +11020,13 @@ namespace MoreNetworkCapacityRenew
                     // Skip vehicles that are not spawned, or are currently parking / loading
                     if ((vehicle.m_flags & Vehicle.Flags.Spawned) == 0 ||
                         (vehicle.m_flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) != 0)
+                    {
+                        if (stuckVehicles.ContainsKey(i)) toRemove.Add(i);
+                        continue;
+                    }
+                    
+                    // Fast bypass: if vehicle is unblocked and not waiting path, it's driving normally!
+                    if (vehicle.m_blockCounter < 50 && (vehicle.m_flags & Vehicle.Flags.WaitingPath) == 0)
                     {
                         if (stuckVehicles.ContainsKey(i)) toRemove.Add(i);
                         continue;
@@ -11510,22 +11278,18 @@ namespace MoreNetworkCapacityRenew
                 Vehicle vehicle = vm.m_vehicles.m_buffer[vehicleId];
                 
                 UnityEngine.Debug.LogWarning(string.Format(
-                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 1 Recovery (path reset)",
+                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 1 Recovery (canonical InvalidPath reroute)",
                     vehicleId, (info != null ? info.StuckFrames : 600) / 60.0f));
                 
-                PathManager pm = Singleton<PathManager>.instance;
-                if (pm != null && vehicle.m_path != 0)
+                VehicleInfo vInfo = vehicle.Info;
+                if (vInfo != null && vInfo.m_vehicleAI != null)
                 {
-                    // Release old path
-                    pm.ReleasePath(vehicle.m_path);
+                    vInfo.m_vehicleAI.InvalidatePath(vehicleId, ref vm.m_vehicles.m_buffer[vehicleId], vehicleId, ref vm.m_vehicles.m_buffer[vehicleId]);
                 }
-                
-                // Reset path fields and signal AI to search for a new path
-                vm.m_vehicles.m_buffer[vehicleId].m_path = 0;
-                vm.m_vehicles.m_buffer[vehicleId].m_pathPositionIndex = 0;
-                vm.m_vehicles.m_buffer[vehicleId].m_lastPathOffset = 0;
-                vm.m_vehicles.m_buffer[vehicleId].m_flags |= Vehicle.Flags.WaitingPath;
-                vm.m_vehicles.m_buffer[vehicleId].m_blockCounter = 0;
+                else
+                {
+                    vm.ReleaseVehicle(vehicleId);
+                }
                 
                 if (info != null)
                 {
@@ -11546,7 +11310,7 @@ namespace MoreNetworkCapacityRenew
         }
         
         /// <summary>
-        /// Level 2 Recovery: Teleport vehicle forward slightly
+        /// Level 2 Recovery: Path re-evaluation or clean despawn if permanently blocked
         /// </summary>
         private static bool ApplyLevel2Recovery(VehicleManager vm, ushort vehicleId, VehicleStuckInfo info)
         {
@@ -11555,29 +11319,26 @@ namespace MoreNetworkCapacityRenew
                 Vehicle vehicle = vm.m_vehicles.m_buffer[vehicleId];
                 
                 UnityEngine.Debug.LogWarning(string.Format(
-                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 2 Recovery (teleport)",
-                    vehicleId, info.StuckFrames / 60.0f));
+                    "[StuckVehicleRecovery] Vehicle {0} stuck for {1:F0}s. Applying Level 2 Recovery (path re-evaluation & unblock)",
+                    vehicleId, (info != null ? info.StuckFrames : 900) / 60.0f));
                 
-                // Get movement direction from last velocity or facing
-                Vector3 direction = vehicle.GetLastFrameData().m_velocity;
-                if (direction.sqrMagnitude < 0.01f)
+                VehicleInfo vInfo = vehicle.Info;
+                if (vInfo != null && vInfo.m_vehicleAI != null)
                 {
-                    // No velocity, use vehicle rotation
-                    direction = vehicle.GetLastFrameData().m_rotation * Vector3.forward;
+                    vInfo.m_vehicleAI.InvalidatePath(vehicleId, ref vm.m_vehicles.m_buffer[vehicleId], vehicleId, ref vm.m_vehicles.m_buffer[vehicleId]);
                 }
                 
-                direction.Normalize();
-                
-                // Teleport 5 units forward
-                Vector3 currentPos = vehicle.GetLastFramePosition();
-                Vector3 newPos = currentPos + (direction * 5f);
-                
-                // Set new position
-                vm.m_vehicles.m_buffer[vehicleId].SetTargetPos(0, newPos);
-                
-                info.RecoveryLevel = 2;
-                info.StuckFrames = 0; // Reset to give it another chance
-                info.LastPosition = newPos;
+                // If still stuck with high block counter (> 150), despawn to prevent traffic gridlock
+                if (vm.m_vehicles.m_buffer[vehicleId].m_blockCounter > 150)
+                {
+                    vm.ReleaseVehicle(vehicleId);
+                    stuckVehicles.Remove(vehicleId);
+                }
+                else if (info != null)
+                {
+                    info.RecoveryLevel = 2;
+                    info.StuckFrames = 0;
+                }
                 
                 level2Recoveries++;
                 return true;
@@ -11788,14 +11549,14 @@ namespace MoreNetworkCapacityRenew
                 }
                 lastSimulationFrame = currentFrame;
                 
-                // Every 60 frames (~1 second): Check vehicle pool
-                if (currentFrame % 60 == 0)
+                // Every 1800 frames (~30 seconds): Check vehicle pool
+                if (currentFrame % 1800 == 0)
                 {
                     VehiclePoolMonitor.CheckAndRepair();
                 }
                 
-                // Every 64 frames: Scan stuck vehicles
-                if (currentFrame % 64 == 0)
+                // Every 256 frames (~4 seconds): Scan stuck vehicles
+                if (currentFrame % 256 == 0)
                 {
                     StuckVehicleRecovery.ScanAndRecover();
                 }
@@ -11821,6 +11582,119 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 TMPEBufferSync.OnNetworkModified();
+            }
+            catch { }
+        }
+
+        // ========================================================================
+        // PATCH: NetManager.ReleaseSegmentImplementation (Postfix)
+        // ========================================================================
+        /// <summary>
+        /// When a road segment is demolished, cleanly invalidate paths or release
+        /// vehicles traversing it so they reroute or despawn immediately.
+        /// </summary>
+        public static void NetManager_ReleaseSegmentImplementation_Postfix(ushort segment, ref NetSegment data, bool keepNodes)
+        {
+            if (segment == 0) return;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return;
+
+                Vehicle[] buffer = vm.m_vehicles.m_buffer;
+                int len = buffer.Length;
+                for (ushort i = 1; i < len; i++)
+                {
+                    if ((buffer[i].m_flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    if (buffer[i].m_leadingVehicle != 0)
+                        continue;
+
+                    uint pathId = buffer[i].m_path;
+                    bool onSegment = false;
+                    if (pathId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pathId < pm.m_pathUnits.m_buffer.Length)
+                    {
+                        byte pathIdx = buffer[i].m_pathPositionIndex;
+                        int posIdx = (int)(pathIdx >> 1);
+                        PathUnit.Position pPos;
+                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
+                        {
+                            if (pPos.m_segment == segment)
+                            {
+                                onSegment = true;
+                            }
+                        }
+                    }
+
+                    if (onSegment)
+                    {
+                        VehicleInfo info = buffer[i].Info;
+                        if (info != null && info.m_vehicleAI != null)
+                        {
+                            info.m_vehicleAI.InvalidatePath(i, ref buffer[i], i, ref buffer[i]);
+                        }
+                        else
+                        {
+                            vm.ReleaseVehicle(i);
+                        }
+
+                        if ((buffer[i].m_flags & Vehicle.Flags.Spawned) != 0 && buffer[i].m_path == 0)
+                        {
+                            vm.ReleaseVehicle(i);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // ========================================================================
+        // PATCH: NetManager.ReleaseNodeImplementation (Postfix)
+        // ========================================================================
+        /// <summary>
+        /// When a node is demolished, ensure vehicles adjacent to the node reroute or despawn cleanly.
+        /// </summary>
+        public static void NetManager_ReleaseNodeImplementation_Postfix(ushort node, ref NetNode data)
+        {
+            if (node == 0) return;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return;
+
+                Vehicle[] buffer = vm.m_vehicles.m_buffer;
+                int len = buffer.Length;
+                Vector3 nodePos = data.m_position;
+
+                for (ushort i = 1; i < len; i++)
+                {
+                    if ((buffer[i].m_flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    if (buffer[i].m_leadingVehicle != 0)
+                        continue;
+
+                    Vector3 pos = buffer[i].GetLastFramePosition();
+                    if (Vector3.SqrMagnitude(pos - nodePos) < 900f) // within 30m radius
+                    {
+                        VehicleInfo info = buffer[i].Info;
+                        if (info != null && info.m_vehicleAI != null)
+                        {
+                            info.m_vehicleAI.InvalidatePath(i, ref buffer[i], i, ref buffer[i]);
+                        }
+                        else
+                        {
+                            vm.ReleaseVehicle(i);
+                        }
+
+                        if ((buffer[i].m_flags & Vehicle.Flags.Spawned) != 0 && buffer[i].m_path == 0)
+                        {
+                            vm.ReleaseVehicle(i);
+                        }
+                    }
+                }
             }
             catch { }
         }
@@ -11860,6 +11734,36 @@ namespace MoreNetworkCapacityRenew
                     
                     harmony.Patch(usr, postfix: new HarmonyMethod(usrPostfix));
                     UnityEngine.Debug.Log("[VehicleFixPatches] Patched NetManager.UpdateSegmentRenderer");
+                }
+
+                // Patch 3: NetManager.ReleaseSegmentImplementation
+                MethodInfo relSeg = typeof(NetManager).GetMethod("ReleaseSegmentImplementation",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(bool) },
+                    null);
+                if (relSeg != null)
+                {
+                    MethodInfo relSegPostfix = typeof(VehicleFixPatches).GetMethod(
+                        nameof(NetManager_ReleaseSegmentImplementation_Postfix),
+                        BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(relSeg, postfix: new HarmonyMethod(relSegPostfix));
+                    UnityEngine.Debug.Log("[VehicleFixPatches] Patched NetManager.ReleaseSegmentImplementation");
+                }
+
+                // Patch 4: NetManager.ReleaseNodeImplementation
+                MethodInfo relNode = typeof(NetManager).GetMethod("ReleaseNodeImplementation",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(ushort), typeof(NetNode).MakeByRefType() },
+                    null);
+                if (relNode != null)
+                {
+                    MethodInfo relNodePostfix = typeof(VehicleFixPatches).GetMethod(
+                        nameof(NetManager_ReleaseNodeImplementation_Postfix),
+                        BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(relNode, postfix: new HarmonyMethod(relNodePostfix));
+                    UnityEngine.Debug.Log("[VehicleFixPatches] Patched NetManager.ReleaseNodeImplementation");
                 }
                 
                 UnityEngine.Debug.Log("[VehicleFixPatches] All patches installed");

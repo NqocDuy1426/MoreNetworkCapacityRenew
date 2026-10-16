@@ -106,5 +106,5 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.1 - Critical Save Freeze & Vehicle Economy Unblock: 1) Save Freeze Fixed: Enforced Harmony Priority.First on WaitForAllPaths (TM:PE CustomPathFind & vanilla) with safe 1.5s timeout, permanently eliminating the save hang at 'Saving...' -> 'Packaging...'. 2) Fixed SaveSimulationData iterator PC state gating and MoveNext completion detection. 3) IPT Buffer Expansion: Dynamically expanded Improved Public Transport arrays to 65K vehicles, fixing depot vehicle spawning blocks when More Vehicles is present. 4) Transit Anti-Deadlock: Automatically clears stuck boarding flags after 60 ticks so buses smoothly depart stops. 5) Full Manager Diagnostics: Added real-time save progress tracing across all 7 major managers."
+	"changenote"		"v4.3.2 - Critical Load Fix (Standalone & Compatibility): 1) Fixed PathUnits deserialization alignment when loading saves without MorePathUnits (eliminated MilestoneInfo index out of bounds & ArgumentOutOfRangeException). 2) PathManager buffer dynamically expands to 524K units in memory while preserving 100% byte-exact stream synchronization with vanilla saves. 3) Fixed modOverride persistence on save/load cycles."
 }

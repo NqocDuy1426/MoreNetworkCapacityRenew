@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.1 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.2 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1118,13 +1118,25 @@ namespace MoreNetworkCapacityRenew
                 
                 DiagnosticLogger.Checkpoint("RenewMod.VehicleFixSystems.Complete");
                 
+                // Ensure ALL Harmony patches are applied at game startup / mod enabled
+                RenewLoading.EnsureAllPatchesApplied();
+                
                 AppDomain.CurrentDomain.AssemblyLoad += (sender, args) =>
                 {
                     try
                     {
-                        if (args.LoadedAssembly != null && args.LoadedAssembly.GetName().Name == "MoreNetworkCapacity")
+                        if (args.LoadedAssembly != null)
                         {
-                            EnsureCoreActive();
+                            string aName = args.LoadedAssembly.GetName().Name;
+                            if (aName == "MoreNetworkCapacity")
+                            {
+                                EnsureCoreActive();
+                            }
+                            else if (aName == "MorePathUnits" || aName == "TrafficManager")
+                            {
+                                ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
+                                ThirdPartyCompatibility.SynchronizeMorePathUnits("AssemblyLoad." + aName);
+                            }
                         }
                     }
                     catch {}
@@ -5844,61 +5856,15 @@ namespace MoreNetworkCapacityRenew
     public class RenewLoading : LoadingExtensionBase
     {
         private static bool patchApplied = false;
+        private static readonly object s_patchLock = new object();
 
-        public static int SafePatchKianCommons(HarmonyInstance harmony, Type type, string methodName, string transpilerName)
+        public static void EnsureAllPatchesApplied()
         {
-            try
+            if (patchApplied) return;
+            lock (s_patchLock)
             {
-                MethodInfo methodInfo = null;
-                MethodInfo[] methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                foreach (MethodInfo methodInfo2 in methods)
-                {
-                    try
-                    {
-                        if (methodInfo2.Name != methodName) continue;
-                        var parameters = methodInfo2.GetParameters();
-                        if (parameters.Length == 1 && (parameters[0].ParameterType == typeof(ushort) || parameters[0].ParameterType == typeof(uint) || parameters[0].ParameterType == typeof(int)))
-                        {
-                            methodInfo = methodInfo2;
-                            break;
-                        }
-                    }
-                    catch { continue; }
-                }
-
-                if (methodInfo != null)
-                {
-                    MethodInfo transpiler = typeof(Transpilers).GetMethod(transpilerName, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                    if (transpiler != null)
-                    {
-                        harmony.Patch(methodInfo, transpiler: new HarmonyMethod(transpiler));
-                        UnityEngine.Debug.Log($"[MoreNetworkCapacityRenew] Safely patched KianCommons.{methodName} on Mac.");
-                        return 1;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log($"[MoreNetworkCapacityRenew] Error patching {methodName}: {ex.Message}");
-            }
-            return 0;
-        }
-        
-        public override void OnCreated(ILoading loading)
-        {
-            base.OnCreated(loading);
-            MemoryOptimizer.LogMemoryStatus("OnCreated.PreLoad");
-            MemoryOptimizer.StrategicGarbageCollect("OnCreated (Pre-Save Loading)");
-            RenewMod.EnsureCoreActive();
-            SavePanelOnSavingCompletePatch.ApplySavePanelPatch();
-            MemoryOptimizer.PrewarmHeap();
-            ArrayGuardian.Initialize();
-            ArrayGuardian.ExpandAllArrays();
-            SafeFlagsAccessor.Initialize();
-            DiagnosticLogger.Checkpoint("OnCreated.Start");
-            
-            if (!patchApplied)
-            {
+                if (patchApplied) return;
+                DiagnosticLogger.Checkpoint("EnsureAllPatchesApplied.Start");
                 var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.Comprehensive");
 
                 try
@@ -5984,19 +5950,69 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] KianCommons patching error: " + ex);
                 }
 
-
-
-                // Network AI simulation slices (up to 65K nodes & segments) are handled 100% natively by MoreNetworkCapacity.Core (NetworkSimulationSlicePatch transpiler).
-                // No duplicate C# reflection/substep simulation loop to ensure maximum FPS performance!
-
                 patchApplied = true;
-                DiagnosticLogger.Checkpoint("OnCreated.AllPatchesApplied");
-                
-                TMPECompatibility.SynchronizeTMPEBuffersAndArrays("OnCreated");
-                ThirdPartyCompatibility.SynchronizeThirdPartyMods("OnCreated");
-                RenewMod.EnsureRenderManagerCapacity();
-                InstanceManagerCompatibility.EnsureCompatibility();
+                DiagnosticLogger.Checkpoint("EnsureAllPatchesApplied.Complete");
+
+                try { TMPECompatibility.SynchronizeTMPEBuffersAndArrays("EnsureAllPatchesApplied"); } catch {}
+                try { ThirdPartyCompatibility.SynchronizeThirdPartyMods("EnsureAllPatchesApplied"); } catch {}
+                try { RenewMod.EnsureRenderManagerCapacity(); } catch {}
+                try { InstanceManagerCompatibility.EnsureCompatibility(); } catch {}
             }
+        }
+
+        public static int SafePatchKianCommons(HarmonyInstance harmony, Type type, string methodName, string transpilerName)
+        {
+            try
+            {
+                MethodInfo methodInfo = null;
+                MethodInfo[] methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach (MethodInfo methodInfo2 in methods)
+                {
+                    try
+                    {
+                        if (methodInfo2.Name != methodName) continue;
+                        var parameters = methodInfo2.GetParameters();
+                        if (parameters.Length == 1 && (parameters[0].ParameterType == typeof(ushort) || parameters[0].ParameterType == typeof(uint) || parameters[0].ParameterType == typeof(int)))
+                        {
+                            methodInfo = methodInfo2;
+                            break;
+                        }
+                    }
+                    catch { continue; }
+                }
+
+                if (methodInfo != null)
+                {
+                    MethodInfo transpiler = typeof(Transpilers).GetMethod(transpilerName, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (transpiler != null)
+                    {
+                        harmony.Patch(methodInfo, transpiler: new HarmonyMethod(transpiler));
+                        UnityEngine.Debug.Log($"[MoreNetworkCapacityRenew] Safely patched KianCommons.{methodName} on Mac.");
+                        return 1;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log($"[MoreNetworkCapacityRenew] Error patching {methodName}: {ex.Message}");
+            }
+            return 0;
+        }
+        
+        public override void OnCreated(ILoading loading)
+        {
+            base.OnCreated(loading);
+            MemoryOptimizer.LogMemoryStatus("OnCreated.PreLoad");
+            MemoryOptimizer.StrategicGarbageCollect("OnCreated (Pre-Save Loading)");
+            RenewMod.EnsureCoreActive();
+            SavePanelOnSavingCompletePatch.ApplySavePanelPatch();
+            MemoryOptimizer.PrewarmHeap();
+            ArrayGuardian.Initialize();
+            ArrayGuardian.ExpandAllArrays();
+            SafeFlagsAccessor.Initialize();
+            DiagnosticLogger.Checkpoint("OnCreated.Start");
+            
+            EnsureAllPatchesApplied();
         }
 
         public override void OnLevelLoaded(LoadMode mode)
@@ -6683,6 +6699,7 @@ namespace MoreNetworkCapacityRenew
         private static bool _nodeControllerPatched = false;
         private static bool _toolControllerPatched = false;
         private static bool _eightyOne2Patched = false;
+        private static bool _morePathUnitsPatched = false;
         private static HarmonyInstance _harmonyInstance = null;
 
         public static void Apply(HarmonyInstance harmony)
@@ -6760,7 +6777,8 @@ namespace MoreNetworkCapacityRenew
                    name == "AdvancedRoadTools" ||
                    name == "NetworkExtensions2" ||
                    name == "MoreTransportLines" ||
-                   name == "EightyOne2";
+                   name == "EightyOne2" ||
+                   name == "MorePathUnits";
         }
 
         public static void SynchronizeThirdPartyMods(string context)
@@ -6774,6 +6792,7 @@ namespace MoreNetworkCapacityRenew
                 EnsureMoveItBuffers(context);
                 EnsureKianCommonsBuffers(context);
                 EnsureImprovedPublicTransportBuffers(context);
+                SynchronizeMorePathUnits(context);
             }
             catch (Exception ex)
             {
@@ -7591,6 +7610,9 @@ namespace MoreNetworkCapacityRenew
 
             // 4. EightyOne2 (81 Tiles 2) serialization safety hooks
             PatchEightyOne2(harmony);
+
+            // 5. MorePathUnits load synchronization & safety hooks
+            PatchMorePathUnits(harmony);
         }
 
         public static void EnsureEightyOne2Patched()
@@ -7740,6 +7762,219 @@ namespace MoreNetworkCapacityRenew
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchEightyOne2 error: " + ex);
             }
+        }
+
+        // ====================================================================
+        // MORE PATH UNITS COMPATIBILITY & DESERIALIZATION SYNCHRONIZATION
+        // ====================================================================
+        public static void EnsureMorePathUnitsPatched()
+        {
+            if (_morePathUnitsPatched) return;
+            try
+            {
+                var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.MorePathUnits");
+                PatchMorePathUnits(harmony);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureMorePathUnitsPatched error: " + ex);
+            }
+        }
+
+        public static void PatchMorePathUnits(HarmonyInstance harmony)
+        {
+            if (_morePathUnitsPatched || harmony == null) return;
+            try
+            {
+                Assembly mpuAsm = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "MorePathUnits")
+                    {
+                        mpuAsm = asm;
+                        break;
+                    }
+                }
+                if (mpuAsm == null) return;
+
+                int patchedCount = 0;
+
+                // 1. Patch MorePathUnits.MetaData.get_LoadingExtended (Getter)
+                try
+                {
+                    Type metaType = mpuAsm.GetType("MorePathUnits.MetaData");
+                    if (metaType != null)
+                    {
+                        PropertyInfo prop = metaType.GetProperty("LoadingExtended", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        MethodInfo getter = (prop != null) ? prop.GetGetMethod(true) : null;
+                        if (getter != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(MorePathUnits_LoadingExtended_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(getter, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked MorePathUnits.MetaData.LoadingExtended getter with expanded-save detection (Priority.First)!");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch MorePathUnits.MetaData error: " + ex);
+                }
+
+                // 2. Patch MorePathUnits.PathDeserialize.get_DeserializeSize (Getter)
+                try
+                {
+                    Type pathDesType = mpuAsm.GetType("MorePathUnits.PathDeserialize");
+                    if (pathDesType != null)
+                    {
+                        PropertyInfo prop = pathDesType.GetProperty("DeserializeSize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        MethodInfo getter = (prop != null) ? prop.GetGetMethod(true) : null;
+                        if (getter != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(MorePathUnits_DeserializeSize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(getter, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked MorePathUnits.PathDeserialize.DeserializeSize getter with 524,288 safety clamp (Priority.First)!");
+                        }
+
+                        // 3. Patch MorePathUnits.PathDeserialize.Prefix (Pre-prefix)
+                        MethodInfo prefixM = pathDesType.GetMethod("Prefix", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (prefixM != null)
+                        {
+                            MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(MorePathUnits_PathDeserialize_Prefix_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(prefixM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            patchedCount++;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked MorePathUnits.PathDeserialize.Prefix with modOverride safety synchronization (Priority.First)!");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch MorePathUnits.PathDeserialize error: " + ex);
+                }
+
+                if (patchedCount > 0)
+                {
+                    _morePathUnitsPatched = true;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully applied {0} MorePathUnits safety patches!", patchedCount));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchMorePathUnits error: " + ex);
+            }
+        }
+
+        public static bool IsPathUnitsExpandedSave(SimulationMetaData meta = null)
+        {
+            try
+            {
+                if (meta != null && meta.m_modOverride != null)
+                {
+                    if (meta.m_modOverride.TryGetValue("User/More PathUnits x2", out bool puExp) && puExp)
+                    {
+                        return true;
+                    }
+                }
+                var sm = Singleton<SimulationManager>.instance;
+                if (sm != null && sm.m_metaData != null && sm.m_metaData.m_modOverride != null)
+                {
+                    if (sm.m_metaData.m_modOverride.TryGetValue("User/More PathUnits x2", out bool puExp) && puExp)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public static void SynchronizeMorePathUnits(string context)
+        {
+            try
+            {
+                bool isExp = IsPathUnitsExpandedSave();
+                var sm = Singleton<SimulationManager>.instance;
+                if (sm != null && sm.m_metaData != null)
+                {
+                    if (sm.m_metaData.m_modOverride == null)
+                    {
+                        sm.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    if (context == "PreSaveSanitization")
+                    {
+                        var pmInst = Singleton<PathManager>.instance;
+                        if (pmInst != null && pmInst.m_pathUnits != null && pmInst.m_pathUnits.m_buffer != null && pmInst.m_pathUnits.m_buffer.Length >= 524288)
+                        {
+                            isExp = true;
+                        }
+                    }
+                    if (isExp)
+                    {
+                        sm.m_metaData.m_modOverride["User/More PathUnits x2"] = true;
+                    }
+                }
+
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "MorePathUnits")
+                    {
+                        Type pdType = asm.GetType("MorePathUnits.PathDeserialize");
+                        if (pdType != null)
+                        {
+                            FieldInfo fExp = pdType.GetField("s_loadingExpanded", BindingFlags.NonPublic | BindingFlags.Static);
+                            if (fExp != null)
+                            {
+                                fExp.SetValue(null, isExp);
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SynchronizeMorePathUnits: Guaranteed s_loadingExpanded={0} and modOverride['User/More PathUnits x2']={1} ({2})", isExp, isExp, context));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SynchronizeMorePathUnits error: " + ex);
+            }
+        }
+
+        public static bool MorePathUnits_LoadingExtended_Prefix(ref bool __result)
+        {
+            try
+            {
+                if (IsPathUnitsExpandedSave())
+                {
+                    __result = true;
+                    return false;
+                }
+                __result = false;
+                return false;
+            }
+            catch {}
+            return true;
+        }
+
+        public static bool MorePathUnits_DeserializeSize_Prefix(ref int __result)
+        {
+            try
+            {
+                if (IsPathUnitsExpandedSave())
+                {
+                    __result = 524288;
+                    return false;
+                }
+                __result = 262144;
+                return false;
+            }
+            catch {}
+            return true;
+        }
+
+        public static void MorePathUnits_PathDeserialize_Prefix_Prefix()
+        {
+            SynchronizeMorePathUnits("MorePathUnits.PathDeserialize.Prefix.Prefix");
         }
 
         // Delegate types for fast dynamic invocation of EightyOne2 expanded arrays
@@ -9297,6 +9532,15 @@ namespace MoreNetworkCapacityRenew
                         harmony.Patch(simSer, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationManager.Data.Serialize with universal pre-save sanitization (Priority.First).");
                     }
+
+                    // 2b. Patch SimulationManager.Data.Deserialize (Early Save Metadata & Mod Override Synchronization)
+                    MethodInfo simDes = simDataType.GetMethod("Deserialize", BindingFlags.Public | BindingFlags.Instance);
+                    if (simDes != null)
+                    {
+                        MethodInfo preDes = typeof(TransportLineCompatibility).GetMethod(nameof(SimulationManager_Data_Deserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(simDes, prefix: new HarmonyMethod(preDes) { prioritiy = Harmony.Priority.First });
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationManager.Data.Deserialize with early metadata synchronization (Priority.First).");
+                    }
                 }
 
                 // Initialize SimulationManager.SYNCHRONIZE_TIMEOUT to prevent tight spin loops in any mod
@@ -9324,6 +9568,75 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager WaitForAllPaths: " + ex);
+                }
+
+                // 3b. Patch PathManager.Data.Deserialize (MorePathUnits load synchronization & safety)
+                try
+                {
+                    Type pmDataType = typeof(PathManager).GetNestedType("Data", BindingFlags.NonPublic | BindingFlags.Public);
+                    if (pmDataType != null)
+                    {
+                        MethodInfo pmDes = pmDataType.GetMethod("Deserialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (pmDes != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(PathManager_Data_Deserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(pmDes, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathManager.Data.Deserialize with load synchronization (Priority.First).");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager.Data.Deserialize: " + ex);
+                }
+
+                // 3c. Patch LoadingProfiler.EndDeserialize (Tag safety guard against ArgumentOutOfRangeException)
+                try
+                {
+                    MethodInfo endDes = typeof(LoadingProfiler).GetMethod("EndDeserialize", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ColossalFramework.IO.DataSerializer), typeof(string) }, null);
+                    if (endDes != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(LoadingProfiler_EndDeserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(endDes, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingProfiler.EndDeserialize with tag exception guard.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LoadingProfiler.EndDeserialize: " + ex);
+                }
+
+                // 3d. Patch SimulationMetaData.Merge (Preserve save modOverride dictionary from being clobbered by ngs)
+                try
+                {
+                    MethodInfo smdMerge = typeof(SimulationMetaData).GetMethod("Merge", BindingFlags.Public | BindingFlags.Instance);
+                    if (smdMerge != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(SimulationMetaData_Merge_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(SimulationMetaData_Merge_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(smdMerge, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First }, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SimulationMetaData.Merge with modOverride preservation (Priority.First).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SimulationMetaData.Merge: " + ex);
+                }
+
+                // 3e. Patch LoadingManager.LoadSimulationData (Seed expanded modOverride flags before simulation load starts)
+                try
+                {
+                    MethodInfo lmLoadSim = typeof(LoadingManager).GetMethod("LoadSimulationData", BindingFlags.Public | BindingFlags.Instance);
+                    if (lmLoadSim != null)
+                    {
+                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(LoadingManager_LoadSimulationData_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(lmLoadSim, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingManager.LoadSimulationData for early modOverride safety (Priority.First).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LoadingManager.LoadSimulationData: " + ex);
                 }
 
                 // Do NOT patch external manager Data.Serialize methods (TreeManager, VehicleManager, BuildingManager,
@@ -9368,6 +9681,8 @@ namespace MoreNetworkCapacityRenew
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DataSerializer.WriteUInt24: " + ex);
                 }
+
+
 
                 // 3. PreSaveSanitization in SimulationManager.Data.Serialize already sanitizes all Prefab indices before saving.
                 // Do NOT patch PrefabCollection<T>.Serialize directly with Harmony because Mono generic sharing causes
@@ -9892,6 +10207,8 @@ namespace MoreNetworkCapacityRenew
         public static void PreSaveSanitization()
         {
             try { ThirdPartyCompatibility.EnsureEightyOne2Patched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureEightyOne2 error: " + ex); }
+            try { ThirdPartyCompatibility.EnsureMorePathUnitsPatched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureMorePathUnits error: " + ex); }
+            try { ThirdPartyCompatibility.SynchronizeMorePathUnits("PreSaveSanitization"); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave MorePathUnits sync error: " + ex); }
             try { ArrayGuardian.ExpandAllArrays(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave ArrayGuardian error: " + ex); }
             try { SanitizeDistricts(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeDistricts error: " + ex); }
             try { SanitizeTransportLines(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTransportLines error: " + ex); }
@@ -10506,7 +10823,289 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool TransportLine_GetNextStop_Prefix(ushort stop, ref ushort __result)
+        public static void SimulationManager_Data_Deserialize_Prefix()
+        {
+            try
+            {
+                ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
+                ThirdPartyCompatibility.SynchronizeMorePathUnits("SimulationManager.Data.Deserialize.Prefix");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SimulationManager_Data_Deserialize_Prefix error: " + ex);
+            }
+        }
+
+        public static bool PathManager_Data_Deserialize_Prefix(PathManager.Data __instance, ColossalFramework.IO.DataSerializer s)
+        {
+            try
+            {
+                ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
+                ThirdPartyCompatibility.SynchronizeMorePathUnits("PathManager.Data.Deserialize.Prefix");
+
+                var pm = Singleton<PathManager>.instance;
+                if (pm == null) return true;
+
+                try
+                {
+                    LoadingManager.instance.m_loadingProfilerSimulation.BeginDeserialize(s, "PathManager");
+                }
+                catch {}
+
+                pm.WaitForAllPaths();
+
+                bool isExpSave = ThirdPartyCompatibility.IsPathUnitsExpandedSave();
+                int saveUnitsCount = isExpSave ? 524288 : 262144;
+                int memoryUnitsCount = 524288;
+
+                if (pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null || pm.m_pathUnits.m_buffer.Length < memoryUnitsCount)
+                {
+                    pm.m_pathUnits = new Array32<PathUnit>((uint)memoryUnitsCount);
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] PathManager.Data.Deserialize: Expanded PathUnit buffer to {0}.", memoryUnitsCount));
+                }
+
+                PathUnit[] buffer = pm.m_pathUnits.m_buffer;
+                int length = saveUnitsCount;
+                pm.m_pathUnits.ClearUnused();
+
+                uint version = s.version;
+                if (version < 123u)
+                {
+                    length = 131072;
+                }
+
+                if (version >= 121011u)
+                {
+                    var uShort = ColossalFramework.IO.EncodedArray.UShort.BeginRead(s);
+                    for (int i = 1; i < length; i++)
+                    {
+                        buffer[i].m_simulationFlags = (PathUnit.SimulationFlags)uShort.Read();
+                    }
+                    uShort.EndRead();
+                }
+                else if (version >= 79u)
+                {
+                    var uByte = ColossalFramework.IO.EncodedArray.Byte.BeginRead(s);
+                    for (int i = 1; i < length; i++)
+                    {
+                        buffer[i].m_simulationFlags = (PathUnit.SimulationFlags)uByte.Read();
+                    }
+                    uByte.EndRead();
+                }
+                else
+                {
+                    for (int i = 1; i < length; i++)
+                    {
+                        buffer[i].m_simulationFlags = 0;
+                    }
+                }
+
+                int activeCount = 0;
+                for (int j = 1; j < length; j++)
+                {
+                    buffer[j].m_referenceCount = 0;
+                    if (buffer[j].m_simulationFlags != 0)
+                    {
+                        buffer[j].m_pathFindFlags = (byte)s.ReadUInt8();
+                        if (version >= 49u)
+                        {
+                            buffer[j].m_laneTypes = (byte)s.ReadUInt8();
+                        }
+                        else
+                        {
+                            buffer[j].m_laneTypes = 3;
+                        }
+
+                        if (version >= 113001u)
+                        {
+                            buffer[j].m_vehicleTypes = s.ReadUInt32();
+                        }
+                        else if (version >= 311u)
+                        {
+                            buffer[j].m_vehicleTypes = (uint)s.ReadUInt16();
+                        }
+                        else
+                        {
+                            buffer[j].m_vehicleTypes = (uint)s.ReadUInt8();
+                        }
+
+                        buffer[j].m_positionCount = (byte)s.ReadUInt8();
+                        buffer[j].m_nextPathUnit = s.ReadUInt24();
+                        buffer[j].m_buildIndex = s.ReadUInt32();
+                        buffer[j].m_length = s.ReadFloat();
+
+                        if (version >= 111012u || (version >= 110026u && version < 111000u))
+                        {
+                            buffer[j].m_speed = (byte)s.ReadUInt8();
+                        }
+                        else
+                        {
+                            buffer[j].m_speed = 100;
+                        }
+
+                        byte posCount = buffer[j].m_positionCount;
+                        for (int k = 0; k < posCount; k++)
+                        {
+                            PathUnit.Position pos;
+                            pos.m_segment = (ushort)s.ReadUInt16();
+                            pos.m_offset = (byte)s.ReadUInt8();
+                            pos.m_lane = (byte)s.ReadUInt8();
+                            buffer[j].SetPosition(k, pos);
+                        }
+                        activeCount++;
+                    }
+                    else
+                    {
+                        buffer[j].m_pathFindFlags = 0;
+                        buffer[j].m_laneTypes = 0;
+                        buffer[j].m_vehicleTypes = 0;
+                        buffer[j].m_vehicleCategories = 0L;
+                        buffer[j].m_positionCount = 0;
+                        buffer[j].m_nextPathUnit = 0;
+                        buffer[j].m_buildIndex = 0;
+                        buffer[j].m_length = 0f;
+                        buffer[j].m_speed = 0;
+                        pm.m_pathUnits.ReleaseItem((uint)j);
+                    }
+                }
+
+                // Initialize and release all buffer items beyond what was in the save
+                for (int rem = length; rem < buffer.Length; rem++)
+                {
+                    buffer[rem].m_referenceCount = 0;
+                    buffer[rem].m_simulationFlags = 0;
+                    buffer[rem].m_pathFindFlags = 0;
+                    buffer[rem].m_laneTypes = 0;
+                    buffer[rem].m_vehicleTypes = 0;
+                    buffer[rem].m_vehicleCategories = 0L;
+                    buffer[rem].m_positionCount = 0;
+                    buffer[rem].m_nextPathUnit = 0;
+                    buffer[rem].m_buildIndex = 0;
+                    buffer[rem].m_length = 0f;
+                    buffer[rem].m_speed = 0;
+                    pm.m_pathUnits.ReleaseItem((uint)rem);
+                }
+
+                try
+                {
+                    LoadingManager.instance.m_loadingProfilerSimulation.EndDeserialize(s, "PathManager");
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Guarded LoadingProfiler.EndDeserialize PathManager: " + ex.Message);
+                }
+
+                var smInst = Singleton<SimulationManager>.instance;
+                if (smInst != null && smInst.m_metaData != null)
+                {
+                    if (smInst.m_metaData.m_modOverride == null)
+                    {
+                        smInst.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    smInst.m_metaData.m_modOverride["User/More PathUnits x2"] = true;
+                    smInst.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                }
+
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] PathManager.Data.Deserialize completed flawlessly: {0} units deserialized from save ({1} active), memory capacity {2}.", length, activeCount, buffer.Length));
+                return false; // Skip original method and all transpilers!
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] PathManager_Data_Deserialize_Prefix error: " + ex);
+                return true;
+            }
+        }
+
+        public static bool LoadingProfiler_EndDeserialize_Prefix(LoadingProfiler __instance, ColossalFramework.IO.DataSerializer s, string name)
+        {
+            if (name == "PathManager")
+            {
+                try
+                {
+                    if (s != null && s.version >= 130u)
+                    {
+                        string tag = s.ReadSharedString();
+                        if (tag != name)
+                        {
+                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager tag notice: read '{0}', expected '{1}'", tag, name));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Guarded LoadingProfiler.EndDeserialize PathManager against tag read error: " + ex.Message);
+                }
+                return false;
+            }
+            return true;
+        }
+
+        public static void SimulationMetaData_Merge_Prefix(SimulationMetaData __instance, SimulationMetaData source)
+        {
+            try
+            {
+                if (__instance == null || source == null) return;
+                if (__instance.m_modOverride != null)
+                {
+                    if (source.m_modOverride == null)
+                    {
+                        source.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    foreach (var kvp in __instance.m_modOverride)
+                    {
+                        if (!source.m_modOverride.ContainsKey(kvp.Key))
+                        {
+                            source.m_modOverride[kvp.Key] = kvp.Value;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SimulationMetaData_Merge_Prefix error: " + ex);
+            }
+        }
+
+        public static void SimulationMetaData_Merge_Postfix(SimulationMetaData __instance, SimulationMetaData source)
+        {
+            try
+            {
+                ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
+                ThirdPartyCompatibility.SynchronizeMorePathUnits("SimulationMetaData.Merge.Postfix");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SimulationMetaData_Merge_Postfix error: " + ex);
+            }
+        }
+
+        public static void LoadingManager_LoadSimulationData_Prefix(ColossalFramework.Packaging.Package.Asset asset, SimulationMetaData ngs)
+        {
+            try
+            {
+                RenewLoading.EnsureAllPatchesApplied();
+                ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
+                ThirdPartyCompatibility.SynchronizeMorePathUnits("LoadingManager.LoadSimulationData.Prefix");
+                if (ngs != null)
+                {
+                    if (ngs.m_modOverride == null)
+                    {
+                        ngs.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    if (ThirdPartyCompatibility.IsPathUnitsExpandedSave(ngs))
+                    {
+                        ngs.m_modOverride["User/More PathUnits x2"] = true;
+                    }
+                    ngs.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] LoadingManager_LoadSimulationData_Prefix error: " + ex);
+            }
+        }
+
+         public static bool TransportLine_GetNextStop_Prefix(ushort stop, ref ushort __result)
         {
             if (stop == 0 || stop >= 65024)
             {

@@ -298,6 +298,40 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 7: MorePathUnits Synchronization & PathManager Deserialize Safety
+        // ====================================================================
+        Console.WriteLine("\n[TEST GROUP 7: MorePathUnits & PathManager Deserialize Safety]");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+            bool hasSyncMpu = renewCode.Contains("SynchronizeMorePathUnits") && renewCode.Contains("s_loadingExpanded");
+            bool hasPatchMpu = renewCode.Contains("PatchMorePathUnits") && renewCode.Contains("MorePathUnits_DeserializeSize_Prefix");
+            bool hasPreDesHook = renewCode.Contains("PathManager_Data_Deserialize_Prefix") && renewCode.Contains("SynchronizeMorePathUnits(\"PathManager.Data.Deserialize.Prefix\")");
+            bool hasSimDesSync = renewCode.Contains("EnsureMorePathUnitsPatched") && renewCode.Contains("SynchronizeMorePathUnits(\"SimulationManager.Data.Deserialize.Prefix\")");
+            bool hasProfilerGuard = renewCode.Contains("LoadingProfiler_EndDeserialize_Prefix") && renewCode.Contains("Guarded LoadingProfiler.EndDeserialize PathManager");
+            bool hasSaveSync = renewCode.Contains("SynchronizeMorePathUnits(\"PreSaveSanitization\")");
+            bool hasEarlyPatches = renewCode.Contains("RenewLoading.EnsureAllPatchesApplied()") && renewCode.Contains("void OnEnabled()");
+            bool hasMetaMergePatch = renewCode.Contains("SimulationMetaData_Merge_Prefix") && renewCode.Contains("SimulationMetaData_Merge_Postfix");
+            bool hasLoadSimPatch = renewCode.Contains("LoadingManager_LoadSimulationData_Prefix") && renewCode.Contains("Patched LoadingManager.LoadSimulationData");
+            bool hasFullPmDes = renewCode.Contains("public static bool PathManager_Data_Deserialize_Prefix") && renewCode.Contains("return false; // Skip original method and all transpilers!");
+
+            Assert(hasSyncMpu, "SynchronizeMorePathUnits guarantees s_loadingExpanded=true and modOverride['User/More PathUnits x2']");
+            Assert(hasPatchMpu, "PatchMorePathUnits hooks MetaData.LoadingExtended and PathDeserialize.DeserializeSize");
+            Assert(hasPreDesHook, "PathManager.Data.Deserialize prefix synchronizes MorePathUnits before deserialization starts");
+            Assert(hasFullPmDes, "PathManager.Data.Deserialize prefix performs 100% byte-accurate full deserialization and returns false");
+            Assert(hasSimDesSync, "SimulationManager.Data.Deserialize prefix ensures MorePathUnits patched and synchronized");
+            Assert(hasProfilerGuard, "LoadingProfiler.EndDeserialize guards against PathManager tag mismatch & ArgumentOutOfRangeException");
+            Assert(hasSaveSync, "PreSaveSanitization synchronizes MorePathUnits before game save serialization");
+            Assert(hasEarlyPatches, "RenewMod.OnEnabled applies EnsureAllPatchesApplied at startup before save load");
+            Assert(hasMetaMergePatch, "SimulationMetaData.Merge is hooked to prevent ngs from wiping out save modOverride");
+            Assert(hasLoadSimPatch, "LoadingManager.LoadSimulationData seeds expanded modOverride flags before load starts");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 7 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

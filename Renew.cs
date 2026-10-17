@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.2 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.4 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -2162,6 +2162,40 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.CanUseLane (safe bounds prefix)");
                         }
 
+                        MethodInfo piptM = cpfType.GetMethod("ProcessItemPublicTransport", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (piptM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemPublicTransport_Prefix));
+                            harmony.Patch(piptM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemPublicTransport");
+                        }
+
+                        foreach (var m in cpfType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                        {
+                            if (m.Name == "ProcessItemCosts")
+                            {
+                                var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemCosts_Prefix));
+                                harmony.Patch(m, prefix: new HarmonyMethod(pre));
+                            }
+                        }
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemCosts (all overloads)");
+
+                        MethodInfo pirM = cpfType.GetMethod("ProcessItemRouted", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pirM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemRouted_Prefix));
+                            harmony.Patch(pirM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemRouted");
+                        }
+
+                        MethodInfo pipbM = cpfType.GetMethod("ProcessItemPedBicycle", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pipbM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemPedBicycle_Prefix));
+                            harmony.Patch(pipbM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemPedBicycle");
+                        }
+
                         MethodInfo wfapM = cpfType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                         if (wfapM != null)
                         {
@@ -2174,6 +2208,37 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CustomPathFind: " + ex);
+                }
+
+                // 26b. ExtLaneManager & ExtLane.GetLaneInfo (IndexOutOfRangeException defense)
+                try
+                {
+                    Type elmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtLaneManager");
+                    if (elmType != null)
+                    {
+                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.ExtLane_GetLaneInfo_Prefix));
+                        MethodInfo elmGli = elmType.GetMethod("GetLaneInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (elmGli != null && pre != null)
+                        {
+                            harmony.Patch(elmGli, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ExtLaneManager.GetLaneInfo (bounds safety prefix)");
+                        }
+
+                        Type extLaneType = elmType.GetNestedType("ExtLane", BindingFlags.Public | BindingFlags.NonPublic);
+                        if (extLaneType != null && pre != null)
+                        {
+                            MethodInfo elGli = extLaneType.GetMethod("GetLaneInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (elGli != null)
+                            {
+                                harmony.Patch(elGli, prefix: new HarmonyMethod(pre));
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ExtLane.GetLaneInfo (bounds safety prefix)");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ExtLane GetLaneInfo: " + ex);
                 }
 
                 // 27. UtilityManager.ClearTraffic & DespawnVehicles (City Logistics Reactivator & Traffic Spawning unblocker)
@@ -2204,6 +2269,101 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching UtilityManager: " + ex);
+                }
+
+                // 28. VehicleAICommons (Safe segment position & speed limits)
+                try
+                {
+                    Type vaiType = tmpe.GetType("TrafficManager.Patch._VehicleAI.VehicleAICommons");
+                    if (vaiType != null)
+                    {
+                        var prePos = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleAICommons_CalculateSegmentPosition_Prefix));
+                        var preSpeed = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleAICommons_CustomCalculateTargetSpeed_Prefix));
+
+                        MethodInfo calcPosM = vaiType.GetMethod("CustomCalculateSegmentPosition", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (calcPosM != null && prePos != null)
+                        {
+                            harmony.Patch(calcPosM, prefix: new HarmonyMethod(prePos));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateSegmentPosition");
+                        }
+
+                        MethodInfo calcPosNoSlowM = vaiType.GetMethod("CustomCalculateSegmentPosition_NoSlowDriving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (calcPosNoSlowM != null && prePos != null)
+                        {
+                            harmony.Patch(calcPosNoSlowM, prefix: new HarmonyMethod(prePos));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateSegmentPosition_NoSlowDriving");
+                        }
+
+                        MethodInfo calcSpeedM = vaiType.GetMethod("CustomCalculateTargetSpeed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (calcSpeedM != null && preSpeed != null)
+                        {
+                            harmony.Patch(calcSpeedM, prefix: new HarmonyMethod(preSpeed));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateTargetSpeed");
+                        }
+
+                        MethodInfo calcSpeedNoSlowM = vaiType.GetMethod("CustomCalculateTargetSpeed_NoSlowDriving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (calcSpeedNoSlowM != null && preSpeed != null)
+                        {
+                            harmony.Patch(calcSpeedNoSlowM, prefix: new HarmonyMethod(preSpeed));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateTargetSpeed_NoSlowDriving");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleAICommons: " + ex);
+                }
+
+                // 29. NetSegment.GetLeftAndRightLanes guard against null Info
+                try
+                {
+                    MethodInfo glrM = typeof(NetSegment).GetMethod("GetLeftAndRightLanes", BindingFlags.Public | BindingFlags.Instance);
+                    if (glrM != null)
+                    {
+                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.NetSegment_GetLeftAndRightLanes_Prefix));
+                        harmony.Patch(glrM, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetSegment.GetLeftAndRightLanes (null Info defense)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetSegment.GetLeftAndRightLanes: " + ex);
+                }
+
+                // 30. LaneConnectionSubManager (Defend against NullReferenceException in AdaptiveRoads during SimulationStep)
+                try
+                {
+                    Type lcsmType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.LaneConnectionSubManager");
+                    if (lcsmType != null)
+                    {
+                        MethodInfo hncM = lcsmType.GetMethod("HasNodeConnections", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (hncM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.LaneConnectionSubManager_HasNodeConnections_Prefix));
+                            harmony.Patch(hncM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE LaneConnectionSubManager.HasNodeConnections");
+                        }
+
+                        MethodInfo hcM = lcsmType.GetMethod("HasConnections", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(bool) }, null);
+                        if (hcM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.LaneConnectionSubManager_HasConnections_Prefix));
+                            harmony.Patch(hcM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE LaneConnectionSubManager.HasConnections");
+                        }
+
+                        MethodInfo alcM = lcsmType.GetMethod("AreLanesConnected", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(uint), typeof(ushort) }, null);
+                        if (alcM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.LaneConnectionSubManager_AreLanesConnected_Prefix));
+                            harmony.Patch(alcM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE LaneConnectionSubManager.AreLanesConnected");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LaneConnectionSubManager: " + ex);
                 }
             }
             catch (Exception ex)
@@ -2275,14 +2435,18 @@ namespace MoreNetworkCapacityRenew
                 // 4c. ExtSegmentEndManager & SegmentEndManager
                 EnsureSegmentEndManagersCapacity(tmpe);
 
+                // 4d. LaneConnectionManager (Guarantee Road and Track connectionDataBase_ is instantiated)
+                EnsureLaneConnectionManagerCapacity(tmpe);
+
                 // 5. Manager arrays
                 ResizeAllManagerArrays(tmpe);
 
                 // 5b. SpeedLimitManager capacity & initialize default speeds
                 EnsureSpeedLimitManagerCapacity(tmpe);
 
-                // 5c. ExtLaneManager capacity (expand from 262,144 to 524,288 lanes) & Cache ExtVehicle fields
+                // 5c. ExtLaneManager capacity (expand from 262,144 to 524,288 lanes) & ExtVehicleManager (expand from 16,384 to 65,536)
                 EnsureExtLaneManagerCapacity(tmpe);
+                EnsureExtVehicleManagerCapacity(tmpe);
                 CacheExtVehicleFields(tmpe);
 
                 // 6. GenericArrayCache
@@ -3143,6 +3307,75 @@ namespace MoreNetworkCapacityRenew
             catch { }
         }
 
+        public static void EnsureExtVehicleManagerCapacity(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type evmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtVehicleManager");
+                if (evmType == null) return;
+
+                FieldInfo instField = evmType.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                object inst = (instField != null) ? instField.GetValue(null) : null;
+                if (inst == null)
+                {
+                    PropertyInfo instProp = evmType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                    if (instProp != null) inst = instProp.GetValue(null, null);
+                }
+                if (inst == null) return;
+
+                PropertyInfo extVehiclesProp = evmType.GetProperty("ExtVehicles", BindingFlags.Public | BindingFlags.Instance);
+                FieldInfo extVehiclesField = evmType.GetField("<ExtVehicles>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+                    ?? evmType.GetField("_extVehicles", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+                int targetSize = 65536;
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
+                {
+                    targetSize = Math.Max(targetSize, vm.m_vehicles.m_buffer.Length);
+                }
+
+                Array oldVehicles = null;
+                if (extVehiclesField != null) oldVehicles = extVehiclesField.GetValue(inst) as Array;
+                if (oldVehicles == null && extVehiclesProp != null) oldVehicles = extVehiclesProp.GetValue(inst, null) as Array;
+
+                if (oldVehicles == null || oldVehicles.Length < targetSize)
+                {
+                    Assembly apiAsm = GetTMPEApiAssembly() ?? tmpe;
+                    Type extVehicleType = apiAsm.GetType("TrafficManager.API.Traffic.Data.ExtVehicle") ?? tmpe.GetType("TrafficManager.API.Traffic.Data.ExtVehicle");
+                    if (extVehicleType == null) return;
+
+                    Array newVehicles = Array.CreateInstance(extVehicleType, targetSize);
+                    int oldLen = 0;
+                    if (oldVehicles != null)
+                    {
+                        oldLen = oldVehicles.Length;
+                        Array.Copy(oldVehicles, newVehicles, oldLen);
+                    }
+
+                    ConstructorInfo ctor = extVehicleType.GetConstructor(new Type[] { typeof(ushort) });
+                    for (int i = oldLen; i < targetSize; i++)
+                    {
+                        if (ctor != null)
+                        {
+                            object item = ctor.Invoke(new object[] { (ushort)i });
+                            newVehicles.SetValue(item, i);
+                        }
+                    }
+
+                    if (extVehiclesField != null) extVehiclesField.SetValue(inst, newVehicles);
+                    if (extVehiclesProp != null && extVehiclesProp.CanWrite) extVehiclesProp.SetValue(inst, newVehicles, null);
+
+                    s_extVehiclesArray = newVehicles;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded TM:PE ExtVehicleManager.ExtVehicles: {0} -> {1}", oldLen, targetSize));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error in EnsureExtVehicleManagerCapacity: " + ex);
+            }
+        }
+
         public static void EnsureExtLaneManagerCapacity(Assembly tmpe)
         {
             try
@@ -3288,6 +3521,48 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureSegmentEndManagersCapacity error: " + ex);
+            }
+        }
+
+        public static void EnsureLaneConnectionManagerCapacity(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type lcmType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.LaneConnectionManager");
+                if (lcmType == null) return;
+
+                object lcm = GetManagerInstance(lcmType);
+                if (lcm == null) return;
+
+                Type cdbType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
+                if (cdbType == null) return;
+
+                string[] subNames = new string[] { "Road", "Track" };
+                foreach (string subName in subNames)
+                {
+                    FieldInfo fSub = lcmType.GetField(subName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fSub == null) continue;
+                    object subMgr = fSub.GetValue(lcm);
+                    if (subMgr == null) continue;
+
+                    Type subType = subMgr.GetType();
+                    FieldInfo fCdb = subType.GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fCdb != null)
+                    {
+                        object cdb = fCdb.GetValue(subMgr);
+                        if (cdb == null)
+                        {
+                            object newCdb = Activator.CreateInstance(cdbType);
+                            fCdb.SetValue(subMgr, newCdb);
+                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized TM:PE LaneConnectionSubManager.{0}.connectionDataBase_", subName));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureLaneConnectionManagerCapacity error: " + ex);
             }
         }
 
@@ -3713,7 +3988,8 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
-        private static Action<object, ushort> _extSegRecalcDelegate = null;
+        public delegate void FastRecalcExtSegDelegate(object instance, ushort segmentId);
+        private static FastRecalcExtSegDelegate _extSegRecalcDelegate = null;
         public static bool ExtSegmentManager_OnBeforeLoadData_Prefix(object __instance)
         {
             try
@@ -3736,7 +4012,7 @@ namespace MoreNetworkCapacityRenew
                                 il.Emit(OpCodes.Ldarg_1);
                                 il.Emit(OpCodes.Callvirt, recalc);
                                 il.Emit(OpCodes.Ret);
-                                _extSegRecalcDelegate = (Action<object, ushort>)dm.CreateDelegate(typeof(Action<object, ushort>));
+                                _extSegRecalcDelegate = (FastRecalcExtSegDelegate)dm.CreateDelegate(typeof(FastRecalcExtSegDelegate));
                             }
                         }
 
@@ -4752,6 +5028,108 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
+        public static bool CustomPathFind_ProcessItemPublicTransport_Prefix(
+            ref NetSegment prevSegment,
+            ref NetSegment nextSegment)
+        {
+            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null ||
+                (nextSegment.m_flags & NetSegment.Flags.Created) == 0 || nextSegment.Info == null || nextSegment.Info.m_lanes == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CustomPathFind_ProcessItemCosts_Prefix(
+            ref NetSegment prevSegment,
+            ref NetSegment nextSegment,
+            ref bool __result)
+        {
+            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null ||
+                (nextSegment.m_flags & NetSegment.Flags.Created) == 0 || nextSegment.Info == null || nextSegment.Info.m_lanes == null)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CustomPathFind_ProcessItemRouted_Prefix(
+            ref NetSegment prevSegment,
+            ref NetNode nextNode,
+            ref bool __result)
+        {
+            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null ||
+                (nextNode.m_flags & NetNode.Flags.Created) == 0 || nextNode.Info == null)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CustomPathFind_ProcessItemPedBicycle_Prefix(
+            ref NetSegment prevSegment,
+            ref NetSegment nextSegment)
+        {
+            if ((prevSegment.m_flags & NetSegment.Flags.Created) == 0 || prevSegment.Info == null || prevSegment.Info.m_lanes == null ||
+                (nextSegment.m_flags & NetSegment.Flags.Created) == 0 || nextSegment.Info == null || nextSegment.Info.m_lanes == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public static bool ExtLane_GetLaneInfo_Prefix(uint laneId, ref NetInfo.Lane __result)
+        {
+            if (laneId == 0 || NetManager.instance == null || NetManager.instance.m_lanes == null || NetManager.instance.m_lanes.m_buffer == null)
+            {
+                __result = null;
+                return false;
+            }
+            if (laneId >= NetManager.instance.m_lanes.m_buffer.Length)
+            {
+                __result = null;
+                return false;
+            }
+            if (NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+            {
+                __result = null;
+                return false;
+            }
+            ushort segId = NetManager.instance.m_lanes.m_buffer[laneId].m_segment;
+            if (segId == 0 || segId >= NetManager.instance.m_segments.m_buffer.Length)
+            {
+                __result = null;
+                return false;
+            }
+            NetSegment seg = NetManager.instance.m_segments.m_buffer[segId];
+            if ((seg.m_flags & NetSegment.Flags.Created) == 0 || seg.Info == null || seg.Info.m_lanes == null)
+            {
+                __result = null;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool NetSegment_GetLeftAndRightLanes_Prefix(
+            ref NetSegment __instance,
+            ref int leftIndex,
+            ref int rightIndex,
+            ref uint leftLane,
+            ref uint rightLane)
+        {
+            if (__instance.Info == null || __instance.Info.m_lanes == null)
+            {
+                leftIndex = -1;
+                rightIndex = -1;
+                leftLane = 0;
+                rightLane = 0;
+                return false;
+            }
+            return true;
+        }
+
         public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
         {
             if (unit == 0) return false;
@@ -4762,34 +5140,42 @@ namespace MoreNetworkCapacityRenew
             NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
             int segCount = segBuffer.Length;
 
-            ushort startSeg = data.m_position00.m_segment;
-            if (startSeg != 0)
+            // Start A: m_position00 (primary)
+            ushort seg00 = data.m_position00.m_segment;
+            if (seg00 >= segCount) data.m_position00.m_segment = 0;
+            else if (seg00 != 0 && ((segBuffer[seg00].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg00].Info == null || segBuffer[seg00].Info.m_lanes == null))
+                data.m_position00.m_segment = 0;
+
+            // Start B: m_position01 (secondary/alternative start)
+            ushort seg01 = data.m_position01.m_segment;
+            if (seg01 >= segCount) data.m_position01.m_segment = 0;
+            else if (seg01 != 0 && ((segBuffer[seg01].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg01].Info == null || segBuffer[seg01].Info.m_lanes == null))
+                data.m_position01.m_segment = 0;
+
+            // End A: m_position02 (primary destination)
+            ushort seg02 = data.m_position02.m_segment;
+            if (seg02 >= segCount) data.m_position02.m_segment = 0;
+            else if (seg02 != 0 && ((segBuffer[seg02].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg02].Info == null || segBuffer[seg02].Info.m_lanes == null))
+                data.m_position02.m_segment = 0;
+
+            // End B: m_position03 (secondary/alternative destination)
+            ushort seg03 = data.m_position03.m_segment;
+            if (seg03 >= segCount) data.m_position03.m_segment = 0;
+            else if (seg03 != 0 && ((segBuffer[seg03].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg03].Info == null || segBuffer[seg03].Info.m_lanes == null))
+                data.m_position03.m_segment = 0;
+
+            // If start was specified but both positions are invalid/uncreated, fail path
+            if ((seg00 != 0 || seg01 != 0) && data.m_position00.m_segment == 0 && data.m_position01.m_segment == 0)
             {
-                if (startSeg >= segCount)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
-                if ((segBuffer[startSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[startSeg].Info == null || segBuffer[startSeg].Info.m_lanes == null)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
+                data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                return false;
             }
 
-            ushort endSeg = data.m_position01.m_segment;
-            if (endSeg != 0)
+            // If destination was specified but both positions are invalid/uncreated, fail path
+            if ((seg02 != 0 || seg03 != 0) && data.m_position02.m_segment == 0 && data.m_position03.m_segment == 0)
             {
-                if (endSeg >= segCount)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
-                if ((segBuffer[endSeg].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[endSeg].Info == null || segBuffer[endSeg].Info.m_lanes == null)
-                {
-                    data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                    return false;
-                }
+                data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                return false;
             }
 
             return true;
@@ -4862,6 +5248,49 @@ namespace MoreNetworkCapacityRenew
                 maxSpeed = 1f;
                 return false;
             }
+            return true;
+        }
+
+        public static bool VehicleAICommons_CalculateSegmentPosition_Prefix(
+            PathUnit.Position position,
+            uint laneId,
+            ref Vector3 pos,
+            ref Vector3 dir,
+            ref float maxSpeed)
+        {
+            if (laneId == 0 || position.m_segment == 0 || NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+            {
+                pos = Vector3.zero;
+                dir = Vector3.forward;
+                maxSpeed = 1f;
+                return false;
+            }
+
+            if (position.m_segment >= NetManager.instance.m_segments.m_buffer.Length)
+            {
+                pos = Vector3.zero;
+                dir = Vector3.forward;
+                maxSpeed = 1f;
+                return false;
+            }
+
+            NetSegment seg = NetManager.instance.m_segments.m_buffer[position.m_segment];
+            if ((seg.m_flags & NetSegment.Flags.Created) == 0 || seg.Info == null || seg.Info.m_lanes == null)
+            {
+                pos = Vector3.zero;
+                dir = Vector3.forward;
+                maxSpeed = 1f;
+                return false;
+            }
+
+            if (NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId >= NetManager.instance.m_lanes.m_buffer.Length)
+            {
+                pos = Vector3.zero;
+                dir = Vector3.forward;
+                maxSpeed = 1f;
+                return false;
+            }
+
             return true;
         }
 
@@ -5360,6 +5789,153 @@ namespace MoreNetworkCapacityRenew
             ref float maxSpeed)
         {
             RestoreVehicleSpeedIfNeeded(vehicleID, ref vehicleData, position, laneID, position, ref maxSpeed);
+        }
+
+        public static bool LaneConnectionSubManager_HasNodeConnections_Prefix(object __instance, ushort nodeId, ref bool __result)
+        {
+            if (__instance == null || nodeId == 0)
+            {
+                __result = false;
+                return false;
+            }
+
+            try
+            {
+                if (NetManager.instance == null || NetManager.instance.m_nodes == null || NetManager.instance.m_nodes.m_buffer == null)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if (nodeId >= NetManager.instance.m_nodes.m_buffer.Length)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                if ((NetManager.instance.m_nodes.m_buffer[nodeId].m_flags & NetNode.Flags.Created) == 0)
+                {
+                    __result = false;
+                    return false;
+                }
+
+                FieldInfo fCdb = __instance.GetType().GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fCdb != null)
+                {
+                    object cdb = fCdb.GetValue(__instance);
+                    if (cdb == null)
+                    {
+                        Type cdbType = __instance.GetType().Assembly.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
+                        if (cdbType != null)
+                        {
+                            cdb = Activator.CreateInstance(cdbType);
+                            fCdb.SetValue(__instance, cdb);
+                        }
+                    }
+
+                    if (cdb == null || (cdb is System.Collections.ICollection coll && coll.Count == 0))
+                    {
+                        __result = false;
+                        return false;
+                    }
+                }
+            }
+            catch
+            {
+                __result = false;
+                return false;
+            }
+
+            return true;
+        }
+
+        public static bool LaneConnectionSubManager_HasConnections_Prefix(object __instance, uint laneId, bool startNode, ref bool __result)
+        {
+            if (__instance == null || laneId == 0)
+            {
+                __result = false;
+                return false;
+            }
+
+            try
+            {
+                if (NetManager.instance != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null)
+                {
+                    if (laneId >= NetManager.instance.m_lanes.m_buffer.Length)
+                    {
+                        __result = false;
+                        return false;
+                    }
+                }
+
+                FieldInfo fCdb = __instance.GetType().GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fCdb != null)
+                {
+                    object cdb = fCdb.GetValue(__instance);
+                    if (cdb == null)
+                    {
+                        Type cdbType = __instance.GetType().Assembly.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
+                        if (cdbType != null)
+                        {
+                            cdb = Activator.CreateInstance(cdbType);
+                            fCdb.SetValue(__instance, cdb);
+                        }
+                    }
+
+                    if (cdb == null || (cdb is System.Collections.ICollection coll && coll.Count == 0))
+                    {
+                        __result = false;
+                        return false;
+                    }
+                }
+            }
+            catch
+            {
+                __result = false;
+                return false;
+            }
+
+            return true;
+        }
+
+        public static bool LaneConnectionSubManager_AreLanesConnected_Prefix(object __instance, uint sourceLaneId, uint targetLaneId, ushort nodeId, ref bool __result)
+        {
+            if (__instance == null || sourceLaneId == 0 || targetLaneId == 0)
+            {
+                __result = false;
+                return false;
+            }
+
+            try
+            {
+                FieldInfo fCdb = __instance.GetType().GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fCdb != null)
+                {
+                    object cdb = fCdb.GetValue(__instance);
+                    if (cdb == null)
+                    {
+                        Type cdbType = __instance.GetType().Assembly.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
+                        if (cdbType != null)
+                        {
+                            cdb = Activator.CreateInstance(cdbType);
+                            fCdb.SetValue(__instance, cdb);
+                        }
+                    }
+
+                    if (cdb == null || (cdb is System.Collections.ICollection coll && coll.Count == 0))
+                    {
+                        __result = false;
+                        return false;
+                    }
+                }
+            }
+            catch
+            {
+                __result = false;
+                return false;
+            }
+
+            return true;
         }
     }
 
@@ -6114,6 +6690,10 @@ namespace MoreNetworkCapacityRenew
                 // Automatically restore valid lines, purge ghost lines & unstick stranded citizens
                 try
                 {
+                    // Wipe any corrupt / floating / stuck vehicles leftover from broken save sessions
+                    int clearedVehicles = VehicleAndTransportRepair.ClearAllVehicles();
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Auto-cleansed {0} vehicles on level load to prevent flying/corrupted vehicles.", clearedVehicles));
+
                     int restored = VehicleAndTransportRepair.RestoreAllTransportLines(out int deactivated);
                     if (deactivated > 0)
                     {
@@ -6862,7 +7442,9 @@ namespace MoreNetworkCapacityRenew
             catch { }
         }
 
-        private static Action<Array, int, int> CreateFastInit16(Type structType, MethodInfo initMethod)
+        public delegate void FastInitArrayDelegate(Array array, int startIndex, int endIndex);
+
+        private static FastInitArrayDelegate CreateFastInit16(Type structType, MethodInfo initMethod)
         {
             try
             {
@@ -6900,7 +7482,7 @@ namespace MoreNetworkCapacityRenew
                 il.Emit(OpCodes.Blt, loopStart);
 
                 il.Emit(OpCodes.Ret);
-                return (Action<Array, int, int>)dm.CreateDelegate(typeof(Action<Array, int, int>));
+                return (FastInitArrayDelegate)dm.CreateDelegate(typeof(FastInitArrayDelegate));
             }
             catch
             {
@@ -6908,7 +7490,7 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        private static Action<Array, int, int> CreateFastInit32(Type structType, MethodInfo initMethod)
+        private static FastInitArrayDelegate CreateFastInit32(Type structType, MethodInfo initMethod)
         {
             try
             {
@@ -6946,7 +7528,7 @@ namespace MoreNetworkCapacityRenew
                 il.Emit(OpCodes.Blt, loopStart);
 
                 il.Emit(OpCodes.Ret);
-                return (Action<Array, int, int>)dm.CreateDelegate(typeof(Action<Array, int, int>));
+                return (FastInitArrayDelegate)dm.CreateDelegate(typeof(FastInitArrayDelegate));
             }
             catch
             {
@@ -6954,7 +7536,7 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        private static Action<Array, int, int> CreateFastInitSegmentEnd(Type structType, MethodInfo initMethod)
+        private static FastInitArrayDelegate CreateFastInitSegmentEnd(Type structType, MethodInfo initMethod)
         {
             try
             {
@@ -7012,7 +7594,7 @@ namespace MoreNetworkCapacityRenew
                 il.Emit(OpCodes.Blt, loopStart);
 
                 il.Emit(OpCodes.Ret);
-                return (Action<Array, int, int>)dm.CreateDelegate(typeof(Action<Array, int, int>));
+                return (FastInitArrayDelegate)dm.CreateDelegate(typeof(FastInitArrayDelegate));
             }
             catch
             {
@@ -9478,15 +10060,23 @@ namespace MoreNetworkCapacityRenew
     {
         public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
         {
+            bool ctrlOrCmd = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand);
+            bool shift = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift);
+
             // Hotkey: Ctrl + Shift + V (or Cmd + Shift + V on Mac) to clean stranded vehicles, unblock frozen queues, and reactivate city logistics
-            if ((UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand))
-                && (UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift))
-                && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.V))
+            if (ctrlOrCmd && shift && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.V))
             {
                 int cleaned = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
                 int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
                 int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) executed: cleaned {0} dead vehicles, unblocked {1} frozen vehicles, reactivated {2} logistics entities.", cleaned, unblocked, reactivated));
+            }
+
+            // Hotkey: Ctrl + Shift + T (or Cmd + Shift + T on Mac) to trigger a FULL vehicle wipeout & traffic regeneration
+            if (ctrlOrCmd && shift && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.T))
+            {
+                int cleared = VehicleAndTransportRepair.ClearAllVehicles();
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+T) executed: wiped {0} vehicles and reactivated city logistics.", cleared));
             }
         }
     }
@@ -9637,6 +10227,49 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LoadingManager.LoadSimulationData: " + ex);
+                }
+
+                // 3f. Patch CombinedMilestone.CombinedData.Deserialize (Defensive milestone deserialization guard)
+                try
+                {
+                    Type cmDataType = typeof(CombinedMilestone).GetNestedType("CombinedData", BindingFlags.Public | BindingFlags.NonPublic);
+                    if (cmDataType != null)
+                    {
+                        MethodInfo cmDes = cmDataType.GetMethod("Deserialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (cmDes != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(CombinedMilestone_CombinedData_Deserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(cmDes, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CombinedMilestone.CombinedData.Deserialize with defensive bounds guard.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CombinedMilestone.CombinedData.Deserialize: " + ex);
+                }
+
+                // 3g. Patch DataSerializer.ReadSharedType (Guard against corrupt type index crashes)
+                try
+                {
+                    Type dsType = typeof(ColossalFramework.IO.DataSerializer);
+                    MethodInfo rst1 = dsType.GetMethod("ReadSharedType", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ColossalFramework.IO.DataSerializer.LegacyResolverHandler) }, null);
+                    MethodInfo rst0 = dsType.GetMethod("ReadSharedType", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+                    MethodInfo pre1 = typeof(TransportLineCompatibility).GetMethod(nameof(DataSerializer_ReadSharedType_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    MethodInfo pre0 = typeof(TransportLineCompatibility).GetMethod(nameof(DataSerializer_ReadSharedType_NoArg_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    if (rst1 != null && pre1 != null)
+                    {
+                        harmony.Patch(rst1, prefix: new HarmonyMethod(pre1) { prioritiy = Harmony.Priority.First });
+                    }
+                    if (rst0 != null && pre0 != null)
+                    {
+                        harmony.Patch(rst0, prefix: new HarmonyMethod(pre0) { prioritiy = Harmony.Priority.First });
+                    }
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DataSerializer.ReadSharedType with bounds exception guard.");
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DataSerializer.ReadSharedType: " + ex);
                 }
 
                 // Do NOT patch external manager Data.Serialize methods (TreeManager, VehicleManager, BuildingManager,
@@ -10986,6 +11619,67 @@ namespace MoreNetworkCapacityRenew
                     pm.m_pathUnits.ReleaseItem((uint)rem);
                 }
 
+                // Align stream to EndDeserialize tag "PathManager"
+                try
+                {
+                    var fiStream = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stream", BindingFlags.NonPublic | BindingFlags.Instance);
+                    var fiStrings = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stringList", BindingFlags.NonPublic | BindingFlags.Instance);
+                    Stream st = fiStream != null ? (Stream)fiStream.GetValue(s) : null;
+                    List<string> strList = fiStrings != null ? (List<string>)fiStrings.GetValue(s) : null;
+
+                    if (st != null && st.CanSeek && strList != null)
+                    {
+                        int pmTagIdx = strList.IndexOf("PathManager");
+                        if (pmTagIdx >= 0)
+                        {
+                            byte b1 = (byte)(pmTagIdx >> 8);
+                            byte b2 = (byte)(pmTagIdx & 0xFF);
+
+                            int extraUnits = 0;
+                            while (st.Position < st.Length - 2 && extraUnits <= 500)
+                            {
+                                long chkPos = st.Position;
+                                int p1 = st.ReadByte();
+                                int p2 = st.ReadByte();
+                                st.Seek(chkPos, SeekOrigin.Begin);
+
+                                if (p1 == b1 && p2 == b2)
+                                {
+                                    break;
+                                }
+
+                                s.ReadUInt8(); // pathFindFlags
+                                if (version >= 49u) s.ReadUInt8(); // laneTypes
+                                if (version >= 113001u) s.ReadUInt32();
+                                else if (version >= 311u) s.ReadUInt16();
+                                else s.ReadUInt8();
+
+                                byte pc = (byte)s.ReadUInt8();
+                                s.ReadUInt24();
+                                s.ReadUInt32();
+                                s.ReadFloat();
+                                if (version >= 111012u || (version >= 110026u && version < 111000u)) s.ReadUInt8();
+                                for (int k = 0; k < pc; k++)
+                                {
+                                    s.ReadUInt16();
+                                    s.ReadUInt8();
+                                    s.ReadUInt8();
+                                }
+                                extraUnits++;
+                            }
+
+                            if (extraUnits > 0)
+                            {
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Aligned PathManager stream: read {0} extra units to end tag at pos {1}.", extraUnits, st.Position));
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] PathManager stream alignment exception: " + ex);
+                }
+
                 try
                 {
                     LoadingManager.instance.m_loadingProfilerSimulation.EndDeserialize(s, "PathManager");
@@ -11024,10 +11718,58 @@ namespace MoreNetworkCapacityRenew
                 {
                     if (s != null && s.version >= 130u)
                     {
-                        string tag = s.ReadSharedString();
-                        if (tag != name)
+                        var fiStrings = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stringList", BindingFlags.NonPublic | BindingFlags.Instance);
+                        var fiStream = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stream", BindingFlags.NonPublic | BindingFlags.Instance);
+                        Stream st = fiStream != null ? (Stream)fiStream.GetValue(s) : null;
+                        List<string> strList = fiStrings != null ? (List<string>)fiStrings.GetValue(s) : null;
+
+                        int pmTagIdx = strList != null ? strList.IndexOf(name) : -1;
+                        if (st != null && st.CanSeek && pmTagIdx >= 0)
                         {
-                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager tag notice: read '{0}', expected '{1}'", tag, name));
+                            byte b1 = (byte)(pmTagIdx >> 8);
+                            byte b2 = (byte)(pmTagIdx & 0xFF);
+
+                            long curPos = st.Position;
+                            int p1 = st.ReadByte();
+                            int p2 = st.ReadByte();
+                            st.Seek(curPos, SeekOrigin.Begin);
+
+                            if (p1 == b1 && p2 == b2)
+                            {
+                                string tag = s.ReadSharedString();
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager tag cleanly matched: " + tag);
+                                return false;
+                            }
+
+                            // Fallback scanner if slightly misaligned:
+                            long foundPos = -1;
+                            for (int search = 0; search < 4096 && st.Position < st.Length - 2; search++)
+                            {
+                                int s1 = st.ReadByte();
+                                if (s1 == b1)
+                                {
+                                    int s2 = st.ReadByte();
+                                    if (s2 == b2)
+                                    {
+                                        foundPos = st.Position;
+                                        break;
+                                    }
+                                    st.Seek(-1, SeekOrigin.Current);
+                                }
+                            }
+
+                            if (foundPos != -1)
+                            {
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager scanned and aligned to offset {0}.", foundPos));
+                                return false;
+                            }
+                            st.Seek(curPos, SeekOrigin.Begin);
+                        }
+
+                        string fallbackTag = s.ReadSharedString();
+                        if (fallbackTag != name)
+                        {
+                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager tag notice: read '{0}', expected '{1}'", fallbackTag, name));
                         }
                     }
                 }
@@ -11038,6 +11780,153 @@ namespace MoreNetworkCapacityRenew
                 return false;
             }
             return true;
+        }
+
+        private static MilestoneInfo.Data[] SafeReadMilestoneDataArray(ColossalFramework.IO.DataSerializer s)
+        {
+            try
+            {
+                var fiStream = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stream", BindingFlags.NonPublic | BindingFlags.Instance);
+                Stream st = fiStream != null ? (Stream)fiStream.GetValue(s) : null;
+                if (st == null) return null;
+
+                int b = st.ReadByte();
+                if (b < 0 || b == 255) return null;
+
+                int b2 = st.ReadByte();
+                int b3 = st.ReadByte();
+                if (b2 < 0 || b3 < 0) return null;
+
+                int count = (b << 16) | (b2 << 8) | b3;
+                if (count > 5000 || count < 0)
+                {
+                    UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] CombinedMilestone: Guarded excessive count {0}, capped to empty array.", count));
+                    return new MilestoneInfo.Data[0];
+                }
+
+                var arr = new MilestoneInfo.Data[count];
+                for (int i = 0; i < count; i++)
+                {
+                    arr[i] = s.ReadObject<MilestoneInfo.Data>();
+                }
+                return arr;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SafeReadMilestoneDataArray error: " + ex.Message);
+                return new MilestoneInfo.Data[0];
+            }
+        }
+
+        public static bool CombinedMilestone_CombinedData_Deserialize_Prefix(object __instance, ColossalFramework.IO.DataSerializer s)
+        {
+            try
+            {
+                if (__instance == null || s == null) return true;
+
+                var t = __instance.GetType();
+                var fPassedCount = t.GetField("m_passedCount", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fProgress = t.GetField("m_progress", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fRequirePassed = t.GetField("m_requirePassed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fForbidPassed = t.GetField("m_forbidPassed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                var fStartFrame = t.GetField("m_startFrame", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                int passedCount = s.ReadInt32();
+                long progress = s.ReadLong64();
+                if (fPassedCount != null) fPassedCount.SetValue(__instance, passedCount);
+                if (fProgress != null) fProgress.SetValue(__instance, progress);
+
+                // Safe ReadObjectArray for m_requirePassed & m_forbidPassed (byte-accurate protocol)
+                if (fRequirePassed != null) fRequirePassed.SetValue(__instance, SafeReadMilestoneDataArray(s) ?? new MilestoneInfo.Data[0]);
+                if (fForbidPassed != null) fForbidPassed.SetValue(__instance, SafeReadMilestoneDataArray(s) ?? new MilestoneInfo.Data[0]);
+
+                if (s.version >= 111003u && fStartFrame != null)
+                {
+                    fStartFrame.SetValue(__instance, s.ReadUInt32());
+                }
+
+                return false; // Skip original method
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Guarded CombinedMilestone.CombinedData.Deserialize: " + ex.Message);
+                try
+                {
+                    var t = __instance.GetType();
+                    var fRequirePassed = t.GetField("m_requirePassed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    var fForbidPassed = t.GetField("m_forbidPassed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fRequirePassed != null && fRequirePassed.GetValue(__instance) == null)
+                    {
+                        fRequirePassed.SetValue(__instance, new MilestoneInfo.Data[0]);
+                    }
+                    if (fForbidPassed != null && fForbidPassed.GetValue(__instance) == null)
+                    {
+                        fForbidPassed.SetValue(__instance, new MilestoneInfo.Data[0]);
+                    }
+                }
+                catch {}
+                return false;
+            }
+        }
+
+        public static bool DataSerializer_ReadSharedType_Prefix(ColossalFramework.IO.DataSerializer __instance, ColossalFramework.IO.DataSerializer.LegacyResolverHandler customResolver, ref Type __result)
+        {
+            try
+            {
+                var fiStream = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stream", BindingFlags.NonPublic | BindingFlags.Instance);
+                var fiTypes = typeof(ColossalFramework.IO.DataSerializer).GetField("m_typeList", BindingFlags.NonPublic | BindingFlags.Instance);
+                Stream st = fiStream != null ? (Stream)fiStream.GetValue(__instance) : null;
+                List<Type> typeList = fiTypes != null ? (List<Type>)fiTypes.GetValue(__instance) : null;
+
+                if (st == null || typeList == null) return true;
+
+                int num = st.ReadByte();
+                if (num == 255)
+                {
+                    __result = null;
+                    return false;
+                }
+                if (num == 254)
+                {
+                    string typeName = __instance.ReadUniqueString();
+                    Type type = null;
+                    if (customResolver != null)
+                    {
+                        try { type = customResolver(typeName); } catch {}
+                    }
+                    if (type == null)
+                    {
+                        try { type = Type.GetType(typeName); } catch {}
+                    }
+                    typeList.Add(type);
+                    __result = type;
+                    return false;
+                }
+
+                int num2 = st.ReadByte();
+                int index = (num << 8) | num2;
+                if (index >= 0 && index < typeList.Count)
+                {
+                    __result = typeList[index];
+                }
+                else
+                {
+                    UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] Guarded ReadSharedType: index {0} out of bounds (count={1}), returning null.", index, typeList.Count));
+                    __result = null;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] DataSerializer_ReadSharedType_Prefix error: " + ex.Message);
+                __result = null;
+                return false;
+            }
+        }
+
+        public static bool DataSerializer_ReadSharedType_NoArg_Prefix(ColossalFramework.IO.DataSerializer __instance, ref Type __result)
+        {
+            return DataSerializer_ReadSharedType_Prefix(__instance, null, ref __result);
         }
 
         public static void SimulationMetaData_Merge_Prefix(SimulationMetaData __instance, SimulationMetaData source)
@@ -12183,11 +13072,34 @@ namespace MoreNetworkCapacityRenew
                 for (int i = start; i < end; i++)
                 {
                     Vehicle.Flags flags = buffer[i].m_flags;
-                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                    if ((flags & Vehicle.Flags.Created) == 0)
                         continue;
 
                     if (buffer[i].m_leadingVehicle != 0)
                         continue;
+
+                    // Unspawned vehicles (Created, but not yet Spawned onto road network)
+                    if ((flags & Vehicle.Flags.Spawned) == 0)
+                    {
+                        // Stalled WaitingPath / unspawned vehicle recovery:
+                        // If an unspawned vehicle is stuck waiting for a path or stuck in building spawn queue for > 250 ticks,
+                        // cleanly release it so the building can spawn fresh vehicles and active vehicle count is freed.
+                        if ((flags & Vehicle.Flags.WaitingPath) != 0 || buffer[i].m_path == 0)
+                        {
+                            if (buffer[i].m_waitCounter > 250)
+                            {
+                                if (buffer[i].m_path != 0 && pm != null)
+                                {
+                                    try { pm.ReleasePath(buffer[i].m_path); } catch { }
+                                    buffer[i].m_path = 0;
+                                }
+                                vm.ReleaseVehicle((ushort)i);
+                                totalRecoveries++;
+                                continue;
+                            }
+                        }
+                        continue;
+                    }
 
                     // Skip vehicles that are parked, waiting, arriving, leaving, stopped, or inside buildings
                     const Vehicle.Flags IGNORE_FLAGS = 

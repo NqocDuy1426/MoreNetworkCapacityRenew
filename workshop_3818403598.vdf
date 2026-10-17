@@ -106,5 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.2 - Critical Load Fix (Standalone & Compatibility): 1) Fixed PathUnits deserialization alignment when loading saves without MorePathUnits (eliminated MilestoneInfo index out of bounds & ArgumentOutOfRangeException). 2) PathManager buffer dynamically expands to 524K units in memory while preserving 100% byte-exact stream synchronization with vanilla saves. 3) Fixed modOverride persistence on save/load cycles."
+	"changenote"		"v4.3.4 - Critical Vehicle Spawning & Simulation Stability Fix: 1) Resolved root cause where vehicles failed to spawn on roads while active vehicle count kept climbing. 2) Fixed fatal NullReferenceException in TM:PE LaneConnectionSubManager (HasNodeConnections / HasConnections) during AdaptiveRoads simulation scan, completely preventing SimulationThread death. 3) Corrected PathUnit position validation in CustomPathFind (validating all 4 start and destination positions without misidentifying startPosB as destination). 4) Guaranteed LaneConnectionSubManager connectionDataBase_ initialization on both Road and Track."
 }
+

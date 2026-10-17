@@ -332,6 +332,49 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 8: Vehicle AI, TM:PE Pathfinding Stability & Cleanse
+        // ====================================================================
+        Console.WriteLine("\n[TEST GROUP 8: Vehicle AI & TM:PE Pathfinding Stability]");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+            bool hasCpfPt = renewCode.Contains("CustomPathFind_ProcessItemPublicTransport_Prefix") && renewCode.Contains("ProcessItemPublicTransport");
+            bool hasCpfCosts = renewCode.Contains("CustomPathFind_ProcessItemCosts_Prefix") && renewCode.Contains("ProcessItemCosts");
+            bool hasCpfRouted = renewCode.Contains("CustomPathFind_ProcessItemRouted_Prefix") && renewCode.Contains("ProcessItemRouted");
+            bool hasCpfPed = renewCode.Contains("CustomPathFind_ProcessItemPedBicycle_Prefix") && renewCode.Contains("ProcessItemPedBicycle");
+            bool hasNetSegLanes = renewCode.Contains("NetSegment_GetLeftAndRightLanes_Prefix") && renewCode.Contains("GetLeftAndRightLanes");
+            bool hasVaiCalcPos = renewCode.Contains("VehicleAICommons_CalculateSegmentPosition_Prefix") && renewCode.Contains("CustomCalculateSegmentPosition");
+            bool hasEnsureEvm = renewCode.Contains("EnsureExtVehicleManagerCapacity") && renewCode.Contains("ExtVehicleManager");
+            bool hasAutoCleanse = renewCode.Contains("Auto-cleansed") && renewCode.Contains("VehicleAndTransportRepair.ClearAllVehicles()");
+            bool hasHotkeyT = renewCode.Contains("KeyCode.T") && renewCode.Contains("ClearAllVehicles()");
+
+            Assert(hasCpfPt, "TM:PE CustomPathFind.ProcessItemPublicTransport guarded against null segment Info");
+            Assert(hasCpfCosts, "TM:PE CustomPathFind.ProcessItemCosts guarded against null segment Info");
+            Assert(hasCpfRouted, "TM:PE CustomPathFind.ProcessItemRouted guarded against null segment/node Info");
+            Assert(hasCpfPed, "TM:PE CustomPathFind.ProcessItemPedBicycle guarded against null segment Info");
+            Assert(hasNetSegLanes, "NetSegment.GetLeftAndRightLanes guarded against null Info and m_lanes");
+            Assert(hasVaiCalcPos, "VehicleAICommons.CustomCalculateSegmentPosition guarded against null segment Info and out of bounds");
+            Assert(hasEnsureEvm, "ExtVehicleManager.ExtVehicles expanded to 65,536 to match More Vehicles");
+            Assert(hasAutoCleanse, "Auto-cleanses broken/floating/ghost vehicles on level load");
+            Assert(hasHotkeyT, "Provides Ctrl+Shift+T hotkey for on-demand traffic wipeout and logistics reactivation");
+
+            // 8.1 Verify LaneConnectionSubManager null safety & capacity
+            bool hasEnsureLcm = renewCode.Contains("EnsureLaneConnectionManagerCapacity") && renewCode.Contains("connectionDataBase_");
+            bool hasLcsmPatches = renewCode.Contains("LaneConnectionSubManager_HasNodeConnections_Prefix") 
+                               && renewCode.Contains("LaneConnectionSubManager_HasConnections_Prefix")
+                               && renewCode.Contains("LaneConnectionSubManager_AreLanesConnected_Prefix");
+            bool has4PosPfi = renewCode.Contains("seg00") && renewCode.Contains("seg01") && renewCode.Contains("seg02") && renewCode.Contains("seg03");
+
+            Assert(hasEnsureLcm, "TM:PE LaneConnectionManager.Road/Track connectionDataBase_ guaranteed initialized");
+            Assert(hasLcsmPatches, "TM:PE LaneConnectionSubManager guarded against NRE and uncreated nodes/lanes");
+            Assert(has4PosPfi, "CustomPathFind validates all 4 positions (start A/B and end A/B) without misidentifying destination");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 8 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

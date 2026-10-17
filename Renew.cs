@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.4 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.5 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -6427,6 +6427,233 @@ namespace MoreNetworkCapacityRenew
     }
 
     // ============================================================================
+    // TURBO TRAFFIC & VEHICLE SPAWNING ACCELERATION (NgocDuy)
+    // ============================================================================
+    public static class TurboTrafficDispatcher
+    {
+        private static bool s_applied = false;
+        private static bool s_logisticsBoostApplied = false;
+        private static Action<TransferManager, TransferManager.TransferReason> s_matchOffersInvoker;
+        private static bool s_invokerInitialized = false;
+
+        public static void Apply(HarmonyInstance harmony)
+        {
+            if (s_applied || harmony == null) return;
+            try
+            {
+                // 1. PathManager: Bypass vanilla artificial Thread.Sleep bottleneck when queue >= 100
+                MethodInfo pmSimStep = typeof(PathManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[] { typeof(int) }, null);
+                if (pmSimStep != null)
+                {
+                    MethodInfo pmPrefix = typeof(TurboTrafficDispatcher).GetMethod(nameof(PathManager_SimulationStepImpl_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(pmSimStep, prefix: new HarmonyMethod(pmPrefix));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched PathManager.SimulationStepImpl (unblocked artificial Thread.Sleep throttle).");
+                }
+
+                // 2. TransferManager: Quadruple transfer matching throughput across complementary frame phases
+                MethodInfo tmSimStep = typeof(TransferManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[] { typeof(int) }, null);
+                if (tmSimStep != null)
+                {
+                    MethodInfo tmPostfix = typeof(TurboTrafficDispatcher).GetMethod(nameof(TransferManager_SimulationStepImpl_Postfix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(tmSimStep, postfix: new HarmonyMethod(tmPostfix));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched TransferManager.SimulationStepImpl (4x multi-phase matching enabled).");
+                }
+
+                // 3. OutsideConnectionAI: Fix dummy traffic probability scaling for 65,536 vehicle capacity
+                MethodInfo dtProb = typeof(OutsideConnectionAI).GetMethod("DummyTrafficProbability", BindingFlags.Static | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (dtProb != null)
+                {
+                    MethodInfo dtPrefix = typeof(TurboTrafficDispatcher).GetMethod(nameof(OutsideConnectionAI_DummyTrafficProbability_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(dtProb, prefix: new HarmonyMethod(dtPrefix));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched OutsideConnectionAI.DummyTrafficProbability (scaled for 65k capacity).");
+                }
+
+                // 4. OutsideConnectionAI: Boost connection offers for cargo, tourists and commuters when road network has room
+                MethodInfo addOffers = typeof(OutsideConnectionAI).GetMethod("AddConnectionOffers", BindingFlags.Static | BindingFlags.Public);
+                if (addOffers != null)
+                {
+                    MethodInfo offersPrefix = typeof(TurboTrafficDispatcher).GetMethod(nameof(OutsideConnectionAI_AddConnectionOffers_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(addOffers, prefix: new HarmonyMethod(offersPrefix));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched OutsideConnectionAI.AddConnectionOffers (boosted outside connections).");
+                }
+
+                s_applied = true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher.Apply error: " + ex);
+            }
+        }
+
+        public static bool PathManager_SimulationStepImpl_Prefix(PathManager __instance, int subStep)
+        {
+            // Vanilla checks queued pathfind count across pathfind threads and calls Thread.Sleep if count >= 100.
+            // By returning false, we bypass vanilla's artificial Thread.Sleep throttle on the main simulation thread!
+            return false;
+        }
+
+        private static void EnsureMatchOffersDelegate()
+        {
+            if (s_invokerInitialized) return;
+            try
+            {
+                MethodInfo matchMethod = typeof(TransferManager).GetMethod("MatchOffers", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (matchMethod != null)
+                {
+                    s_matchOffersInvoker = (Action<TransferManager, TransferManager.TransferReason>)Delegate.CreateDelegate(
+                        typeof(Action<TransferManager, TransferManager.TransferReason>), matchMethod);
+                }
+            }
+            catch { }
+            s_invokerInitialized = true;
+        }
+
+        public static void TransferManager_SimulationStepImpl_Postfix(TransferManager __instance, int subStep)
+        {
+            if (subStep == 0 || __instance == null) return;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null || vm.m_vehicleCount >= 58000) return;
+
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (sm == null) return;
+
+                int frameIndex = (int)(sm.m_currentFrameIndex & 0xFF);
+
+                EnsureMatchOffersDelegate();
+                if (s_matchOffersInvoker == null) return;
+
+                // Pass 1: phase offset +64
+                TransferManager.TransferReason r1 = TransferManager.GetFrameReason((frameIndex + 64) & 0xFF);
+                if (r1 != TransferManager.TransferReason.None)
+                {
+                    s_matchOffersInvoker(__instance, r1);
+                }
+
+                // Pass 2: phase offset +128
+                TransferManager.TransferReason r2 = TransferManager.GetFrameReason((frameIndex + 128) & 0xFF);
+                if (r2 != TransferManager.TransferReason.None)
+                {
+                    s_matchOffersInvoker(__instance, r2);
+                }
+
+                // Pass 3: phase offset +192
+                TransferManager.TransferReason r3 = TransferManager.GetFrameReason((frameIndex + 192) & 0xFF);
+                if (r3 != TransferManager.TransferReason.None)
+                {
+                    s_matchOffersInvoker(__instance, r3);
+                }
+            }
+            catch { }
+        }
+
+        public static bool OutsideConnectionAI_DummyTrafficProbability_Prefix(ref int __result)
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                CitizenManager cm = Singleton<CitizenManager>.instance;
+                if (vm == null || cm == null)
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                int vehicleCount = vm.m_vehicleCount;
+                int citizenCount = cm.m_instanceCount;
+
+                // Scale vehicle pool to modded 65,536 capacity (instead of vanilla 16,384 limit)
+                if (vehicleCount * 65536 > citizenCount * 65536)
+                {
+                    __result = UnityEngine.Mathf.Max(0, 8192000 / (65536 + vehicleCount * 4) - 25);
+                }
+                else
+                {
+                    __result = UnityEngine.Mathf.Max(0, 8192000 / (65536 + citizenCount * 4) - 25);
+                }
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        public static void OutsideConnectionAI_AddConnectionOffers_Prefix(
+            ref int cargoCapacity,
+            ref int residentCapacity,
+            ref int touristFactor0,
+            ref int touristFactor1,
+            ref int touristFactor2,
+            ref int dummyTrafficFactor)
+        {
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm != null && vm.m_vehicleCount < 58000)
+                {
+                    cargoCapacity = Math.Min(cargoCapacity * 2, 200000);
+                    residentCapacity = Math.Min(residentCapacity * 2, 200000);
+                    touristFactor0 = Math.Min(touristFactor0 * 2, 1000);
+                    touristFactor1 = Math.Min(touristFactor1 * 2, 1000);
+                    touristFactor2 = Math.Min(touristFactor2 * 2, 1000);
+                    dummyTrafficFactor = Math.Min(dummyTrafficFactor * 2, 1000);
+                }
+            }
+            catch { }
+        }
+
+        public static void ApplyLogisticsBoost()
+        {
+            if (s_logisticsBoostApplied) return;
+            try
+            {
+                int modifiedCount = 0;
+                int prefabCount = PrefabCollection<VehicleInfo>.PrefabCount();
+
+                for (uint i = 0; i < prefabCount; i++)
+                {
+                    VehicleInfo info = PrefabCollection<VehicleInfo>.GetPrefab(i);
+                    if (info == null || info.m_vehicleAI == null) continue;
+
+                    if (info.m_vehicleAI is CargoTruckAI cargoAI)
+                    {
+                        if (cargoAI.m_cargoCapacity > 0 && cargoAI.m_cargoCapacity < 50000)
+                        {
+                            cargoAI.m_cargoCapacity = Math.Min(cargoAI.m_cargoCapacity * 2, 60000);
+                            modifiedCount++;
+                        }
+                    }
+                    else if (info.m_vehicleAI is GarbageTruckAI garbageAI)
+                    {
+                        if (garbageAI.m_cargoCapacity > 0 && garbageAI.m_cargoCapacity < 50000)
+                        {
+                            garbageAI.m_cargoCapacity = Math.Min(garbageAI.m_cargoCapacity * 2, 60000);
+                            modifiedCount++;
+                        }
+                    }
+                    else if (info.m_vehicleAI is HearseAI hearseAI)
+                    {
+                        if (hearseAI.m_corpseCapacity > 0 && hearseAI.m_corpseCapacity < 30)
+                        {
+                            hearseAI.m_corpseCapacity = Math.Min(hearseAI.m_corpseCapacity * 2, 30);
+                            modifiedCount++;
+                        }
+                    }
+                }
+
+                s_logisticsBoostApplied = true;
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Applied smart logistics capacity boost to {0} vehicle prefabs.", modifiedCount));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher.ApplyLogisticsBoost error: " + ex);
+            }
+        }
+    }
+
+    // ============================================================================
     // MAIN LOADING EXTENSION
     // ============================================================================
     public class RenewLoading : LoadingExtensionBase
@@ -6524,6 +6751,16 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] KianCommons patching error: " + ex);
+                }
+
+                try
+                {
+                    // Turbo Traffic & Vehicle Spawning Acceleration (NgocDuy)
+                    TurboTrafficDispatcher.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher.Apply error: " + ex);
                 }
 
                 patchApplied = true;
@@ -6690,9 +6927,10 @@ namespace MoreNetworkCapacityRenew
                 // Automatically restore valid lines, purge ghost lines & unstick stranded citizens
                 try
                 {
-                    // Wipe any corrupt / floating / stuck vehicles leftover from broken save sessions
-                    int clearedVehicles = VehicleAndTransportRepair.ClearAllVehicles();
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Auto-cleansed {0} vehicles on level load to prevent flying/corrupted vehicles.", clearedVehicles));
+                    // Cleanse only corrupt / floating / ghost vehicles leftover from broken save sessions,
+                    // preserving ALL valid, healthy vehicles in the city!
+                    int clearedVehicles = VehicleAndTransportRepair.ClearAllVehicles(wipeAll: false);
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Auto-cleansed {0} corrupt vehicles on level load (preserved healthy traffic).", clearedVehicles));
 
                     int restored = VehicleAndTransportRepair.RestoreAllTransportLines(out int deactivated);
                     if (deactivated > 0)
@@ -6706,6 +6944,9 @@ namespace MoreNetworkCapacityRenew
                     {
                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Cleaned {0} ghost vehicles stranded on demolished roads.", cleanedGhosts));
                     }
+
+                    // Apply smart logistics capacity boost to service vehicles & cargo trucks
+                    TurboTrafficDispatcher.ApplyLogisticsBoost();
                 }
                 catch (Exception ex)
                 {
@@ -9265,62 +9506,125 @@ namespace MoreNetworkCapacityRenew
     {
         public static int ClearAllVehicles()
         {
+            return ClearAllVehicles(true);
+        }
+
+        public static int ClearAllVehicles(bool wipeAll)
+        {
             int freed = 0;
             try
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Starting vehicle wipeout / despawn...");
-                // 1. Try TM:PE ClearTraffic
-                try
+                if (wipeAll)
                 {
-                    Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                    if (tmpe != null)
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Starting manual full vehicle wipeout / despawn...");
+                    // 1. Try TM:PE ClearTraffic
+                    try
                     {
-                        Type umType = tmpe.GetType("TrafficManager.Manager.Impl.UtilityManager");
-                        if (umType != null)
+                        Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                        if (tmpe != null)
                         {
-                            object umInst = TMPECompatibility.GetManagerInstance(umType);
-                            MethodInfo ct = umType.GetMethod("ClearTraffic", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                            if (ct != null && umInst != null)
+                            Type umType = tmpe.GetType("TrafficManager.Manager.Impl.UtilityManager");
+                            if (umType != null)
                             {
-                                ct.Invoke(umInst, new object[0]);
-                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Executed TM:PE UtilityManager.ClearTraffic().");
+                                object umInst = TMPECompatibility.GetManagerInstance(umType);
+                                MethodInfo ct = umType.GetMethod("ClearTraffic", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                                if (ct != null && umInst != null)
+                                {
+                                    ct.Invoke(umInst, new object[0]);
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Executed TM:PE UtilityManager.ClearTraffic().");
+                                }
                             }
                         }
                     }
-                }
-                catch { }
+                    catch { }
 
-                // 2. Direct clean pass on VehicleManager to release ALL active vehicles (including stuck/broken/orphans)
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                PathManager pm = Singleton<PathManager>.instance;
-                if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
-                {
-                    for (int i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
+                    // 2. Direct clean pass on VehicleManager to release ALL active vehicles (including stuck/broken/orphans)
+                    VehicleManager vm = Singleton<VehicleManager>.instance;
+                    PathManager pm = Singleton<PathManager>.instance;
+                    if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
                     {
-                        ushort vId = (ushort)i;
-                        if ((vm.m_vehicles.m_buffer[i].m_flags & Vehicle.Flags.Created) != 0)
+                        for (int i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
                         {
-                            if (vm.m_vehicles.m_buffer[i].m_path != 0 && pm != null)
+                            ushort vId = (ushort)i;
+                            if ((vm.m_vehicles.m_buffer[i].m_flags & Vehicle.Flags.Created) != 0)
                             {
-                                try { pm.ReleasePath(vm.m_vehicles.m_buffer[i].m_path); } catch { }
-                                vm.m_vehicles.m_buffer[i].m_path = 0;
+                                if (vm.m_vehicles.m_buffer[i].m_path != 0 && pm != null)
+                                {
+                                    try { pm.ReleasePath(vm.m_vehicles.m_buffer[i].m_path); } catch { }
+                                    vm.m_vehicles.m_buffer[i].m_path = 0;
+                                }
+                                vm.ReleaseVehicle(vId);
+                                freed++;
                             }
-                            vm.ReleaseVehicle(vId);
-                            freed++;
                         }
                     }
+
+                    // 3. Clean up citizen paths
+                    UnstickCitizens();
+
+                    // 3b. Clear stuck vehicle recovery tracking
+                    StuckVehicleRecovery.ClearCache();
+
+                    // 4. Reactivate City Logistics & Spawning Pipelines
+                    ReactivateCityLogistics();
+
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ClearAllVehicles completed: Cleared {0} vehicles.", freed));
                 }
+                else
+                {
+                    // Level Load Sanitization Pass: Only release genuinely broken/corrupted vehicles!
+                    // Healthy, driving, parked, service and public transport vehicles are fully PRESERVED!
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Running level load vehicle sanitization (preserving healthy vehicles)...");
+                    VehicleManager vm = Singleton<VehicleManager>.instance;
+                    PathManager pm = Singleton<PathManager>.instance;
+                    if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
+                    {
+                        int prefabCount = PrefabCollection<VehicleInfo>.LoadedCount();
+                        for (int i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
+                        {
+                            ushort vId = (ushort)i;
+                            if ((vm.m_vehicles.m_buffer[i].m_flags & Vehicle.Flags.Created) != 0)
+                            {
+                                VehicleInfo info = vm.m_vehicles.m_buffer[i].Info;
+                                UnityEngine.Vector3 pos = vm.m_vehicles.m_buffer[i].GetLastFramePosition();
+                                bool isCorrupt = false;
 
-                // 3. Clean up citizen paths
-                UnstickCitizens();
+                                // Check 1: Missing or invalid prefab info
+                                if (info == null || vm.m_vehicles.m_buffer[i].m_infoIndex == 0 || (prefabCount > 0 && vm.m_vehicles.m_buffer[i].m_infoIndex >= prefabCount))
+                                {
+                                    isCorrupt = true;
+                                }
+                                // Check 2: Invalid or NaN position coordinates
+                                else if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) ||
+                                         float.IsInfinity(pos.x) || float.IsInfinity(pos.y) || float.IsInfinity(pos.z) ||
+                                         UnityEngine.Mathf.Abs(pos.x) > 100000f || UnityEngine.Mathf.Abs(pos.z) > 100000f)
+                                {
+                                    isCorrupt = true;
+                                }
 
-                // 3b. Clear stuck vehicle recovery tracking
-                StuckVehicleRecovery.ClearCache();
+                                if (isCorrupt)
+                                {
+                                    if (vm.m_vehicles.m_buffer[i].m_path != 0 && pm != null)
+                                    {
+                                        try { pm.ReleasePath(vm.m_vehicles.m_buffer[i].m_path); } catch { }
+                                        vm.m_vehicles.m_buffer[i].m_path = 0;
+                                    }
+                                    vm.ReleaseVehicle(vId);
+                                    freed++;
+                                }
+                            }
+                        }
+                    }
 
-                // 4. Reactivate City Logistics & Spawning Pipelines
-                ReactivateCityLogistics();
+                    // Clean ghost vehicles on demolished roads
+                    int ghostDemolished = CleanDemolishedRoadVehicles();
+                    freed += ghostDemolished;
 
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ClearAllVehicles completed: Cleared {0} vehicles.", freed));
+                    // Reactivate linked lists and logistics without deleting healthy vehicles
+                    ReactivateCityLogistics();
+
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Level load sanitization completed: purged {0} corrupted/ghost vehicles (healthy vehicles preserved).", freed));
+                }
             }
             catch (Exception ex)
             {

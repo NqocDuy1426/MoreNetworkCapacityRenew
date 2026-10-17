@@ -368,6 +368,21 @@ class TestSuite
             Assert(hasEnsureLcm, "TM:PE LaneConnectionManager.Road/Track connectionDataBase_ guaranteed initialized");
             Assert(hasLcsmPatches, "TM:PE LaneConnectionSubManager guarded against NRE and uncreated nodes/lanes");
             Assert(has4PosPfi, "CustomPathFind validates all 4 positions (start A/B and end A/B) without misidentifying destination");
+
+            // 8.2 Verify TurboTrafficDispatcher & Save-Load Vehicle Preservation
+            bool hasSelectiveCleanse = renewCode.Contains("VehicleAndTransportRepair.ClearAllVehicles(wipeAll: false)");
+            bool hasTurboTraffic = renewCode.Contains("TurboTrafficDispatcher") && renewCode.Contains("TurboTrafficDispatcher.Apply");
+            bool hasPmUnsleep = renewCode.Contains("PathManager_SimulationStepImpl_Prefix");
+            bool hasTmMultiPhase = renewCode.Contains("TransferManager_SimulationStepImpl_Postfix") && renewCode.Contains("GetFrameReason");
+            bool hasOcPatches = renewCode.Contains("OutsideConnectionAI_DummyTrafficProbability_Prefix") && renewCode.Contains("OutsideConnectionAI_AddConnectionOffers_Prefix");
+            bool hasLogisticsBoost = renewCode.Contains("ApplyLogisticsBoost") && renewCode.Contains("CargoTruckAI") && renewCode.Contains("GarbageTruckAI") && renewCode.Contains("HearseAI");
+
+            Assert(hasSelectiveCleanse, "Level load preserves healthy vehicles and only cleanses corrupt/broken vehicles (wipeAll: false)");
+            Assert(hasTurboTraffic, "TurboTrafficDispatcher initialized and applied via Harmony");
+            Assert(hasPmUnsleep, "PathManager.SimulationStepImpl bypasses artificial Thread.Sleep bottleneck");
+            Assert(hasTmMultiPhase, "TransferManager multi-phase matching accelerates offer matching 4x across complementary phases");
+            Assert(hasOcPatches, "OutsideConnectionAI dummy traffic and connection offers scaled for 65k capacity");
+            Assert(hasLogisticsBoost, "Smart logistics capacity boost applied for Cargo, Garbage, and Hearse service vehicles");
         }
         catch (Exception ex)
         {

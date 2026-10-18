@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.18 - Critical TM:PE ExtSegment & Routing Computation Fix: 1) Fixed ExtSegmentManager struct expansion bug where segmentId was 0 for expanded segments (>= 36,864), which prevented TM:PE Recalculate from running. 2) Fixed ExtSegmentEndManager to properly assign node IDs (m_startNode / m_endNode) so segment ends are never uninitialized (nodeId 0). 3) Added RoutingManager.RecalculateAll postfix to compute lane transition routing tables for all 64K segments (TM:PE natively only loops 0..36863), unfreezing traffic city-wide and allowing all vehicles to traverse junctions seamlessly."
+	"changenote"		"v4.3.19 - Full Simulation Unfreeze & Timed Light Execution: 1) Hooked NetManager.SimulationStepImpl to simulate all expanded nodes (32,768..65,023) and segments (36,864..65,023), allowing road AI and vanilla junction lights to advance naturally. 2) Hooked TM:PE TrafficLightSimulationManager.SimulationStep Postfix and enabled 64K execution on load, ensuring timed traffic lights on nodes >= 32,768 (e.g. nodes 35351, 43432, 50477) cycle their phases and never freeze on red. 3) Fixed NonPublic reflection lookup for SimulationManager.SimulationStep in VehicleFixPatches so StuckVehicleRecovery active unsticking runs smoothly every frame."
 }
 

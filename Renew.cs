@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.18 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.19 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1746,6 +1746,19 @@ namespace MoreNetworkCapacityRenew
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.RoutingManager_RecalculateAll_Postfix));
                         harmony.Patch(recalcAllM, postfix: new HarmonyMethod(post));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE RoutingManager.RecalculateAll");
+                    }
+                }
+
+                // 9b. TrafficLightSimulationManager.SimulationStep (Postfix for 64K timed traffic lights)
+                Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                if (tlsmType != null)
+                {
+                    MethodInfo stepM = tlsmType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (stepM != null)
+                    {
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficLightSimulationManager_SimulationStep_Postfix));
+                        harmony.Patch(stepM, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficLightSimulationManager.SimulationStep");
                     }
                 }
 
@@ -4966,6 +4979,7 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                s_hasAnyUpperTimedLightSimulation = true;
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
@@ -5198,11 +5212,11 @@ namespace MoreNetworkCapacityRenew
         private static SimOneDelegate simOneDel = null;
         private static bool tmpePostfixInitDone = false;
         private static bool tmpePostfixLoggedOnce = false;
-        public static bool s_hasAnyUpperTimedLightSimulation = false;
+        public static bool s_hasAnyUpperTimedLightSimulation = true;
 
         public static void TrafficLightSimulationManager_SimulationStep_Postfix(object __instance)
         {
-            if (!s_hasAnyUpperTimedLightSimulation || __instance == null) return;
+            if (__instance == null) return;
             try
             {
                 if (propSimulations == null)
@@ -5264,11 +5278,18 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] TM:PE Postfix RUNNING. frame={0} range=[{1}..{2}) arrayLen={3} delegate={4}", f, start, end, rawArray.Length, simOneDel != null ? "JIT" : "reflection"));
                 }
 
+                NetNode[] nodes = null;
+                if (Singleton<NetManager>.exists)
+                {
+                    var nm = Singleton<NetManager>.instance;
+                    if (nm != null && nm.m_nodes != null) nodes = nm.m_nodes.m_buffer;
+                }
+
                 for (int i = start; i < end; i++)
                 {
-                    if (NetManager.instance != null && NetManager.instance.m_nodes != null && NetManager.instance.m_nodes.m_buffer != null && i < NetManager.instance.m_nodes.m_buffer.Length)
+                    if (nodes != null && i < nodes.Length)
                     {
-                        if ((NetManager.instance.m_nodes.m_buffer[i].m_flags & NetNode.Flags.Created) == 0)
+                        if ((nodes[i].m_flags & NetNode.Flags.Created) == 0)
                             continue;
                     }
 
@@ -6900,6 +6921,21 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPECompatibility error: " + ex);
+                }
+
+                try
+                {
+                    MethodInfo nmsi = typeof(NetManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                    if (nmsi != null)
+                    {
+                        MethodInfo post = typeof(NetManagerSimulationPatches).GetMethod(nameof(NetManagerSimulationPatches.Postfix), BindingFlags.Static | BindingFlags.Public);
+                        harmony.Patch(nmsi, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.SimulationStepImpl for 64K simulation");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetManager.SimulationStepImpl: " + ex);
                 }
 
                 // Road & node demolition handling is natively delegated to vanilla game & TM:PE.
@@ -14084,7 +14120,7 @@ namespace MoreNetworkCapacityRenew
             {
                 // Patch 1: SimulationManager.SimulationStep
                 MethodInfo simStep = typeof(SimulationManager).GetMethod("SimulationStep",
-                    BindingFlags.Public | BindingFlags.Instance);
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
                 
                 if (simStep != null)
                 {

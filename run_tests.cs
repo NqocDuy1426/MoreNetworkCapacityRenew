@@ -478,6 +478,26 @@ class TestSuite
             // 10.7 Verify StoppedVehicleSafety.Reset hooked in lifecycle
             bool hasResetHook = renewCode.Contains("StoppedVehicleSafety.Reset()");
             Assert(hasResetHook, "StoppedVehicleSafety.Reset is hooked in OnLevelLoaded and OnLevelUnloading");
+
+            // 10.8 Verify s_roadStuckFrames tracking buffer
+            bool hasRoadStuckBuffer = renewCode.Contains("s_roadStuckFrames = new ushort[65536]");
+            Assert(hasRoadStuckBuffer, "s_roadStuckFrames tracking buffer exists with 65,536 capacity");
+
+            // 10.9 Verify road-stuck vehicle kickstart in CarAI_SimulationStep_Postfix
+            bool hasRoadStuckKick = renewCode.Contains("s_roadStuckFrames[vehicleID] >= 24") &&
+                                    renewCode.Contains("vehicleData.m_targetPos0.w = kickSpeed");
+            Assert(hasRoadStuckKick, "CarAI_SimulationStep_Postfix kickstarts motionless vehicles stuck on roads with valid destinations");
+
+            // 10.10 Verify RestoreVehicleSpeedIfNeeded respects red lights and restores safe speed on open roads
+            bool hasRestoreSpeed = renewCode.Contains("public static void RestoreVehicleSpeedIfNeeded") &&
+                                   renewCode.Contains("RoadBaseAI.GetTrafficLightState") &&
+                                   renewCode.Contains("maxSpeed = safeSpeed");
+            Assert(hasRestoreSpeed, "RestoreVehicleSpeedIfNeeded restores safe speed on open roads/curves/bus stops while respecting red lights");
+
+            // 10.11 Verify CarAI.CalculateSegmentPosition patched in StoppedVehicleSafety.Apply
+            bool hasCspPatches = renewCode.Contains("CarAI.CalculateSegmentPosition(13) [Anti-Road-Freeze]") &&
+                                 renewCode.Contains("CarAI.CalculateSegmentPosition(8) [Anti-Road-Freeze]");
+            Assert(hasCspPatches, "CarAI.CalculateSegmentPosition (13 and 8 params) are patched with anti-road-freeze postfixes");
         }
         catch (Exception ex)
         {

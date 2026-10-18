@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.29 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.30 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -6108,8 +6108,60 @@ namespace MoreNetworkCapacityRenew
             PathUnit.Position prevPos, 
             ref float maxSpeed)
         {
-            // Natural vehicle speed and following distance preserved. 
-            // Anti-deadlock is handled via IsEnteringBlockedJunctionAllowed and StuckVehicleRecovery.
+            if (maxSpeed > 0.05f && !float.IsNaN(maxSpeed) && !float.IsInfinity(maxSpeed))
+                return;
+
+            try
+            {
+                // If vehicle is stopped at building, parked, or waiting for path, do not interfere
+                if ((vehicleData.m_flags & (Vehicle.Flags.Stopped | Vehicle.Flags.Parking | Vehicle.Flags.WaitingPath | Vehicle.Flags.WaitingSpace)) != 0)
+                    return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null || position.m_segment == 0 || position.m_segment >= nm.m_segments.m_buffer.Length)
+                    return;
+
+                NetSegment segment = nm.m_segments.m_buffer[position.m_segment];
+                if ((segment.m_flags & NetSegment.Flags.Created) == 0) return;
+
+                // Check if approaching a genuine RED traffic light at an intersection node
+                ushort targetNodeId = (position.m_offset < 128) ? segment.m_startNode : segment.m_endNode;
+                if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
+                {
+                    NetNode node = nm.m_nodes.m_buffer[targetNodeId];
+                    if ((node.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0 && node.CountSegments() > 2)
+                    {
+                        uint currentFrameIndex = Singleton<SimulationManager>.instance.m_currentFrameIndex;
+                        RoadBaseAI.TrafficLightState vehState, pedState;
+                        bool vehChange, pedChange;
+                        RoadBaseAI.GetTrafficLightState(targetNodeId, ref segment, currentFrameIndex - 256u, out vehState, out pedState, out vehChange, out pedChange);
+                        if (vehState == RoadBaseAI.TrafficLightState.Red)
+                        {
+                            // Genuine red light: allow vehicle to wait at intersection
+                            return;
+                        }
+                    }
+                }
+
+                // Not a red light! This is a straight road, curve, bus stop, or lane change.
+                // Restore safe travel speed so the vehicle never stalls at 0 km/h.
+                float safeSpeed = 0.5f; // ~40 km/h minimum
+                NetInfo info = segment.Info;
+                if (info != null && info.m_lanes != null && position.m_lane < info.m_lanes.Length)
+                {
+                    float laneSpeed = info.m_lanes[position.m_lane].m_speedLimit;
+                    if (laneSpeed > 0.1f)
+                    {
+                        safeSpeed = laneSpeed;
+                    }
+                }
+
+                maxSpeed = safeSpeed;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RestoreVehicleSpeedIfNeeded error: " + ex);
+            }
         }
 
         // VehicleBehaviorManager.MayChangeSegment is left 100% native to TM:PE to preserve natural traffic yielding, lane arrows, and turn directions.
@@ -6459,11 +6511,13 @@ namespace MoreNetworkCapacityRenew
     {
         internal static readonly ushort[] s_canLeaveWaitFrames = new ushort[65536];
         internal static readonly ushort[] s_carStoppedFallback = new ushort[65536];
+        internal static readonly ushort[] s_roadStuckFrames = new ushort[65536];
 
         public static void Reset()
         {
             Array.Clear(s_canLeaveWaitFrames, 0, s_canLeaveWaitFrames.Length);
             Array.Clear(s_carStoppedFallback, 0, s_carStoppedFallback.Length);
+            Array.Clear(s_roadStuckFrames, 0, s_roadStuckFrames.Length);
         }
 
         public static void BoardWaitingCitizens(ushort vehicleID, ref Vehicle vehicleData)
@@ -6551,6 +6605,7 @@ namespace MoreNetworkCapacityRenew
 
             if ((vehicleData.m_flags & Vehicle.Flags.Stopped) != 0)
             {
+                s_roadStuckFrames[vehicleID] = 0;
                 int threshold = ((vehicleData.m_flags & Vehicle.Flags.GoingBack) != 0) ? 20 : 36;
                 if (++s_carStoppedFallback[vehicleID] >= threshold)
                 {
@@ -6565,9 +6620,75 @@ namespace MoreNetworkCapacityRenew
                     s_carStoppedFallback[vehicleID] = 0;
                 }
             }
-            else if (s_carStoppedFallback[vehicleID] != 0)
+            else
             {
-                s_carStoppedFallback[vehicleID] = 0;
+                if (s_carStoppedFallback[vehicleID] != 0)
+                {
+                    s_carStoppedFallback[vehicleID] = 0;
+                }
+
+                // Road-stuck vehicle defense (vehicles stopped motionless in the road with valid destination)
+                if ((vehicleData.m_flags & (Vehicle.Flags.Created | Vehicle.Flags.Deleted | Vehicle.Flags.Spawned)) == Vehicle.Flags.Spawned
+                    && (vehicleData.m_flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingPath | Vehicle.Flags.WaitingSpace)) == 0
+                    && vehicleData.m_path != 0)
+                {
+                    if (vehicleData.GetLastFrameVelocity().sqrMagnitude < 0.0001f 
+                        && (vehicleData.m_targetPos0.w < 0.1f || vehicleData.m_targetPos1.w < 0.1f))
+                    {
+                        if (++s_roadStuckFrames[vehicleID] >= 24) // ~6 seconds motionless on the road
+                        {
+                            bool atRedLight = false;
+                            PathManager pm = Singleton<PathManager>.instance;
+                            NetManager nm = Singleton<NetManager>.instance;
+                            if (pm != null && nm != null && vehicleData.m_path < pm.m_pathUnits.m_buffer.Length)
+                            {
+                                PathUnit.Position pathPos;
+                                if (pm.m_pathUnits.m_buffer[vehicleData.m_path].GetPosition(vehicleData.m_pathPositionIndex >> 1, out pathPos))
+                                {
+                                    if (pathPos.m_segment != 0 && pathPos.m_segment < nm.m_segments.m_buffer.Length)
+                                    {
+                                        NetSegment seg = nm.m_segments.m_buffer[pathPos.m_segment];
+                                        ushort targetNodeId = (pathPos.m_offset < 128) ? seg.m_startNode : seg.m_endNode;
+                                        if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
+                                        {
+                                            NetNode node = nm.m_nodes.m_buffer[targetNodeId];
+                                            if ((node.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0 && node.CountSegments() > 2)
+                                            {
+                                                uint frameIdx = Singleton<SimulationManager>.instance.m_currentFrameIndex;
+                                                RoadBaseAI.TrafficLightState vs, ps;
+                                                bool vc, pc;
+                                                RoadBaseAI.GetTrafficLightState(targetNodeId, ref seg, frameIdx - 256u, out vs, out ps, out vc, out pc);
+                                                if (vs == RoadBaseAI.TrafficLightState.Red)
+                                                {
+                                                    atRedLight = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!atRedLight)
+                            {
+                                float kickSpeed = 1.0f;
+                                if (vehicleData.m_targetPos0.w < 0.5f) vehicleData.m_targetPos0.w = kickSpeed;
+                                if (vehicleData.m_targetPos1.w < 0.5f) vehicleData.m_targetPos1.w = kickSpeed;
+                                if (vehicleData.m_targetPos2.w < 0.5f) vehicleData.m_targetPos2.w = kickSpeed;
+                                if (vehicleData.m_targetPos3.w < 0.5f) vehicleData.m_targetPos3.w = kickSpeed;
+                                vehicleData.m_blockCounter = 0;
+                            }
+                            s_roadStuckFrames[vehicleID] = 0;
+                        }
+                    }
+                    else if (s_roadStuckFrames[vehicleID] != 0)
+                    {
+                        s_roadStuckFrames[vehicleID] = 0;
+                    }
+                }
+                else if (s_roadStuckFrames[vehicleID] != 0)
+                {
+                    s_roadStuckFrames[vehicleID] = 0;
+                }
             }
         }
 
@@ -6630,6 +6751,33 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CarAI.SimulationStep: " + ex);
+                }
+
+                try
+                {
+                    var post13 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CarAI_CalculateSegmentPosition13_Postfix), BindingFlags.Public | BindingFlags.Static);
+                    var post8 = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CarAI_CalculateSegmentPosition8_Postfix), BindingFlags.Public | BindingFlags.Static);
+
+                    foreach (var m in typeof(CarAI).GetMethods(BindingFlags.NonPublic | BindingFlags.Instance))
+                    {
+                        if (m.Name == "CalculateSegmentPosition")
+                        {
+                            if (m.GetParameters().Length == 13 && post13 != null)
+                            {
+                                harmony.Patch(m, postfix: new HarmonyMethod(post13));
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CarAI.CalculateSegmentPosition(13) [Anti-Road-Freeze]");
+                            }
+                            else if (m.GetParameters().Length == 8 && post8 != null)
+                            {
+                                harmony.Patch(m, postfix: new HarmonyMethod(post8));
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CarAI.CalculateSegmentPosition(8) [Anti-Road-Freeze]");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CarAI.CalculateSegmentPosition: " + ex);
                 }
             }
             catch (Exception ex)

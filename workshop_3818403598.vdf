@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.29 - Fixed vehicles (Hearses, Ambulances, Service and Passenger vehicles) stopping indefinitely at buildings: introduced StoppedVehicleSafety watchdog that automatically boards citizen drivers and clears vehicle stop blocks if walking citizen models get stuck or delayed. Vehicles cleanly depart within 3 seconds when collection is complete."
+	"changenote"		"v4.3.30 - Fixed vehicles stopping in the middle of roads, curves, bus stops, and lane changes: patched CarAI.CalculateSegmentPosition to prevent false-zero maxSpeed, restored safe travel speed when not at red lights, and added automatic road watchdog that kickstarts motionless vehicles stuck on roads with valid destinations."
 }
 

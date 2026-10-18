@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.25 - CRITICAL FIX: Restore pathfinding (vehicles not spawning/moving): The v4.3.24 Thread.Sleep bypass accidentally used Harmony prefix return false which skipped the ENTIRE PathManager.SimulationStepImpl and CustomPathManager.SimulationStepImpl methods, completely disabling all pathfinding. No vehicle could calculate a route, so no vehicle could spawn or move. Fixed by changing to return true so pathfinding runs normally."
+	"changenote"		"v4.3.26 - Rollback experimental simulation step patches & restore pure stability: Completely removed experimental SimulationStepImpl patches and broken road despawn hooks. Restored proven stable architecture (v4.3.23 loading fix + pure native TM:PE pathfinding) so game loads cleanly, pathfinding operates without interference, and vehicles spawn normally."
 }
 

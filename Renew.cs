@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.24 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.26 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1754,14 +1754,6 @@ namespace MoreNetworkCapacityRenew
                         var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
                         harmony.Patch(wfapM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.WaitForAllPaths (deadlock defense prefix, Priority.First)");
-                    }
-
-                    MethodInfo simStepM = cpmType.GetMethod("SimulationStepImpl", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (simStepM != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathManager_SimulationStepImpl_Prefix));
-                        harmony.Patch(simStepM, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.SimulationStepImpl (removed artificial Thread.Sleep throttling)");
                     }
                 }
 
@@ -5264,13 +5256,6 @@ namespace MoreNetworkCapacityRenew
             TMPECompatibility.EnsurePathFindCapacity();
         }
 
-        public static bool CustomPathManager_SimulationStepImpl_Prefix()
-        {
-            // Allow TM:PE CustomPathManager.SimulationStepImpl to run normally.
-            // Thread.Sleep throttling is tolerable; completely skipping this method kills ALL pathfinding.
-            return true;
-        }
-
         public static void CustomPathFind_Awake_Postfix(object __instance)
         {
             try
@@ -6479,15 +6464,6 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched OutsideConnectionAI.AddConnectionOffers (boosted outside connections).");
                 }
 
-                // 3. PathManager: Remove artificial Thread.Sleep throttling on simulation thread
-                MethodInfo pmStep = typeof(PathManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic);
-                if (pmStep != null)
-                {
-                    MethodInfo pmPrefix = typeof(TurboTrafficDispatcher).GetMethod(nameof(PathManager_SimulationStepImpl_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(pmStep, prefix: new HarmonyMethod(pmPrefix));
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched PathManager.SimulationStepImpl (removed artificial Thread.Sleep throttling).");
-                }
-
                 s_applied = true;
             }
             catch (Exception ex)
@@ -6498,8 +6474,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool PathManager_SimulationStepImpl_Prefix(PathManager __instance, int subStep)
         {
-            // Allow vanilla PathManager.SimulationStepImpl to run normally.
-            // Thread.Sleep throttling is tolerable; completely skipping this method kills ALL pathfinding.
+            // Preserves vanilla PathManager backpressure
             return true;
         }
 
@@ -10398,68 +10373,39 @@ namespace MoreNetworkCapacityRenew
                         {
                             int posIdx = (int)(vm.m_vehicles.m_buffer[i].m_pathPositionIndex >> 1);
                             PathUnit.Position pPos;
-                            bool brokenRoad = false;
                             if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
                             {
-                                ushort segId = pPos.m_segment;
-                                if (segId == 0 || segId >= (ushort)segCount || (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
+                                if (pPos.m_segment != 0 && pPos.m_segment < segCount &&
+                                    (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) != 0)
                                 {
-                                    brokenRoad = true;
-                                }
-                                else
-                                {
-                                    PathUnit.Position nextPos;
-                                    if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx + 1, out nextPos))
+                                    // Do not unstick if legitimately waiting at a red traffic light
+                                    ushort startNode = nm.m_segments.m_buffer[pPos.m_segment].m_startNode;
+                                    ushort endNode = nm.m_segments.m_buffer[pPos.m_segment].m_endNode;
+                                    ushort targetNodeId = (pPos.m_offset > 128) ? endNode : startNode;
+                                    if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
                                     {
-                                        if (nextPos.m_segment == 0 || nextPos.m_segment >= (ushort)segCount ||
-                                            (nm.m_segments.m_buffer[nextPos.m_segment].m_flags & NetSegment.Flags.Created) == 0)
+                                        if ((nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
                                         {
-                                            brokenRoad = true;
-                                        }
-                                    }
-
-                                    if (!brokenRoad)
-                                    {
-                                        ushort startNode = nm.m_segments.m_buffer[segId].m_startNode;
-                                        ushort endNode = nm.m_segments.m_buffer[segId].m_endNode;
-                                        ushort targetNodeId = (pPos.m_offset > 128) ? endNode : startNode;
-                                        if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
-                                        {
-                                            if ((nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
+                                            RoadBaseAI.TrafficLightState vState, pState;
+                                            RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[pPos.m_segment], 
+                                                Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
+                                                out vState, out pState);
+                                            if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
                                             {
-                                                RoadBaseAI.TrafficLightState vState, pState;
-                                                RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[segId], 
-                                                    Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
-                                                    out vState, out pState);
-                                                if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
-                                                {
-                                                    continue; // Legitimate red light wait -> DO NOT touch!
-                                                }
+                                                continue; // Legitimate red light wait -> DO NOT touch!
                                             }
                                         }
-
-                                        vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
-                                        if (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos0.w = 1.5f;
-                                        if (vm.m_vehicles.m_buffer[i].m_targetPos1.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos1.w = 1.5f;
-                                        if (vm.m_vehicles.m_buffer[i].m_targetPos2.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos2.w = 1.5f;
-                                        if (vm.m_vehicles.m_buffer[i].m_targetPos3.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos3.w = 1.5f;
-
-                                        TMPECompatibility.UnstickVehicle((ushort)i);
-                                        unblocked++;
                                     }
-                                }
-                            }
-                            else
-                            {
-                                brokenRoad = true;
-                            }
 
-                            if (brokenRoad)
-                            {
-                                try { pm.ReleasePath(pathId); } catch { }
-                                vm.m_vehicles.m_buffer[i].m_path = 0;
-                                vm.ReleaseVehicle((ushort)i);
-                                unblocked++;
+                                    vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos0.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos1.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos1.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos2.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos2.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos3.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos3.w = 1.5f;
+
+                                    TMPECompatibility.UnstickVehicle((ushort)i);
+                                    unblocked++;
+                                }
                             }
                         }
                     }
@@ -13724,12 +13670,10 @@ namespace MoreNetworkCapacityRenew
 
                     // PRIORITY 4: Active Vehicles Frozen On Road (Zero velocity, mutual yield deadlock, or stale wait state)
                     if (buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f &&
-                        (flags & Vehicle.Flags.WaitingPath) == 0 &&
                         (buffer[i].m_targetPos0.w < 0.1f || buffer[i].m_blockCounter > 10))
                     {
                         uint pId = buffer[i].m_path;
                         bool atRedLight = false;
-                        bool brokenRoad = false;
                         if (pId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pId < pm.m_pathUnits.m_buffer.Length &&
                             nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
                         {
@@ -13738,62 +13682,27 @@ namespace MoreNetworkCapacityRenew
                             if (pm.m_pathUnits.m_buffer[pId].GetPosition(posIdx, out pPos))
                             {
                                 ushort segId = pPos.m_segment;
-                                if (segId == 0 || segId >= nm.m_segments.m_buffer.Length || (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
+                                if (segId != 0 && segId < nm.m_segments.m_buffer.Length && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
                                 {
-                                    brokenRoad = true;
-                                }
-                                else
-                                {
-                                    // Check next segment in path as well
-                                    PathUnit.Position nextPos;
-                                    if (pm.m_pathUnits.m_buffer[pId].GetPosition(posIdx + 1, out nextPos))
+                                    ushort targetNodeId = (pPos.m_offset > 128) ? nm.m_segments.m_buffer[segId].m_endNode : nm.m_segments.m_buffer[segId].m_startNode;
+                                    if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length && (nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
                                     {
-                                        if (nextPos.m_segment == 0 || nextPos.m_segment >= nm.m_segments.m_buffer.Length ||
-                                            (nm.m_segments.m_buffer[nextPos.m_segment].m_flags & NetSegment.Flags.Created) == 0)
+                                        RoadBaseAI.TrafficLightState vState, pState;
+                                        RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[segId],
+                                            currentFrame - (uint)(targetNodeId << 8) / 32768u, out vState, out pState);
+                                        if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
                                         {
-                                            brokenRoad = true;
-                                        }
-                                    }
-
-                                    if (!brokenRoad)
-                                    {
-                                        ushort targetNodeId = (pPos.m_offset > 128) ? nm.m_segments.m_buffer[segId].m_endNode : nm.m_segments.m_buffer[segId].m_startNode;
-                                        if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length && (nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
-                                        {
-                                            RoadBaseAI.TrafficLightState vState, pState;
-                                            RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[segId],
-                                                currentFrame - (uint)(targetNodeId << 8) / 32768u, out vState, out pState);
-                                            if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
-                                            {
-                                                atRedLight = true;
-                                            }
+                                            atRedLight = true;
                                         }
                                     }
                                 }
                             }
-                            else
-                            {
-                                brokenRoad = true;
-                            }
-                        }
-
-                        if (brokenRoad)
-                        {
-                            // Path points to demolished road: immediately release/despawn so it NEVER flies across empty air!
-                            if (pId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pId < pm.m_pathUnits.m_buffer.Length)
-                            {
-                                try { pm.ReleasePath(pId); } catch { }
-                                buffer[i].m_path = 0;
-                            }
-                            vm.ReleaseVehicle((ushort)i);
-                            totalRecoveries++;
-                            continue;
                         }
 
                         if (!atRedLight)
                         {
-                            // If vehicle has been deadlocked on road for extreme blockCounter (>= 180), cleanly release it
-                            if (buffer[i].m_blockCounter >= 180)
+                            // If vehicle has been deadlocked on road for extreme blockCounter (>= 220), cleanly release it
+                            if (buffer[i].m_blockCounter >= 220)
                             {
                                 if (pId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pId < pm.m_pathUnits.m_buffer.Length)
                                 {

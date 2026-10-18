@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.31 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.32 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1907,6 +1907,14 @@ namespace MoreNetworkCapacityRenew
                                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE JunctionRestrictionsManager.LoadData");
                             }
                         }
+
+                        MethodInfo isEnteringM = jrmType.GetMethod("IsEnteringBlockedJunctionAllowed", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
+                        if (isEnteringM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix));
+                            harmony.Patch(isEnteringM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed (2-segment continuous corridor guard)");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -2317,6 +2325,29 @@ namespace MoreNetworkCapacityRenew
                 }
 
                 // 31. VehicleBehaviorManager: Left 100% native to TM:PE for native despawn and segment transitions (yielding, turns, and lane directions fully preserved)
+                try
+                {
+                    Type vbmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleBehaviorManager");
+                    if (vbmType != null)
+                    {
+                        TMPEPatches.InitVehicleBehaviorDelegates(tmpe, GetTMPEApiAssembly());
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment_Postfix));
+                        int patchedVbm = 0;
+                        foreach (var m in vbmType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                        {
+                            if (m.Name == "MayChangeSegment" && (m.GetParameters().Length == 12 || m.GetParameters().Length == 14))
+                            {
+                                harmony.Patch(m, postfix: new HarmonyMethod(post));
+                                patchedVbm++;
+                            }
+                        }
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (" + patchedVbm + " overloads with anti-deadlock safety)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
+                }
 
                 // 32. TM:PE SavedGameOptions & GlobalConfig persistence guards & ThreadingExtension simulation guard
                 try
@@ -6214,6 +6245,308 @@ namespace MoreNetworkCapacityRenew
         {
             return true;
         }
+
+        public static bool JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix(ushort segmentId, bool startNode, ref bool __result)
+        {
+            try
+            {
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null && segmentId < nm.m_segments.m_buffer.Length)
+                {
+                    ushort nodeId = startNode ? nm.m_segments.m_buffer[segmentId].m_startNode : nm.m_segments.m_buffer[segmentId].m_endNode;
+                    if (nodeId != 0 && nm.m_nodes != null && nm.m_nodes.m_buffer != null && nodeId < nm.m_nodes.m_buffer.Length)
+                    {
+                        // Continuous road corridor (highway, avenue, transition with 2 or fewer segments):
+                        // There is NO cross-traffic to block, so entering must ALWAYS be allowed.
+                        if (nm.m_nodes.m_buffer[nodeId].CountSegments() <= 2)
+                        {
+                            __result = true;
+                            return false; // Skip original method
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return true; // Let TM:PE handle 3+ segment intersections natively
+        }
+
+        public delegate void GetLightDelegate(
+            object instance,
+            ushort nodeId,
+            ushort fromSeg,
+            byte fromLane,
+            ushort toSeg,
+            ref NetSegment seg,
+            uint frame,
+            out RoadBaseAI.TrafficLightState vLight,
+            out RoadBaseAI.TrafficLightState pLight);
+
+        public delegate int GetPrioritySignDelegate(object instance, ushort segId, bool startNode);
+        public delegate void SetTransitStateDelegate(object instance, Array extVehicles, int vehicleId, int state);
+
+        private static GetLightDelegate s_tlsmGetLightDelegate = null;
+        private static FieldInfo s_fTlsmInstance = null;
+        private static object s_tlsmInstanceObj = null;
+
+        private static GetPrioritySignDelegate s_getPrioritySignDelegate = null;
+        private static FieldInfo s_fTpmInstance = null;
+        private static object s_tpmInstanceObj = null;
+
+        private static SetTransitStateDelegate s_setTransitStateDelegate = null;
+        private static FieldInfo s_fEvmInstance = null;
+        private static PropertyInfo s_pExtVehicles = null;
+        private static object s_evmInstanceObj = null;
+        private static Array s_extVehiclesArray = null;
+
+        public static void InitVehicleBehaviorDelegates(Assembly tmpe, Assembly api)
+        {
+            try
+            {
+                if (tmpe != null)
+                {
+                    Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                    if (tlsmType != null)
+                    {
+                        s_fTlsmInstance = tlsmType.GetField("Instance", BindingFlags.Public | BindingFlags.Static);
+                        MethodInfo mGetLight = tlsmType.GetMethod("GetTrafficLightState", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                            typeof(ushort), typeof(ushort), typeof(byte), typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(uint), typeof(RoadBaseAI.TrafficLightState).MakeByRefType(), typeof(RoadBaseAI.TrafficLightState).MakeByRefType()
+                        }, null);
+                        if (mGetLight != null)
+                        {
+                            var dm = new DynamicMethod("FastGetLight", null, new Type[] {
+                                typeof(object), typeof(ushort), typeof(ushort), typeof(byte), typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(uint), typeof(RoadBaseAI.TrafficLightState).MakeByRefType(), typeof(RoadBaseAI.TrafficLightState).MakeByRefType()
+                            }, typeof(TMPEPatches).Module, true);
+                            var il = dm.GetILGenerator();
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Castclass, tlsmType);
+                            il.Emit(OpCodes.Ldarg_1);
+                            il.Emit(OpCodes.Ldarg_2);
+                            il.Emit(OpCodes.Ldarg_3);
+                            il.Emit(OpCodes.Ldarg_S, (byte)4);
+                            il.Emit(OpCodes.Ldarg_S, (byte)5);
+                            il.Emit(OpCodes.Ldarg_S, (byte)6);
+                            il.Emit(OpCodes.Ldarg_S, (byte)7);
+                            il.Emit(OpCodes.Ldarg_S, (byte)8);
+                            il.Emit(OpCodes.Callvirt, mGetLight);
+                            il.Emit(OpCodes.Ret);
+                            s_tlsmGetLightDelegate = (GetLightDelegate)dm.CreateDelegate(typeof(GetLightDelegate));
+                        }
+                    }
+
+                    Type tpmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficPriorityManager");
+                    if (tpmType != null)
+                    {
+                        s_fTpmInstance = tpmType.GetField("Instance", BindingFlags.Public | BindingFlags.Static);
+                        MethodInfo mGetSign = tpmType.GetMethod("GetPrioritySign", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
+                        if (mGetSign != null)
+                        {
+                            var dm = new DynamicMethod("FastGetSign", typeof(int), new Type[] { typeof(object), typeof(ushort), typeof(bool) }, typeof(TMPEPatches).Module, true);
+                            var il = dm.GetILGenerator();
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Castclass, tpmType);
+                            il.Emit(OpCodes.Ldarg_1);
+                            il.Emit(OpCodes.Ldarg_2);
+                            il.Emit(OpCodes.Callvirt, mGetSign);
+                            il.Emit(OpCodes.Ret);
+                            s_getPrioritySignDelegate = (GetPrioritySignDelegate)dm.CreateDelegate(typeof(GetPrioritySignDelegate));
+                        }
+                    }
+
+                    Type evmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtVehicleManager");
+                    if (evmType != null && api != null)
+                    {
+                        s_fEvmInstance = evmType.GetField("Instance", BindingFlags.Public | BindingFlags.Static);
+                        s_pExtVehicles = evmType.GetProperty("ExtVehicles", BindingFlags.Public | BindingFlags.Instance);
+                        Type extVehType = api.GetType("TrafficManager.API.Traffic.Data.ExtVehicle");
+                        Type transitStateType = api.GetType("TrafficManager.API.Traffic.Enums.VehicleJunctionTransitState");
+                        if (extVehType != null && transitStateType != null)
+                        {
+                            MethodInfo mSetTransit = evmType.GetMethod("SetJunctionTransitState", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { extVehType.MakeByRefType(), transitStateType }, null);
+                            if (mSetTransit != null)
+                            {
+                                var dm = new DynamicMethod("FastSetTransit", null, new Type[] { typeof(object), typeof(Array), typeof(int), typeof(int) }, typeof(TMPEPatches).Module, true);
+                                var il = dm.GetILGenerator();
+                                il.Emit(OpCodes.Ldarg_0);
+                                il.Emit(OpCodes.Castclass, evmType);
+                                il.Emit(OpCodes.Ldarg_1);
+                                il.Emit(OpCodes.Castclass, extVehType.MakeArrayType());
+                                il.Emit(OpCodes.Ldarg_2);
+                                il.Emit(OpCodes.Ldelema, extVehType);
+                                il.Emit(OpCodes.Ldarg_3);
+                                il.Emit(OpCodes.Callvirt, mSetTransit);
+                                il.Emit(OpCodes.Ret);
+                                s_setTransitStateDelegate = (SetTransitStateDelegate)dm.CreateDelegate(typeof(SetTransitStateDelegate));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] InitVehicleBehaviorDelegates error: " + ex);
+            }
+        }
+
+        public static void VehicleBehaviorManager_MayChangeSegment_Postfix(
+            ushort frontVehicleId,
+            ref Vehicle vehicleData,
+            float sqrVelocity,
+            ref PathUnit.Position prevPos,
+            ref NetSegment prevSegment,
+            ushort prevTargetNodeId,
+            uint prevLaneID,
+            ref PathUnit.Position position,
+            ushort targetNodeId,
+            ref NetNode targetNode,
+            uint laneID,
+            ref float maxSpeed,
+            ref bool __result)
+        {
+            // If TM:PE already permitted the vehicle to enter/leave the next segment, do not interfere.
+            if (__result) return;
+
+            try
+            {
+                // 1. Check for genuine RED traffic lights facing this vehicle
+                // Traffic lights MUST ALWAYS be strictly obeyed! Never run a red light!
+                if ((targetNode.m_flags & (NetNode.Flags.TrafficLights | NetNode.Flags.CustomTrafficLights)) != 0 && targetNodeId != 0)
+                {
+                    RoadBaseAI.TrafficLightState vLight = RoadBaseAI.TrafficLightState.Green;
+                    RoadBaseAI.TrafficLightState pLight = RoadBaseAI.TrafficLightState.Green;
+                    bool evaluated = false;
+
+                    // Attempt to query TM:PE's TrafficLightSimulationManager (handles both vanilla and timed lights)
+                    if (s_tlsmGetLightDelegate != null)
+                    {
+                        if (s_tlsmInstanceObj == null && s_fTlsmInstance != null)
+                        {
+                            try { s_tlsmInstanceObj = s_fTlsmInstance.GetValue(null); } catch { }
+                        }
+                        if (s_tlsmInstanceObj != null)
+                        {
+                            try
+                            {
+                                uint currentFrame = Singleton<SimulationManager>.instance.m_currentFrameIndex;
+                                uint frame = currentFrame - (uint)(targetNodeId >> 7);
+                                s_tlsmGetLightDelegate(s_tlsmInstanceObj, targetNodeId, prevPos.m_segment, prevPos.m_lane, position.m_segment, ref prevSegment, frame, out vLight, out pLight);
+                                evaluated = true;
+                            }
+                            catch { }
+                        }
+                    }
+
+                    if (!evaluated)
+                    {
+                        try
+                        {
+                            uint currentFrame = Singleton<SimulationManager>.instance.m_currentFrameIndex;
+                            uint frame = currentFrame - (uint)(targetNodeId >> 7);
+                            RoadBaseAI.GetTrafficLightState(targetNodeId, ref prevSegment, frame, out vLight, out pLight);
+                            evaluated = true;
+                        }
+                        catch { }
+                    }
+
+                    if (evaluated && (vLight == RoadBaseAI.TrafficLightState.Red || vLight == RoadBaseAI.TrafficLightState.RedToGreen))
+                    {
+                        // Facing a genuine RED light: vehicle MUST remain stopped.
+                        return;
+                    }
+                }
+
+                // 2. Check for Level Crossing (train passing)
+                if ((targetNode.m_flags & NetNode.Flags.LevelCrossing) != 0 && targetNodeId != 0)
+                {
+                    RoadBaseAI.TrafficLightState vLight, pLight;
+                    uint currentFrame = Singleton<SimulationManager>.instance.m_currentFrameIndex;
+                    uint frame = currentFrame - (uint)(targetNodeId >> 7);
+                    RoadBaseAI.GetTrafficLightState(targetNodeId, ref prevSegment, frame, out vLight, out pLight);
+                    if (vLight == RoadBaseAI.TrafficLightState.Red || vLight == RoadBaseAI.TrafficLightState.RedToGreen)
+                    {
+                        // Train crossing: vehicle MUST stop for oncoming train.
+                        return;
+                    }
+                }
+
+                // 3. Check for Priority Stop Sign where vehicle has not yet stopped
+                if (s_getPrioritySignDelegate != null)
+                {
+                    if (s_tpmInstanceObj == null && s_fTpmInstance != null)
+                    {
+                        try { s_tpmInstanceObj = s_fTpmInstance.GetValue(null); } catch { }
+                    }
+                    if (s_tpmInstanceObj != null)
+                    {
+                        try
+                        {
+                            bool startNode = (prevSegment.m_startNode == targetNodeId);
+                            int sign = s_getPrioritySignDelegate(s_tpmInstanceObj, prevPos.m_segment, startNode);
+                            // 2 = PriorityType.Stop
+                            if (sign == 2 && sqrVelocity > 0.01f)
+                            {
+                                // Approaching stop sign at speed: vehicle must come to a full stop first!
+                                return;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                // 4. Vehicle is NOT facing a red light, train crossing, or unstopped stop sign.
+                // Check if vehicle qualifies for unblocking:
+                // A) Continuous road corridor (highway, avenue, transition where CountSegments <= 2)
+                // B) Vehicle departing a building or public transit stop (Vehicle.Flags.Leaving or Vehicle.Flags.Stopped)
+                // C) Deadlocked vehicle with m_blockCounter > 0
+                bool isContinuousRoad = (targetNode.CountSegments() <= 2);
+                bool isDepartingStopOrBuilding = (vehicleData.m_flags & (Vehicle.Flags.Leaving | Vehicle.Flags.Stopped)) != 0;
+                bool isDeadlocked = (vehicleData.m_blockCounter > 0);
+
+                if (isContinuousRoad || isDepartingStopOrBuilding || isDeadlocked)
+                {
+                    __result = true;
+
+                    // Restore healthy target travel speed so UpdatePathTargetPositions can set targetPos.w > 0
+                    if (maxSpeed < 0.1f)
+                    {
+                        float laneSpeed = 1.5f; // ~45 km/h fallback
+                        NetInfo sInfo = prevSegment.Info;
+                        if (sInfo != null && sInfo.m_lanes != null && prevPos.m_lane < sInfo.m_lanes.Length)
+                        {
+                            float prefabSpeed = sInfo.m_lanes[prevPos.m_lane].m_speedLimit;
+                            if (prefabSpeed > 0.1f) laneSpeed = prefabSpeed;
+                        }
+                        maxSpeed = laneSpeed;
+                    }
+
+                    // Sync TM:PE ExtVehicle junctionTransitState to Leave so TM:PE does not keep caching Blocked
+                    if (s_setTransitStateDelegate != null)
+                    {
+                        if (s_evmInstanceObj == null && s_fEvmInstance != null)
+                        {
+                            try { s_evmInstanceObj = s_fEvmInstance.GetValue(null); } catch { }
+                        }
+                        if (s_evmInstanceObj != null && s_extVehiclesArray == null && s_pExtVehicles != null)
+                        {
+                            try { s_extVehiclesArray = (Array)s_pExtVehicles.GetValue(s_evmInstanceObj, null); } catch { }
+                        }
+                        if (s_evmInstanceObj != null && s_extVehiclesArray != null && frontVehicleId < s_extVehiclesArray.Length)
+                        {
+                            try
+                            {
+                                s_setTransitStateDelegate(s_evmInstanceObj, s_extVehiclesArray, frontVehicleId, 3); // 3 = VehicleJunctionTransitState.Leave
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] MayChangeSegment_Postfix error: " + ex);
+            }
+        }
     }
 
     // ============================================================================
@@ -6393,16 +6726,17 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool Prefix(SavePanel __instance, bool quitAfterSaving, ref bool errorOnSaving)
+        public static bool Prefix(SavePanel __instance, bool quitAfterSaving, bool errorOnSaving)
         {
             try
             {
                 FieldInfo fIsSaving = typeof(SavePanel).GetField("m_IsSaving", BindingFlags.NonPublic | BindingFlags.Static);
                 if (fIsSaving != null) fIsSaving.SetValue(null, false);
 
+                bool effectiveError = errorOnSaving;
                 if (SaveSimulationDataSafetyPatch.LastSaveSimulationException != null)
                 {
-                    errorOnSaving = true;
+                    effectiveError = true;
                     SaveSimulationDataSafetyPatch.LogSaveDebug("SavePanel.OnSavingComplete intercepted save failure: " + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SavePanel detected failed save simulation:\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     try
@@ -6417,14 +6751,14 @@ namespace MoreNetworkCapacityRenew
                     catch { }
                 }
 
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SavePanel.OnSavingComplete: errorOnSaving={0}, quitAfterSaving={1}", errorOnSaving, quitAfterSaving));
-                if (errorOnSaving)
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SavePanel.OnSavingComplete: errorOnSaving={0}, quitAfterSaving={1}", effectiveError, quitAfterSaving));
+                if (effectiveError)
                 {
                     UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SavePanel reported errorOnSaving = true.");
                     return true;
                 }
 
-                if (quitAfterSaving && !errorOnSaving)
+                if (quitAfterSaving && !effectiveError)
                 {
                     try
                     {

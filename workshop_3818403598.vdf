@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.31 - Rollback experimental vehicle speed and departure hooks: restored 100% native traffic light obedience, public transport simulation, and vehicle physics."
+	"changenote"		"v4.3.32 - Fix road and avenue vehicle deadlocks, bus/tram departure stalls, and continuous 2-segment false junction blocks; 100% strict red light and traffic rule obedience."
 }
 

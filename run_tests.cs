@@ -438,6 +438,45 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 10: Anti-Deadlock, Continuous Road & Traffic Light Obedience (v4.3.32)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 10: Anti-Deadlock, Continuous Road & Traffic Light Obedience (v4.3.32) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 10.1 Continuous 2-segment corridor false-blocked junction guard
+            bool hasJrmContinuousGuard = renewCode.Contains("JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix") &&
+                                         renewCode.Contains("CountSegments() <= 2");
+            Assert(hasJrmContinuousGuard, "JunctionRestrictionsManager prefix allows entering continuous 2-segment roads (no false blocked junctions)");
+
+            // 10.2 VehicleBehaviorManager MayChangeSegment anti-deadlock with 100% red light obedience
+            bool hasVbmPostfix = renewCode.Contains("VehicleBehaviorManager_MayChangeSegment_Postfix") &&
+                                 renewCode.Contains("TrafficLightState.Red") &&
+                                 renewCode.Contains("TrafficLightState.RedToGreen");
+            Assert(hasVbmPostfix, "MayChangeSegment postfix strictly obeys red traffic lights (never runs red lights)");
+
+            // 10.3 Train Level Crossing obedience
+            bool hasLevelCrossingCheck = renewCode.Contains("NetNode.Flags.LevelCrossing") &&
+                                         renewCode.Contains("VehicleBehaviorManager_MayChangeSegment_Postfix");
+            Assert(hasLevelCrossingCheck, "MayChangeSegment postfix strictly obeys train level crossings");
+
+            // 10.4 Public transit stop and building departure stall unblocking
+            bool hasDepartingCheck = renewCode.Contains("isDepartingStopOrBuilding") &&
+                                     renewCode.Contains("Vehicle.Flags.Leaving") &&
+                                     renewCode.Contains("Vehicle.Flags.Stopped");
+            Assert(hasDepartingCheck, "MayChangeSegment postfix safely unblocks departures from bus/tram stops and buildings");
+
+            // 10.5 SavePanel.OnSavingComplete parameter signature accuracy
+            bool hasSavePanelByVal = renewCode.Contains("Prefix(SavePanel __instance, bool quitAfterSaving, bool errorOnSaving)");
+            Assert(hasSavePanelByVal, "SavePanelOnSavingCompletePatch.Prefix parameter signature matches target method (by-value bool errorOnSaving)");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 10 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

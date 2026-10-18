@@ -229,9 +229,9 @@ class TestSuite
             bool hasSnapshotFallback = renewCode.Contains("Enumerable.ToArray(storage)");
             Assert(hasSnapshotFallback, "WriteSerializableDataStorageSafely contains snapshot fallback for mod data");
 
-            // 5.4 Verify SimulationManager.SYNCHRONIZE_TIMEOUT initialization
-            bool hasTimeoutGuard = renewCode.Contains("SimulationManager.SYNCHRONIZE_TIMEOUT = 500;");
-            Assert(hasTimeoutGuard, "SimulationManager.SYNCHRONIZE_TIMEOUT initialized to 500ms to eliminate 0ms spin loops");
+            // 5.4 Verify SimulationManager.SYNCHRONIZE_TIMEOUT is 0 to prevent simulation freeze
+            bool hasTimeoutGuard = renewCode.Contains("SimulationManager.SYNCHRONIZE_TIMEOUT = 0;");
+            Assert(hasTimeoutGuard, "SimulationManager.SYNCHRONIZE_TIMEOUT maintained at 0ms (vanilla non-blocking acquisition)");
 
             // 5.5 Verify 0 unconstrained while (!Monitor.TryEnter without body in Renew.cs
             bool hasUnconstrainedSpin = Regex.IsMatch(renewCode, @"while\s*\(\s*!Monitor\.TryEnter[^\)]*\)\s*\{\s*\}");

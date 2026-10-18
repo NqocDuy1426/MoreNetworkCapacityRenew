@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.19 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.21 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1736,33 +1736,7 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 9. RoutingManager.RecalculateAll (Postfix for 64K routes)
-                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
-                if (rmType != null)
-                {
-                    MethodInfo recalcAllM = rmType.GetMethod("RecalculateAll", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (recalcAllM != null)
-                    {
-                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.RoutingManager_RecalculateAll_Postfix));
-                        harmony.Patch(recalcAllM, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE RoutingManager.RecalculateAll");
-                    }
-                }
-
-                // 9b. TrafficLightSimulationManager.SimulationStep (Postfix for 64K timed traffic lights)
-                Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
-                if (tlsmType != null)
-                {
-                    MethodInfo stepM = tlsmType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (stepM != null)
-                    {
-                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficLightSimulationManager_SimulationStep_Postfix));
-                        harmony.Patch(stepM, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficLightSimulationManager.SimulationStep");
-                    }
-                }
-
-                // 10. CustomPathManager.UpdateWithPathManagerValues (Postfix) & WaitForAllPaths (Prefix)
+                // 9. CustomPathManager.UpdateWithPathManagerValues (Postfix) & WaitForAllPaths (Prefix)
                 Type cpmType = tmpe.GetType("TrafficManager.Custom.PathFinding.CustomPathManager");
                 if (cpmType != null)
                 {
@@ -3893,180 +3867,62 @@ namespace MoreNetworkCapacityRenew
 
         public static void RecalculateLiveSegments(Assembly tmpe)
         {
-            RefreshAllRoadSegmentsTMPE(tmpe);
-        }
-
-        public static void RefreshSingleSegmentTMPE(ushort segId)
-        {
             try
             {
-                if (segId == 0) return;
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
-                if (segId >= nm.m_segments.m_buffer.Length) return;
-                if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0) return;
-
-                Assembly tmpe = GetTMPEAssembly();
-                if (tmpe == null) return;
-
-                Type esmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentManager");
-                Type esemType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentEndManager");
-                Type gmType = tmpe.GetType("TrafficManager.Manager.Impl.GeometryManager");
-                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
-
-                object esmInst = esmType != null ? GetManagerInstance(esmType) : null;
-                object esemInst = esemType != null ? GetManagerInstance(esemType) : null;
-                object gmInst = gmType != null ? GetManagerInstance(gmType) : null;
-                object rmInst = rmType != null ? GetManagerInstance(rmType) : null;
-
-                MethodInfo esmRecalc = esmType?.GetMethod("Recalculate", new Type[] { typeof(ushort) });
-                MethodInfo esemRecalc = esemType?.GetMethod("Recalculate", new Type[] { typeof(ushort) });
-                MethodInfo esemArrows = esemType?.GetMethod("RecalculateAvailableLaneArrows", new Type[] { typeof(ushort) });
-                MethodInfo esemCorners = esemType?.GetMethod("CalculateCorners", new Type[] { typeof(ushort), typeof(bool) });
-                MethodInfo gmMarkUpdated = gmType?.GetMethod("MarkAsUpdated", new Type[] { typeof(ushort), typeof(bool) });
-                MethodInfo rmRecalc = rmType?.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-
-                if (esemRecalc != null && esemInst != null)
-                {
-                    try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
-                }
-
-                if (esmRecalc != null && esmInst != null)
-                {
-                    try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
-                }
-
-                if (esemArrows != null && esemInst != null)
-                {
-                    try { esemArrows.Invoke(esemInst, new object[] { segId }); } catch { }
-                }
-
-                if (esemCorners != null && esemInst != null)
-                {
-                    try
-                    {
-                        esemCorners.Invoke(esemInst, new object[] { segId, true });
-                        esemCorners.Invoke(esemInst, new object[] { segId, false });
-                    }
-                    catch { }
-                }
-
-                if (gmMarkUpdated != null && gmInst != null)
-                {
-                    try { gmMarkUpdated.Invoke(gmInst, new object[] { segId, true }); } catch { }
-                }
-
-                if (rmRecalc != null && rmInst != null)
-                {
-                    try { rmRecalc.Invoke(rmInst, new object[] { segId }); } catch { }
-                }
-            }
-            catch { }
-        }
-
-        public static void RefreshAllRoadSegmentsTMPE(Assembly tmpe)
-        {
-            try
-            {
-                if (tmpe == null) tmpe = GetTMPEAssembly();
-                if (tmpe == null) return;
-
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null)
+                if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
                     return;
 
-                EnsureSegmentEndManagersCapacity(tmpe);
-                EnsureExtSegmentManagerCapacity(tmpe);
-                EnsureGeometryManagerCapacity(tmpe);
-
-                Type esmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentManager");
                 Type esemType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentEndManager");
-                Type gmType = tmpe.GetType("TrafficManager.Manager.Impl.GeometryManager");
-                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
-
-                object esmInst = esmType != null ? GetManagerInstance(esmType) : null;
-                object esemInst = esemType != null ? GetManagerInstance(esemType) : null;
-                object gmInst = gmType != null ? GetManagerInstance(gmType) : null;
-                object rmInst = rmType != null ? GetManagerInstance(rmType) : null;
-
-                MethodInfo esmRecalc = esmType?.GetMethod("Recalculate", new Type[] { typeof(ushort) })
-                                    ?? esmType?.GetMethod("Recalculate", new Type[] { typeof(uint) });
-                MethodInfo esemRecalc = esemType?.GetMethod("Recalculate", new Type[] { typeof(ushort) })
-                                     ?? esemType?.GetMethod("Recalculate", new Type[] { typeof(uint) });
-                MethodInfo esemArrows = esemType?.GetMethod("RecalculateAvailableLaneArrows", new Type[] { typeof(ushort) });
-                MethodInfo esemCorners = esemType?.GetMethod("CalculateCorners", new Type[] { typeof(ushort), typeof(bool) });
-                MethodInfo gmMarkUpdated = gmType?.GetMethod("MarkAsUpdated", new Type[] { typeof(ushort), typeof(bool) });
-                MethodInfo gmSimStep = gmType?.GetMethod("SimulationStep", new Type[] { typeof(bool) });
-                MethodInfo rmRecalc = rmType?.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-
-                int maxSeg = Math.Min(nm.m_segments.m_buffer.Length, 65024);
-                int totalRefreshed = 0;
-
-                for (ushort segId = 1; segId < maxSeg; segId++)
+                if (esemType != null)
                 {
-                    if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && nm.m_segments.m_buffer[segId].Info != null)
+                    object inst = GetManagerInstance(esemType);
+                    if (inst != null)
                     {
-                        // 1. Recalculate ExtSegmentEndManager (populates nodeId, incoming, outgoing at both ends and updates ExtNodeManager)
-                        if (esemRecalc != null && esemInst != null)
+                        MethodInfo recalc = esemType.GetMethod("Recalculate", new Type[] { typeof(ushort) });
+                        if (recalc != null)
                         {
-                            try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
-                        }
-
-                        // 2. Recalculate ExtSegmentManager (populates ExtSegment, oneWay, highway, buslane, lanes and notifies GeometryManager)
-                        if (esmRecalc != null && esmInst != null)
-                        {
-                            try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
-                        }
-
-                        // 3. Explicitly recalculate available lane arrows (ensures laneArrows != None at both ends)
-                        if (esemArrows != null && esemInst != null)
-                        {
-                            try { esemArrows.Invoke(esemInst, new object[] { segId }); } catch { }
-                        }
-
-                        // 4. Recalculate 3D corners for both startNode and endNode
-                        if (esemCorners != null && esemInst != null)
-                        {
-                            try
+                            int recalcCount = 0;
+                            for (uint segId = 36864; segId < 65024; segId++)
                             {
-                                esemCorners.Invoke(esemInst, new object[] { segId, true });
-                                esemCorners.Invoke(esemInst, new object[] { segId, false });
+                                if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && NetManager.instance.m_segments.m_buffer[segId].Info != null)
+                                {
+                                    try { recalc.Invoke(inst, new object[] { (ushort)segId }); recalcCount++; } catch { }
+                                }
                             }
-                            catch { }
+                            if (recalcCount > 0)
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated {0} existing segments >= 36864 in TM:PE ExtSegmentEndManager", recalcCount));
                         }
-
-                        // 5. Mark segment and its nodes as updated in GeometryManager
-                        if (gmMarkUpdated != null && gmInst != null)
-                        {
-                            try { gmMarkUpdated.Invoke(gmInst, new object[] { segId, true }); } catch { }
-                        }
-
-                        // 6. Recalculate routing data in RoutingManager
-                        if (rmRecalc != null && rmInst != null)
-                        {
-                            try { rmRecalc.Invoke(rmInst, new object[] { segId }); } catch { }
-                        }
-
-                        totalRefreshed++;
                     }
                 }
 
-                // 6. Synchronously flush all geometry updates to all TM:PE observer managers
-                if (gmSimStep != null && gmInst != null)
+                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+                if (rmType != null)
                 {
-                    try { gmSimStep.Invoke(gmInst, new object[] { true }); } catch { }
+                    object rmInst = GetManagerInstance(rmType);
+                    if (rmInst != null)
+                    {
+                        MethodInfo rmRecalc = rmType.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
+                        if (rmRecalc != null)
+                        {
+                            int rmCount = 0;
+                            for (uint segId = 36864; segId < 65024; segId++)
+                            {
+                                if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && NetManager.instance.m_segments.m_buffer[segId].Info != null)
+                                {
+                                    try { rmRecalc.Invoke(rmInst, new object[] { (ushort)segId }); rmCount++; } catch { }
+                                }
+                            }
+                            if (rmCount > 0)
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated {0} existing segments >= 36864 in TM:PE RoutingManager", rmCount));
+                        }
+                    }
                 }
 
-                // 7. Ensure junction defaults and request full recalculation for all 64k
                 EnsureJunctionRestrictionsDefaults64k(tmpe);
-                SanitizeRoutingManager(tmpe);
-                RequestFullRecalculation64k(tmpe);
-
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] RefreshAllRoadSegmentsTMPE: Successfully refreshed {0} active road segments (full ends, lane arrows, geometry & routings recalculated).", totalRefreshed));
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RefreshAllRoadSegmentsTMPE error: " + ex);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RecalculateLiveSegments error: " + ex);
             }
         }
 
@@ -4486,38 +4342,6 @@ namespace MoreNetworkCapacityRenew
 
         public static void RoutingManager_RecalculateAll_Postfix(object __instance)
         {
-            try
-            {
-                if (__instance == null) return;
-                Type t = __instance.GetType();
-                MethodInfo recalc = t.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-                if (recalc == null) return;
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
-
-                int maxSeg = Math.Min(nm.m_segments.m_buffer.Length, 65024);
-                int count = 0;
-                for (ushort segId = 36864; segId < maxSeg; segId++)
-                {
-                    if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && nm.m_segments.m_buffer[segId].Info != null)
-                    {
-                        try
-                        {
-                            recalc.Invoke(__instance, new object[] { segId });
-                            count++;
-                        }
-                        catch { }
-                    }
-                }
-                if (count > 0)
-                {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] RoutingManager.RecalculateAll Postfix: calculated routing for {0} segments >= 36864", count));
-                }
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RoutingManager_RecalculateAll_Postfix error: " + ex);
-            }
         }
 
         public static bool ExtSegmentManager_Recalculate_ushort_Prefix(ushort segmentId)
@@ -4790,18 +4614,6 @@ namespace MoreNetworkCapacityRenew
         public static void SerializableDataExtension_Load_Prefix()
         {
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Prefix");
-            try
-            {
-                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                if (tmpe != null)
-                {
-                    TMPECompatibility.RefreshAllRoadSegmentsTMPE(tmpe);
-                }
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SerializableDataExtension_Load_Prefix error: " + ex);
-            }
         }
 
         public static void SerializableDataExtension_Load_Postfix()
@@ -4812,7 +4624,7 @@ namespace MoreNetworkCapacityRenew
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
-                    TMPECompatibility.RefreshAllRoadSegmentsTMPE(tmpe);
+                    TMPECompatibility.RecalculateLiveSegments(tmpe);
                 }
             }
             catch (Exception ex)
@@ -6212,110 +6024,12 @@ namespace MoreNetworkCapacityRenew
     }
 
     // ============================================================================
-    // NETMANAGER SIMULATION STEP PATCH (VANILLA SIMULATION FOR EXPANDED NODES & SEGMENTS)
+    // NETMANAGER SIMULATION STEP (HANDLED NATIVELY BY 64K TRANSPILERS)
     // ============================================================================
     public static class NetManagerSimulationPatches
     {
-        private static bool loggedOnce = false;
         public static void Postfix(NetManager __instance, int subStep)
         {
-            if (__instance == null) return;
-            if (subStep == 0) return;
-
-            SimulationManager sm = Singleton<SimulationManager>.instance;
-            if (sm == null) return;
-
-            uint currentFrame = sm.m_currentFrameIndex;
-            int frameIndex = (int)(currentFrame & 255u);
-
-            if (!loggedOnce)
-            {
-                loggedOnce = true;
-                int nodeCount = (__instance.m_nodes != null && __instance.m_nodes.m_buffer != null) ? __instance.m_nodes.m_buffer.Length : 0;
-                int segCount = (__instance.m_segments != null && __instance.m_segments.m_buffer != null) ? __instance.m_segments.m_buffer.Length : 0;
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] NetManager.SimulationStepImpl Postfix RUNNING! frameIndex={0} nodeBuffer={1} segBuffer={2}", frameIndex, nodeCount, segCount));
-            }
-
-            // 1. Simulate expanded nodes: 32768 .. 65023 (32256 nodes / 256 = 126 per frame)
-            int nodeStart = 32768 + frameIndex * 126;
-            int nodeEnd = nodeStart + 126;
-            if (nodeEnd > 65024) nodeEnd = 65024;
-
-            NetNode[] nodes = __instance.m_nodes != null ? __instance.m_nodes.m_buffer : null;
-            if (nodes != null)
-            {
-                int maxNode = Math.Min(nodeEnd, nodes.Length);
-                for (int i = nodeStart; i < maxNode; i++)
-                {
-                    if ((nodes[i].m_flags & NetNode.Flags.Created) != 0)
-                    {
-                        Notification.ProblemStruct problems = nodes[i].m_problems;
-                        NetInfo info = nodes[i].Info;
-                        if (info != null && info.m_netAI != null)
-                        {
-                            try
-                            {
-                                info.m_netAI.SimulationStep((ushort)i, ref nodes[i]);
-                            }
-                            catch (Exception ex)
-                            {
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Exception simulating node {0}: {1}", i, ex.Message));
-                            }
-                        }
-                        if (nodes[i].m_problems != problems)
-                        {
-                            try { __instance.UpdateNodeNotifications((ushort)i, problems, nodes[i].m_problems); } catch { }
-                        }
-                    }
-                }
-            }
-
-            // 2. Simulate expanded segments: 36864 .. 65023 (28160 segments / 256 = 110 per frame)
-            int segStart = 36864 + frameIndex * 110;
-            int segEnd = segStart + 110;
-            if (segEnd > 65024) segEnd = 65024;
-
-            NetSegment[] segments = __instance.m_segments != null ? __instance.m_segments.m_buffer : null;
-            if (segments != null)
-            {
-                int maxSeg = Math.Min(segEnd, segments.Length);
-                for (int i = segStart; i < maxSeg; i++)
-                {
-                    if ((segments[i].m_flags & NetSegment.Flags.Created) != 0)
-                    {
-                        Notification.ProblemStruct problems = segments[i].m_problems;
-                        NetInfo info = segments[i].Info;
-                        if (info != null && info.m_netAI != null)
-                        {
-                            try
-                            {
-                                info.m_netAI.SimulationStep((ushort)i, ref segments[i]);
-                            }
-                            catch (Exception ex)
-                            {
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Exception simulating segment {0}: {1}", i, ex.Message));
-                            }
-                        }
-                        if (segments[i].m_problems != problems)
-                        {
-                            try { __instance.UpdateSegmentNotifications((ushort)i, problems, segments[i].m_problems); } catch { }
-                        }
-                    }
-                }
-
-                // Exactly like vanilla: only update segment colors when InfoManager mode != None or wetness changed
-                if (Singleton<InfoManager>.exists && Singleton<InfoManager>.instance != null)
-                {
-                    var mode = Singleton<InfoManager>.instance.CurrentMode;
-                    if (mode != InfoManager.InfoMode.None || __instance.m_wetnessChanged != 0)
-                    {
-                        if (segStart < maxSeg)
-                        {
-                            __instance.UpdateSegmentColors((ushort)segStart, (ushort)(maxSeg - 1));
-                        }
-                    }
-                }
-            }
         }
     }
     // Static color and render patches removed: Core already handles all color transpilation natively.
@@ -6923,20 +6637,6 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPECompatibility error: " + ex);
                 }
 
-                try
-                {
-                    MethodInfo nmsi = typeof(NetManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (nmsi != null)
-                    {
-                        MethodInfo post = typeof(NetManagerSimulationPatches).GetMethod(nameof(NetManagerSimulationPatches.Postfix), BindingFlags.Static | BindingFlags.Public);
-                        harmony.Patch(nmsi, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.SimulationStepImpl for 64K simulation");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetManager.SimulationStepImpl: " + ex);
-                }
 
                 // Road & node demolition handling is natively delegated to vanilla game & TM:PE.
                 // We do NOT hook NetManager.ReleaseSegmentImplementation so vehicles are repathed naturally.
@@ -7192,6 +6892,23 @@ namespace MoreNetworkCapacityRenew
 
                 // Sanitize economy and transport
                 EconomyCompatibility.SanitizeEconomyAndTransport();
+
+                // Unfreeze Simulation Manager & enforce vanilla responsiveness
+                try
+                {
+                    SimulationManager.SYNCHRONIZE_TIMEOUT = 0;
+                    SimulationManager sm = Singleton<SimulationManager>.instance;
+                    if (sm != null)
+                    {
+                        sm.ForcedSimulationPaused = false;
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Simulation state on load: paused={0}, forcedPause={1}, speed={2}, finalSpeed={3}",
+                            sm.SimulationPaused, sm.ForcedSimulationPaused, sm.SelectedSimulationSpeed, sm.FinalSimulationSpeed));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error unfreezing simulation: " + ex);
+                }
 
                 DiagnosticLogger.Checkpoint("OnLevelLoaded.Complete");
                 MemoryOptimizer.StrategicGarbageCollect("OnLevelLoaded (Post-Save Cleanup)");
@@ -10692,7 +10409,7 @@ namespace MoreNetworkCapacityRenew
                 int cleaned = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
                 int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
                 int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
-                TMPECompatibility.RefreshAllRoadSegmentsTMPE(null);
+                TMPECompatibility.RecalculateLiveSegments(null);
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) executed: cleaned {0} dead vehicles, unblocked {1} frozen vehicles, reactivated {2} logistics entities, and refreshed all city roads in TM:PE.", cleaned, unblocked, reactivated));
             }
 
@@ -10757,14 +10474,11 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // Initialize SimulationManager.SYNCHRONIZE_TIMEOUT to prevent tight spin loops in any mod
+                // Enforce vanilla SimulationManager.SYNCHRONIZE_TIMEOUT = 0 to prevent simulation thread blocking
                 try
                 {
-                    if (SimulationManager.SYNCHRONIZE_TIMEOUT <= 0)
-                    {
-                        SimulationManager.SYNCHRONIZE_TIMEOUT = 500;
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialized SimulationManager.SYNCHRONIZE_TIMEOUT = 500ms (anti-spin guard).");
-                    }
+                    SimulationManager.SYNCHRONIZE_TIMEOUT = 0;
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Verified SimulationManager.SYNCHRONIZE_TIMEOUT = 0 (vanilla instant lock acquisition).");
                 }
                 catch { }
 
@@ -14047,37 +13761,6 @@ namespace MoreNetworkCapacityRenew
         /// </summary>
         public static void SimulationStep_Postfix()
         {
-            try
-            {
-                SimulationManager sm = Singleton<SimulationManager>.instance;
-                if (sm == null) return;
-                
-                uint currentFrame = sm.m_currentFrameIndex;
-                if (currentFrame == lastSimulationFrame) return;
-                lastSimulationFrame = currentFrame;
-                
-                // 1. Time-sliced vehicle scan: exactly 256 vehicles per frame (< 0.01ms, 0 FPS drop)
-                StuckVehicleRecovery.SimulationStepSlice(currentFrame);
-
-                // 2. Every 1800 frames (~30 seconds): Verify vehicle pool integrity
-                if (currentFrame % 1800 == 0)
-                {
-                    VehiclePoolMonitor.CheckAndRepair();
-                }
-
-                // 3. Every 3600 frames (~60 seconds): Safe main-thread array guardian check
-                if (currentFrame % 3600 == 0)
-                {
-                    ArrayGuardianV2.PerformPeriodicCheck();
-                }
-            }
-            catch (Exception ex)
-            {
-                if (DiagnosticsUI.VerboseLogging)
-                {
-                    UnityEngine.Debug.LogError("[VehicleFixPatches] SimulationStep error: " + ex);
-                }
-            }
         }
         
         // ========================================================================
@@ -14092,10 +13775,6 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 TMPEBufferSync.OnNetworkModified();
-                if (segment != 0)
-                {
-                    TMPECompatibility.RefreshSingleSegmentTMPE(segment);
-                }
             }
             catch { }
         }
@@ -14118,21 +13797,7 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                // Patch 1: SimulationManager.SimulationStep
-                MethodInfo simStep = typeof(SimulationManager).GetMethod("SimulationStep",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                
-                if (simStep != null)
-                {
-                    MethodInfo postfix = typeof(VehicleFixPatches).GetMethod(
-                        nameof(SimulationStep_Postfix),
-                        BindingFlags.Public | BindingFlags.Static);
-                    
-                    harmony.Patch(simStep, postfix: new HarmonyMethod(postfix));
-                    UnityEngine.Debug.Log("[VehicleFixPatches] Patched SimulationManager.SimulationStep");
-                }
-
-                // Patch 2: NetManager.UpdateSegmentRenderer
+                // Patch: NetManager.UpdateSegmentRenderer (Sync TM:PE buffers on network modifications)
                 MethodInfo usr = typeof(NetManager).GetMethod("UpdateSegmentRenderer",
                     BindingFlags.Public | BindingFlags.Instance);
                 if (usr != null)
@@ -14145,9 +13810,10 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[VehicleFixPatches] Patched NetManager.UpdateSegmentRenderer");
                 }
 
-                // Note: CarAI.CalculateSegmentPosition is left 100% native to game and TM:PE to preserve natural vehicle physics.
+                // Note: SimulationManager.SimulationStep is NOT patched to ensure 100% native simulation tick rate and uninhibited time progression.
+                // CarAI.CalculateSegmentPosition is left 100% native to game and TM:PE to preserve natural vehicle physics.
                 
-                UnityEngine.Debug.Log("[VehicleFixPatches] Simulation monitoring patches installed successfully.");
+                UnityEngine.Debug.Log("[VehicleFixPatches] Network synchronization patches installed successfully.");
             }
             catch (Exception ex)
             {

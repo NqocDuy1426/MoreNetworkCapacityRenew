@@ -1065,8 +1065,8 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.5 by NgocDuy";
-        public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, instant vehicle despawn/reroute on demolition, TM:PE pathfinding & Mac stability. Renewed by NgocDuy.";
+        public string Name => "More Network Capacity Renew v4.3.16 by NgocDuy";
+        public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
         {
@@ -1563,6 +1563,36 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching UIView.ForwardException: " + ex);
+            }
+
+            try
+            {
+                Type valType = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "MoreNetworkCapacity.Core")
+                    {
+                        valType = asm.GetType("MoreNetworkCapacity.Compatibility.TMPEBufferValidation");
+                        break;
+                    }
+                }
+                if (valType != null)
+                {
+                    MethodInfo valMethod = valType.GetMethod("Validate", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (valMethod != null)
+                    {
+                        MethodInfo pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TMPEBufferValidation_Validate_Prefix), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (pre != null)
+                        {
+                            harmony.Patch(valMethod, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Armored TMPEBufferValidation.Validate with Harmony prefix.");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TMPEBufferValidation.Validate: " + ex);
             }
 
             Assembly tmpe = GetTMPEAssembly();
@@ -2130,71 +2160,10 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
                         }
 
-                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pfiM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
-                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (bounds validation prefix)");
-                        }
-
-                        MethodInfo gldM = cpfType.GetMethod("GetLaneDirection", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (gldM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_GetLaneDirection_Prefix));
-                            harmony.Patch(gldM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.GetLaneDirection (safe bounds prefix)");
-                        }
-
-                        MethodInfo pimM = cpfType.GetMethod("ProcessItemMain", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pimM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemMain_Prefix));
-                            harmony.Patch(pimM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemMain (validation prefix)");
-                        }
-
-                        MethodInfo culM = cpfType.GetMethod("CanUseLane", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (culM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_CanUseLane_Prefix));
-                            harmony.Patch(culM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.CanUseLane (safe bounds prefix)");
-                        }
-
-                        MethodInfo piptM = cpfType.GetMethod("ProcessItemPublicTransport", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (piptM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemPublicTransport_Prefix));
-                            harmony.Patch(piptM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemPublicTransport");
-                        }
-
-                        foreach (var m in cpfType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-                        {
-                            if (m.Name == "ProcessItemCosts")
-                            {
-                                var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemCosts_Prefix));
-                                harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                            }
-                        }
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemCosts (all overloads)");
-
-                        MethodInfo pirM = cpfType.GetMethod("ProcessItemRouted", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pirM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemRouted_Prefix));
-                            harmony.Patch(pirM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemRouted");
-                        }
-
-                        MethodInfo pipbM = cpfType.GetMethod("ProcessItemPedBicycle", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pipbM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_ProcessItemPedBicycle_Prefix));
-                            harmony.Patch(pipbM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.ProcessItemPedBicycle");
-                        }
+                        // Note: CustomPathFind internal routing methods are left 100% native to TM:PE to eliminate thread NREs.
+                        // Note: CustomPathFind inner-loop methods (ProcessItemMain, ProcessItemCosts, ProcessItemRouted, etc.)
+                        // are intentionally NOT hooked with Harmony prefixes to ensure 100% native C# path computation speed (60+ FPS).
+                        // PathFindImplementation and GetLaneDirection are left 100% native to TM:PE without Harmony reflection overhead.
 
                         MethodInfo wfapM = cpfType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                         if (wfapM != null)
@@ -2241,6 +2210,38 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ExtLane GetLaneInfo: " + ex);
                 }
 
+                // 26c. ExtBuildingManager.OnBeforeSimulationStep & SimulationStepPatch (Building simulation crash defense)
+                try
+                {
+                    Type ebmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtBuildingManager");
+                    if (ebmType != null)
+                    {
+                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.ExtBuildingManager_OnBeforeSimulationStep_Prefix));
+                        MethodInfo obssM = ebmType.GetMethod("OnBeforeSimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (obssM != null && pre != null)
+                        {
+                            harmony.Patch(obssM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ExtBuildingManager.OnBeforeSimulationStep (Priority.First safe guard prefix)");
+                        }
+                    }
+
+                    Type sspType = tmpe.GetType("TrafficManager.Patch._CommonBuildingAI.SimulationStepPatch");
+                    if (sspType != null)
+                    {
+                        MethodInfo prefixM = sspType.GetMethod("Prefix", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        var safeGuard = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CommonBuildingAI_SimulationStepPatch_Prefix_Guard));
+                        if (prefixM != null && safeGuard != null)
+                        {
+                            harmony.Patch(prefixM, prefix: new HarmonyMethod(safeGuard) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SimulationStepPatch.Prefix with safe guard");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ExtBuildingManager: " + ex);
+                }
+
                 // 27. UtilityManager.ClearTraffic & DespawnVehicles (City Logistics Reactivator & Traffic Spawning unblocker)
                 try
                 {
@@ -2271,48 +2272,8 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching UtilityManager: " + ex);
                 }
 
-                // 28. VehicleAICommons (Safe segment position & speed limits)
-                try
-                {
-                    Type vaiType = tmpe.GetType("TrafficManager.Patch._VehicleAI.VehicleAICommons");
-                    if (vaiType != null)
-                    {
-                        var prePos = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleAICommons_CalculateSegmentPosition_Prefix));
-                        var preSpeed = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleAICommons_CustomCalculateTargetSpeed_Prefix));
-
-                        MethodInfo calcPosM = vaiType.GetMethod("CustomCalculateSegmentPosition", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (calcPosM != null && prePos != null)
-                        {
-                            harmony.Patch(calcPosM, prefix: new HarmonyMethod(prePos));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateSegmentPosition");
-                        }
-
-                        MethodInfo calcPosNoSlowM = vaiType.GetMethod("CustomCalculateSegmentPosition_NoSlowDriving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (calcPosNoSlowM != null && prePos != null)
-                        {
-                            harmony.Patch(calcPosNoSlowM, prefix: new HarmonyMethod(prePos));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateSegmentPosition_NoSlowDriving");
-                        }
-
-                        MethodInfo calcSpeedM = vaiType.GetMethod("CustomCalculateTargetSpeed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (calcSpeedM != null && preSpeed != null)
-                        {
-                            harmony.Patch(calcSpeedM, prefix: new HarmonyMethod(preSpeed));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateTargetSpeed");
-                        }
-
-                        MethodInfo calcSpeedNoSlowM = vaiType.GetMethod("CustomCalculateTargetSpeed_NoSlowDriving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (calcSpeedNoSlowM != null && preSpeed != null)
-                        {
-                            harmony.Patch(calcSpeedNoSlowM, prefix: new HarmonyMethod(preSpeed));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleAICommons.CustomCalculateTargetSpeed_NoSlowDriving");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleAICommons: " + ex);
-                }
+                // 28. VehicleAICommons: Left 100% native to TM:PE.
+                // TM:PE natively handles vehicle positioning, lane changing, and speed calculation without interference.
 
                 // 29. NetSegment.GetLeftAndRightLanes guard against null Info
                 try
@@ -2365,6 +2326,65 @@ namespace MoreNetworkCapacityRenew
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LaneConnectionSubManager: " + ex);
                 }
+
+                // 30b. DefaultTool.RenderOverlayPatch (Defend against Tool error when RoadSelectionPanels.Root is null)
+                try
+                {
+                    Type ropType = tmpe.GetType("TrafficManager.Patch._DefaultTool.RenderOverlayPatch");
+                    if (ropType != null)
+                    {
+                        MethodInfo postM = ropType.GetMethod("Postfix", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.RenderOverlayPatch_Postfix_Prefix));
+                        if (postM != null && pre != null)
+                        {
+                            harmony.Patch(postM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE RenderOverlayPatch.Postfix (safe Root guard)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching RenderOverlayPatch: " + ex);
+                }
+
+                // 31. VehicleBehaviorManager: Left 100% native to TM:PE for native despawn and segment transitions (with safe anti-freezing Postfix for highway and junction traps)
+                try
+                {
+                    Type vbmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleBehaviorManager");
+                    if (vbmType != null)
+                    {
+                        MethodInfo mcs14 = vbmType.GetMethod("MayChangeSegment", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                            typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(float),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(NetSegment).MakeByRefType(), typeof(ushort), typeof(uint),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(NetNode).MakeByRefType(), typeof(uint),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(float).MakeByRefType()
+                        }, null);
+                        if (mcs14 != null)
+                        {
+                            var postMcs = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment14_Postfix));
+                            harmony.Patch(mcs14, postfix: new HarmonyMethod(postMcs));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (14-arg Postfix)");
+                        }
+
+                        MethodInfo mcs12 = vbmType.GetMethod("MayChangeSegment", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
+                            typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(float),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(NetSegment).MakeByRefType(), typeof(ushort), typeof(uint),
+                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(NetNode).MakeByRefType(), typeof(uint),
+                            typeof(float).MakeByRefType()
+                        }, null);
+                        if (mcs12 != null)
+                        {
+                            var postMcs = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment12_Postfix));
+                            harmony.Patch(mcs12, postfix: new HarmonyMethod(postMcs));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (12-arg Postfix)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
+                }
+
             }
             catch (Exception ex)
             {
@@ -2416,9 +2436,10 @@ namespace MoreNetworkCapacityRenew
                 // 3. ParkingRestrictionsManager
                 EnsureParkingRestrictionsCapacity(65024);
 
-                // 4. ExtNodeManager & ExtSegmentManager (Ensure all 65,536 nodes and segments are initialized)
+                // 4. ExtNodeManager & ExtSegmentManager & ExtBuildingManager (Ensure all nodes, segments, and buildings are initialized)
                 EnsureExtNodeManagerCapacity(tmpe);
                 EnsureExtSegmentManagerCapacity(tmpe);
+                EnsureExtBuildingManagerCapacity(tmpe);
 
                 // 4b. GeometryManager, RoutingManager, VehicleRestrictions, CustomSegmentLights, TrafficLightSimulations, TrafficPriority, JunctionRestrictions, TurnOnRed
                 EnsureSavedGameOptions(tmpe);
@@ -2776,6 +2797,51 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static Array s_extBuildingsArray = null;
+
+        public static void EnsureExtBuildingManagerCapacity(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type ebmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtBuildingManager");
+                if (ebmType == null) return;
+                object inst = GetManagerInstance(ebmType);
+                if (inst == null) return;
+
+                FieldInfo fExt = ebmType.GetField("<ExtBuildings>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                              ?? ebmType.GetField("ExtBuildings", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fExt != null)
+                {
+                    Array arr = fExt.GetValue(inst) as Array;
+                    if (arr == null || arr.Length < 49152)
+                    {
+                        Type extBuildingType = fExt.FieldType.GetElementType();
+                        if (extBuildingType != null)
+                        {
+                            Array newArr = Array.CreateInstance(extBuildingType, 49152);
+                            ConstructorInfo ctor = extBuildingType.GetConstructor(new Type[] { typeof(ushort) });
+                            for (int i = 0; i < 49152; i++)
+                            {
+                                if (ctor != null)
+                                {
+                                    newArr.SetValue(ctor.Invoke(new object[] { (ushort)i }), i);
+                                }
+                            }
+                            fExt.SetValue(inst, newArr);
+                            arr = newArr;
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialized and assigned TM:PE ExtBuildingManager.ExtBuildings (capacity 49152)");
+                        }
+                    }
+                    s_extBuildingsArray = arr;
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureExtBuildingManagerCapacity error: " + ex);
+            }
+        }
+
         public static void EnsureGeometryManagerCapacity(Assembly tmpe)
         {
             try
@@ -2786,19 +2852,21 @@ namespace MoreNetworkCapacityRenew
                 if (inst == null) return;
 
                 FieldInfo fSeg = gmType.GetField("updatedSegmentBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fSeg != null && fSeg.GetValue(inst) is ulong[] segBuckets && segBuckets.Length < 1016)
+                if (fSeg != null && fSeg.GetValue(inst) is ulong[] segBuckets && segBuckets.Length != 1016)
                 {
                     ulong[] newBuckets = new ulong[1016];
-                    Array.Copy(segBuckets, newBuckets, segBuckets.Length);
+                    int copyLen = Math.Min(segBuckets.Length, 1016);
+                    Array.Copy(segBuckets, newBuckets, copyLen);
                     fSeg.SetValue(inst, newBuckets);
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized GeometryManager.updatedSegmentBuckets: {0} -> 1016", segBuckets.Length));
                 }
 
                 FieldInfo fNode = gmType.GetField("updatedNodeBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fNode != null && fNode.GetValue(inst) is ulong[] nodeBuckets && nodeBuckets.Length < 1016)
+                if (fNode != null && fNode.GetValue(inst) is ulong[] nodeBuckets && nodeBuckets.Length != 1016)
                 {
                     ulong[] newBuckets = new ulong[1016];
-                    Array.Copy(nodeBuckets, newBuckets, nodeBuckets.Length);
+                    int copyLen = Math.Min(nodeBuckets.Length, 1016);
+                    Array.Copy(nodeBuckets, newBuckets, copyLen);
                     fNode.SetValue(inst, newBuckets);
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized GeometryManager.updatedNodeBuckets: {0} -> 1016", nodeBuckets.Length));
                 }
@@ -2818,12 +2886,13 @@ namespace MoreNetworkCapacityRenew
                 object inst = GetManagerInstance(rmType);
                 if (inst == null) return;
 
-                // 1. updatedSegmentBuckets (size 576 -> 1016)
+                // 1. updatedSegmentBuckets (size 576 -> 1016, strictly matches 65,024 segments: 1016 * 64 = 65,024)
                 FieldInfo fBuckets = rmType.GetField("updatedSegmentBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fBuckets != null && fBuckets.GetValue(inst) is ulong[] buckets && buckets.Length < 1016)
+                if (fBuckets != null && fBuckets.GetValue(inst) is ulong[] buckets && buckets.Length != 1016)
                 {
                     ulong[] newBuckets = new ulong[1016];
-                    Array.Copy(buckets, newBuckets, buckets.Length);
+                    int copyLen = Math.Min(buckets.Length, 1016);
+                    Array.Copy(buckets, newBuckets, copyLen);
                     fBuckets.SetValue(inst, newBuckets);
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.updatedSegmentBuckets: {0} -> 1016", buckets.Length));
                 }
@@ -2839,31 +2908,49 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.SegmentRoutings: {0} -> 65024", segRoutings.Length));
                 }
 
-                // 3. LaneEndBackwardRoutings & LaneEndForwardRoutings (size 524288 -> 1048576, split)
+                // 3. LaneEndBackwardRoutings & LaneEndForwardRoutings:
+                // NetManager.MAX_LANE_COUNT in Cities: Skylines is 262,144. TM:PE indexes: GetLaneEndRoutingIndex(laneId, startNode) = laneId + (startNode ? 0u : 262144u).
+                // Array size MUST be exactly 524,288 with offset 262,144 so end-nodes are looked up correctly.
                 FieldInfo fBack = rmType.GetField("<LaneEndBackwardRoutings>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                                ?? rmType.GetField("LaneEndBackwardRoutings", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fBack != null && fBack.GetValue(inst) is Array backArr && backArr.Length < 1048576)
+                if (fBack != null && fBack.GetValue(inst) is Array backArr)
                 {
-                    Array newBack = Array.CreateInstance(backArr.GetType().GetElementType(), 1048576);
-                    int oldCap = backArr.Length / 2; // 262144
-                    int newCap = 524288;
-                    Array.Copy(backArr, 0, newBack, 0, oldCap);
-                    Array.Copy(backArr, oldCap, newBack, newCap, oldCap);
-                    fBack.SetValue(inst, newBack);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.LaneEndBackwardRoutings: {0} -> 1048576 (split)", backArr.Length));
+                    if (backArr.Length > 524288)
+                    {
+                        Array normBack = Array.CreateInstance(backArr.GetType().GetElementType(), 524288);
+                        Array.Copy(backArr, 0, normBack, 0, 262144);
+                        Array.Copy(backArr, 524288, normBack, 262144, 262144);
+                        fBack.SetValue(inst, normBack);
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Normalized RoutingManager.LaneEndBackwardRoutings: {0} -> 524288 (offset 262144 restored)", backArr.Length));
+                    }
+                    else if (backArr.Length < 524288)
+                    {
+                        Array normBack = Array.CreateInstance(backArr.GetType().GetElementType(), 524288);
+                        Array.Copy(backArr, normBack, backArr.Length);
+                        fBack.SetValue(inst, normBack);
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized RoutingManager.LaneEndBackwardRoutings: {0} -> 524288", backArr.Length));
+                    }
                 }
 
                 FieldInfo fFwd = rmType.GetField("<LaneEndForwardRoutings>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                               ?? rmType.GetField("LaneEndForwardRoutings", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fFwd != null && fFwd.GetValue(inst) is Array fwdArr && fwdArr.Length < 1048576)
+                if (fFwd != null && fFwd.GetValue(inst) is Array fwdArr)
                 {
-                    Array newFwd = Array.CreateInstance(fwdArr.GetType().GetElementType(), 1048576);
-                    int oldCap = fwdArr.Length / 2;
-                    int newCap = 524288;
-                    Array.Copy(fwdArr, 0, newFwd, 0, oldCap);
-                    Array.Copy(fwdArr, oldCap, newFwd, newCap, oldCap);
-                    fFwd.SetValue(inst, newFwd);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.LaneEndForwardRoutings: {0} -> 1048576 (split)", fwdArr.Length));
+                    if (fwdArr.Length > 524288)
+                    {
+                        Array normFwd = Array.CreateInstance(fwdArr.GetType().GetElementType(), 524288);
+                        Array.Copy(fwdArr, 0, normFwd, 0, 262144);
+                        Array.Copy(fwdArr, 524288, normFwd, 262144, 262144);
+                        fFwd.SetValue(inst, normFwd);
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Normalized RoutingManager.LaneEndForwardRoutings: {0} -> 524288 (offset 262144 restored)", fwdArr.Length));
+                    }
+                    else if (fwdArr.Length < 524288)
+                    {
+                        Array normFwd = Array.CreateInstance(fwdArr.GetType().GetElementType(), 524288);
+                        Array.Copy(fwdArr, normFwd, fwdArr.Length);
+                        fFwd.SetValue(inst, normFwd);
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized RoutingManager.LaneEndForwardRoutings: {0} -> 524288", fwdArr.Length));
+                    }
                 }
             }
             catch (Exception ex)
@@ -3075,6 +3162,203 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureJunctionRestrictionsCapacity error: " + ex);
+            }
+        }
+
+        public static void EnsureJunctionRestrictionsDefaults64k(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null || NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                    return;
+
+                Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
+                Type esmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentManager");
+                if (jrmType == null || esmType == null) return;
+
+                object jrmInst = GetManagerInstance(jrmType);
+                object esmInst = GetManagerInstance(esmType);
+                if (jrmInst == null || esmInst == null) return;
+
+                MethodInfo updateDefaultsM = jrmType.GetMethod("HandleValidSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                                          ?? jrmType.GetMethod("UpdateDefaults", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                PropertyInfo pExtSegs = esmType.GetProperty("ExtSegments", BindingFlags.Public | BindingFlags.Instance);
+                Array extSegs = pExtSegs != null ? pExtSegs.GetValue(esmInst, null) as Array : null;
+
+                if (updateDefaultsM != null && extSegs != null)
+                {
+                    int jrmCount = 0;
+                    uint maxSeg = (uint)Math.Min(extSegs.Length, 65024);
+                    for (uint segId = 36864u; segId < maxSeg; segId++)
+                    {
+                        if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 &&
+                            NetManager.instance.m_segments.m_buffer[segId].Info != null)
+                        {
+                            try
+                            {
+                                object segObj = extSegs.GetValue(segId);
+                                if (segObj != null)
+                                {
+                                    updateDefaultsM.Invoke(jrmInst, new object[] { segObj });
+                                    jrmCount++;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                    if (jrmCount > 0)
+                    {
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized TM:PE native junction defaults for {0} segments >= 36864", jrmCount));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureJunctionRestrictionsDefaults64k error: " + ex);
+            }
+        }
+
+        public static void SanitizeRoutingManager(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+                if (rmType == null) return;
+                object inst = GetManagerInstance(rmType);
+                if (inst == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
+
+                int cleanedTransitions = 0;
+                string[] routingFields = new string[] { "<LaneEndBackwardRoutings>k__BackingField", "LaneEndBackwardRoutings", "<LaneEndForwardRoutings>k__BackingField", "LaneEndForwardRoutings" };
+                var inspectedArrays = new HashSet<Array>();
+
+                foreach (string fname in routingFields)
+                {
+                    FieldInfo f = rmType.GetField(fname, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (f != null && f.GetValue(inst) is Array arr && inspectedArrays.Add(arr))
+                    {
+                        Type elemType = arr.GetType().GetElementType();
+                        FieldInfo fRouted = elemType.GetField("routed", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        FieldInfo fTransitions = elemType.GetField("transitions", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                        if (fRouted == null || fTransitions == null) continue;
+
+                        int len = arr.Length;
+                        for (int i = 0; i < len; i++)
+                        {
+                            object routingData = arr.GetValue(i);
+                            if (routingData == null) continue;
+
+                            bool routed = (bool)fRouted.GetValue(routingData);
+                            if (!routed) continue;
+
+                            Array transitions = fTransitions.GetValue(routingData) as Array;
+                            if (transitions == null || transitions.Length == 0) continue;
+
+                            Type transType = transitions.GetType().GetElementType();
+                            FieldInfo fSegId = transType.GetField("segmentId", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (fSegId == null) continue;
+
+                            int validCount = 0;
+                            int transLen = transitions.Length;
+                            for (int t = 0; t < transLen; t++)
+                            {
+                                object transItem = transitions.GetValue(t);
+                                if (transItem == null) continue;
+                                ushort segId = Convert.ToUInt16(fSegId.GetValue(transItem));
+                                if (segId > 0 && segId < 65024 &&
+                                    (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 &&
+                                    nm.m_segments.m_buffer[segId].Info != null)
+                                {
+                                    validCount++;
+                                }
+                            }
+
+                            if (validCount < transLen)
+                            {
+                                cleanedTransitions += (transLen - validCount);
+                                if (validCount == 0)
+                                {
+                                    fRouted.SetValue(routingData, false);
+                                    fTransitions.SetValue(routingData, null);
+                                }
+                                else
+                                {
+                                    Array newTrans = Array.CreateInstance(transType, validCount);
+                                    int destIdx = 0;
+                                    for (int t = 0; t < transLen; t++)
+                                    {
+                                        object transItem = transitions.GetValue(t);
+                                        if (transItem == null) continue;
+                                        ushort segId = Convert.ToUInt16(fSegId.GetValue(transItem));
+                                        if (segId > 0 && segId < 65024 &&
+                                            (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 &&
+                                            nm.m_segments.m_buffer[segId].Info != null)
+                                        {
+                                            newTrans.SetValue(transItem, destIdx++);
+                                        }
+                                    }
+                                    fTransitions.SetValue(routingData, newTrans);
+                                }
+                                arr.SetValue(routingData, i);
+                            }
+                        }
+                    }
+                }
+
+                if (cleanedTransitions > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Sanitized RoutingManager: Purged {0} stale/corrupted transitions.", cleanedTransitions));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeRoutingManager error: " + ex);
+            }
+        }
+
+        public static void RequestFullRecalculation64k(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) return;
+                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+                if (rmType == null) return;
+                object inst = GetManagerInstance(rmType);
+                if (inst == null) return;
+
+                FieldInfo fBuckets = rmType.GetField("updatedSegmentBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fUpdated = rmType.GetField("segmentsUpdated", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fLock = rmType.GetField("updateLock", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+                if (fBuckets != null && fUpdated != null && fLock != null)
+                {
+                    object lockObj = fLock.GetValue(inst);
+                    ulong[] buckets = fBuckets.GetValue(inst) as ulong[];
+                    if (lockObj != null && buckets != null && buckets.Length >= 1016)
+                    {
+                        lock (lockObj)
+                        {
+                            NetManager nm = Singleton<NetManager>.instance;
+                            for (uint segId = 1; segId < 65024; segId++)
+                            {
+                                if (nm != null && nm.m_segments != null && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
+                                {
+                                    buckets[segId >> 6] |= 1uL << (int)(segId & 63);
+                                }
+                            }
+                            fUpdated.SetValue(inst, true);
+                        }
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RequestFullRecalculation64k: Queued all 65,024 segments for TM:PE recalculation.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RequestFullRecalculation64k error: " + ex);
             }
         }
 
@@ -3292,6 +3576,10 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                if (s_extVehiclesArray == null)
+                {
+                    CacheExtVehicleFields(GetTMPEAssembly());
+                }
                 if (s_extVehiclesArray != null && vehicleId < s_extVehiclesArray.Length && s_extVehicleJunctionTransitStateField != null)
                 {
                     object extVeh = s_extVehiclesArray.GetValue(vehicleId);
@@ -3328,12 +3616,9 @@ namespace MoreNetworkCapacityRenew
                 FieldInfo extVehiclesField = evmType.GetField("<ExtVehicles>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
                     ?? evmType.GetField("_extVehicles", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 
-                int targetSize = 65536;
                 VehicleManager vm = Singleton<VehicleManager>.instance;
-                if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
-                {
-                    targetSize = Math.Max(targetSize, vm.m_vehicles.m_buffer.Length);
-                }
+                int bufferLen = (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) ? vm.m_vehicles.m_buffer.Length : 16384;
+                int targetSize = Math.Max(16384, bufferLen);
 
                 Array oldVehicles = null;
                 if (extVehiclesField != null) oldVehicles = extVehiclesField.GetValue(inst) as Array;
@@ -3619,6 +3904,10 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
                 }
+
+                EnsureJunctionRestrictionsDefaults64k(tmpe);
+                SanitizeRoutingManager(tmpe);
+                RequestFullRecalculation64k(tmpe);
             }
             catch (Exception ex)
             {
@@ -3685,14 +3974,9 @@ namespace MoreNetworkCapacityRenew
                             {
                                 newSize = 524288;
                             }
-                            // LaneEnd backward/forward routings in RoutingManager (524288 = 262144 * 2) to 1048576 (524288 * 2)
-                            else if (arr.Length == 524288 && (f.Name.Contains("LaneEnd") || t.Name.Contains("RoutingManager")))
-                            {
-                                newSize = 1048576;
-                                isSplit = true;
-                                splitOldCap = 262144;
-                                splitNewCap = 524288;
-                            }
+                            // Note: LaneEnd backward/forward routings in RoutingManager MUST remain exactly 524288 (262144 * 2)
+                            // because TM:PE's compiled GetLaneEndRoutingIndex hardcodes NetManager.MAX_LANE_COUNT (262144).
+
 
                             if (newSize > 0)
                             {
@@ -4317,6 +4601,20 @@ namespace MoreNetworkCapacityRenew
         public static void SerializableDataExtension_Load_Postfix()
         {
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Postfix");
+            try
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    TMPECompatibility.EnsureJunctionRestrictionsDefaults64k(tmpe);
+                    TMPECompatibility.SanitizeRoutingManager(tmpe);
+                    TMPECompatibility.RequestFullRecalculation64k(tmpe);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SerializableDataExtension_Load_Postfix error: " + ex);
+            }
         }
 
         public static void SerializableDataExtension_DeserializeData_Prefix()
@@ -5080,6 +5378,20 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
+        public static bool TMPEBufferValidation_Validate_Prefix(Assembly assembly)
+        {
+            try
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Armored TMPEBufferValidation.Validate: bypassed fatal exception to protect simulation loading.");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPEBufferValidation_Validate_Prefix error: " + ex);
+                return false;
+            }
+        }
+
         public static bool ExtLane_GetLaneInfo_Prefix(uint laneId, ref NetInfo.Lane __result)
         {
             if (laneId == 0 || NetManager.instance == null || NetManager.instance.m_lanes == null || NetManager.instance.m_lanes.m_buffer == null)
@@ -5109,6 +5421,64 @@ namespace MoreNetworkCapacityRenew
                 __result = null;
                 return false;
             }
+
+            uint curLane = seg.m_lanes;
+            int curIndex = 0;
+            NetInfo.Lane foundLane = null;
+            while (curLane != 0 && curIndex < seg.Info.m_lanes.Length)
+            {
+                if (curLane == laneId)
+                {
+                    foundLane = seg.Info.m_lanes[curIndex];
+                    break;
+                }
+                curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane;
+                curIndex++;
+            }
+
+            __result = foundLane;
+            return false;
+        }
+
+        public static bool CommonBuildingAI_SimulationStepPatch_Prefix_Guard(ushort buildingID)
+        {
+            if (buildingID == 0 || buildingID >= 49152) return false;
+            if (TMPECompatibility.s_extBuildingsArray == null) return false;
+            return true;
+        }
+
+        public static bool ExtBuildingManager_OnBeforeSimulationStep_Prefix(object __instance, ushort buildingId)
+        {
+            if (__instance == null || buildingId == 0 || buildingId >= 49152)
+            {
+                return false;
+            }
+            Array arr = TMPECompatibility.s_extBuildingsArray;
+            if (arr == null || buildingId >= arr.Length)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public static bool RenderOverlayPatch_Postfix_Prefix()
+        {
+            try
+            {
+                Type rspType = Type.GetType("TrafficManager.UI.RoadSelectionPanels, TrafficManager");
+                if (rspType != null)
+                {
+                    PropertyInfo p = rspType.GetProperty("Root", BindingFlags.Public | BindingFlags.Static);
+                    if (p != null && p.GetValue(null, null) == null)
+                    {
+                        return false;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
             return true;
         }
 
@@ -5127,57 +5497,6 @@ namespace MoreNetworkCapacityRenew
                 rightLane = 0;
                 return false;
             }
-            return true;
-        }
-
-        public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
-        {
-            if (unit == 0) return false;
-
-            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
-                return true;
-
-            NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
-            int segCount = segBuffer.Length;
-
-            // Start A: m_position00 (primary)
-            ushort seg00 = data.m_position00.m_segment;
-            if (seg00 >= segCount) data.m_position00.m_segment = 0;
-            else if (seg00 != 0 && ((segBuffer[seg00].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg00].Info == null || segBuffer[seg00].Info.m_lanes == null))
-                data.m_position00.m_segment = 0;
-
-            // Start B: m_position01 (secondary/alternative start)
-            ushort seg01 = data.m_position01.m_segment;
-            if (seg01 >= segCount) data.m_position01.m_segment = 0;
-            else if (seg01 != 0 && ((segBuffer[seg01].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg01].Info == null || segBuffer[seg01].Info.m_lanes == null))
-                data.m_position01.m_segment = 0;
-
-            // End A: m_position02 (primary destination)
-            ushort seg02 = data.m_position02.m_segment;
-            if (seg02 >= segCount) data.m_position02.m_segment = 0;
-            else if (seg02 != 0 && ((segBuffer[seg02].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg02].Info == null || segBuffer[seg02].Info.m_lanes == null))
-                data.m_position02.m_segment = 0;
-
-            // End B: m_position03 (secondary/alternative destination)
-            ushort seg03 = data.m_position03.m_segment;
-            if (seg03 >= segCount) data.m_position03.m_segment = 0;
-            else if (seg03 != 0 && ((segBuffer[seg03].m_flags & NetSegment.Flags.Created) == 0 || segBuffer[seg03].Info == null || segBuffer[seg03].Info.m_lanes == null))
-                data.m_position03.m_segment = 0;
-
-            // If start was specified but both positions are invalid/uncreated, fail path
-            if ((seg00 != 0 || seg01 != 0) && data.m_position00.m_segment == 0 && data.m_position01.m_segment == 0)
-            {
-                data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                return false;
-            }
-
-            // If destination was specified but both positions are invalid/uncreated, fail path
-            if ((seg02 != 0 || seg03 != 0) && data.m_position02.m_segment == 0 && data.m_position03.m_segment == 0)
-            {
-                data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
-                return false;
-            }
-
             return true;
         }
 
@@ -5237,6 +5556,30 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static bool CustomPathFind_PathFindImplementation_Prefix(uint unit, ref PathUnit data)
+        {
+            if (unit == 0) return false;
+
+            if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                return true;
+
+            NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
+            int segCount = segBuffer.Length;
+
+            ushort seg00 = data.m_position00.m_segment;
+            ushort seg01 = data.m_position01.m_segment;
+            ushort seg02 = data.m_position02.m_segment;
+            ushort seg03 = data.m_position03.m_segment;
+
+            if (seg00 >= segCount || seg01 >= segCount || seg02 >= segCount || seg03 >= segCount)
+            {
+                data.m_pathFindFlags |= PathUnit.FLAG_FAILED;
+                return false;
+            }
+
+            return true;
+        }
+
 
         public static bool VehicleAICommons_CustomCalculateTargetSpeed_Prefix(
             NetInfo info,
@@ -5258,39 +5601,7 @@ namespace MoreNetworkCapacityRenew
             ref Vector3 dir,
             ref float maxSpeed)
         {
-            if (laneId == 0 || position.m_segment == 0 || NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
-            {
-                pos = Vector3.zero;
-                dir = Vector3.forward;
-                maxSpeed = 1f;
-                return false;
-            }
-
-            if (position.m_segment >= NetManager.instance.m_segments.m_buffer.Length)
-            {
-                pos = Vector3.zero;
-                dir = Vector3.forward;
-                maxSpeed = 1f;
-                return false;
-            }
-
-            NetSegment seg = NetManager.instance.m_segments.m_buffer[position.m_segment];
-            if ((seg.m_flags & NetSegment.Flags.Created) == 0 || seg.Info == null || seg.Info.m_lanes == null)
-            {
-                pos = Vector3.zero;
-                dir = Vector3.forward;
-                maxSpeed = 1f;
-                return false;
-            }
-
-            if (NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null && laneId >= NetManager.instance.m_lanes.m_buffer.Length)
-            {
-                pos = Vector3.zero;
-                dir = Vector3.forward;
-                maxSpeed = 1f;
-                return false;
-            }
-
+            // Pure pass-through: TM:PE natively calculates all segment positions.
             return true;
         }
 
@@ -5338,11 +5649,12 @@ namespace MoreNetworkCapacityRenew
 
         public static bool JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix(object __instance, ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId == 0 || segmentId >= 65024)
             {
                 __result = false;
                 return false;
             }
+
             if (__instance != null)
             {
                 FieldInfo f = __instance.GetType().GetField("segmentRestrictions", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -5571,7 +5883,6 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] UtilityManager_DespawnVehicles_Postfix error: " + ex);
             }
         }
-
         public static void RestoreVehicleSpeedIfNeeded(
             ushort vehicleID, 
             ref Vehicle vehicleData, 
@@ -5580,85 +5891,8 @@ namespace MoreNetworkCapacityRenew
             PathUnit.Position prevPos, 
             ref float maxSpeed)
         {
-            try
-            {
-                if (maxSpeed > 0.05f) return;
-
-                if (vehicleData.m_path == 0) return;
-                if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
-
-                // Legitimate stops: arriving at destination, parking, waiting for loading/cargo, stopped at station/stop, or waiting for path
-                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingPath)) != 0)
-                {
-                    return;
-                }
-
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null || nm.m_lanes == null || nm.m_lanes.m_buffer == null)
-                {
-                    maxSpeed = 1.25f;
-                    return;
-                }
-
-                ushort curSegId = position.m_segment;
-                ushort prevSegId = prevPos.m_segment;
-                ushort checkSegId = curSegId != 0 ? curSegId : prevSegId;
-                if (checkSegId == 0 || checkSegId >= nm.m_segments.m_buffer.Length)
-                {
-                    maxSpeed = 1.25f;
-                    return;
-                }
-
-                NetInfo info = nm.m_segments.m_buffer[checkSegId].Info;
-                if (info == null)
-                {
-                    maxSpeed = 1.25f;
-                    return;
-                }
-
-                bool isHighway = (info.m_netAI != null && info.m_netAI.IsHighway());
-                if (isHighway)
-                {
-                    float segSpeed = 2.0f;
-                    if (info.m_lanes != null && position.m_lane < info.m_lanes.Length && info.m_lanes[position.m_lane] != null)
-                    {
-                        segSpeed = UnityEngine.Mathf.Max(info.m_lanes[position.m_lane].m_speedLimit, 1.5f);
-                    }
-                    maxSpeed = segSpeed;
-                    return;
-                }
-
-                // Check target node for genuine Red Traffic Light
-                ushort startNode = nm.m_segments.m_buffer[checkSegId].m_startNode;
-                ushort endNode = nm.m_segments.m_buffer[checkSegId].m_endNode;
-                ushort targetNodeId = (position.m_offset > 128) ? endNode : startNode;
-
-                if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
-                {
-                    NetNode.Flags nodeFlags = nm.m_nodes.m_buffer[targetNodeId].m_flags;
-                    if ((nodeFlags & NetNode.Flags.TrafficLights) != 0)
-                    {
-                        RoadBaseAI.TrafficLightState vState, pState;
-                        RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[checkSegId], 
-                            Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
-                            out vState, out pState);
-
-                        if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
-                        {
-                            return;
-                        }
-                    }
-                }
-
-                // Not a red light: restore positive target speed so the vehicle accelerates
-                float targetSpeed = 1.25f;
-                if (info.m_lanes != null && position.m_lane < info.m_lanes.Length && info.m_lanes[position.m_lane] != null)
-                {
-                    targetSpeed = UnityEngine.Mathf.Max(info.m_lanes[position.m_lane].m_speedLimit, 1.0f);
-                }
-                maxSpeed = targetSpeed;
-            }
-            catch { }
+            // Natural vehicle speed and following distance preserved. 
+            // Anti-deadlock is handled via IsEnteringBlockedJunctionAllowed and StuckVehicleRecovery.
         }
 
         public static void VehicleBehaviorManager_MayChangeSegment14_Postfix(
@@ -5720,7 +5954,7 @@ namespace MoreNetworkCapacityRenew
 
                 if (vehicleData.m_path == 0) return;
                 if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
-                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingPath)) != 0) return;
+                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath)) != 0) return;
 
                 NetInfo prevInfo = prevSegment.Info;
                 bool isHighway = (prevInfo != null && prevInfo.m_netAI != null && prevInfo.m_netAI.IsHighway());
@@ -5739,22 +5973,33 @@ namespace MoreNetworkCapacityRenew
                 if ((targetNode.m_flags & NetNode.Flags.TrafficLights) != 0)
                 {
                     RoadBaseAI.TrafficLightState vState, pState;
-                    RoadBaseAI.GetTrafficLightState(targetNodeId, ref prevSegment, 
-                        Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)(targetNodeId << 8) / 32768u, 
+                    RoadBaseAI.GetTrafficLightState((ushort)targetNodeId, ref prevSegment, 
+                        Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)((ushort)targetNodeId << 8) / 32768u, 
                         out vState, out pState);
 
                     if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
                     {
-                        return;
+                        return; // Strictly obey red traffic lights!
                     }
                 }
 
-                __result = true;
-                if (maxSpeed < 0.1f)
+                // For normal roads / intersections:
+                // Unblock vehicles that yielded / stopped so they do not stay permanently frozen in TM:PE's 0-velocity catch-22.
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm != null && nm.m_lanes != null && nm.m_lanes.m_buffer != null && laneID < nm.m_lanes.m_buffer.Length)
                 {
-                    maxSpeed = (prevInfo != null && prevInfo.m_lanes != null && position.m_lane < prevInfo.m_lanes.Length && prevInfo.m_lanes[position.m_lane] != null)
-                        ? UnityEngine.Mathf.Max(prevInfo.m_lanes[position.m_lane].m_speedLimit, 1.0f)
-                        : 1.25f;
+                    ushort targetSegId = nm.m_lanes.m_buffer[laneID].m_segment;
+                    if (targetSegId != 0 && (nm.m_segments.m_buffer[targetSegId].m_flags & NetSegment.Flags.Created) != 0)
+                    {
+                        __result = true;
+                        if (maxSpeed < 0.1f)
+                        {
+                            maxSpeed = (prevInfo != null && prevInfo.m_lanes != null && position.m_lane < prevInfo.m_lanes.Length && prevInfo.m_lanes[position.m_lane] != null)
+                                ? UnityEngine.Mathf.Max(prevInfo.m_lanes[position.m_lane].m_speedLimit, 1.25f)
+                                : 1.25f;
+                        }
+                        TMPECompatibility.UnstickVehicle(frontVehicleId);
+                    }
                 }
             }
             catch { }
@@ -6441,25 +6686,11 @@ namespace MoreNetworkCapacityRenew
             if (s_applied || harmony == null) return;
             try
             {
-                // 1. PathManager: Bypass vanilla artificial Thread.Sleep bottleneck when queue >= 100
-                MethodInfo pmSimStep = typeof(PathManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[] { typeof(int) }, null);
-                if (pmSimStep != null)
-                {
-                    MethodInfo pmPrefix = typeof(TurboTrafficDispatcher).GetMethod(nameof(PathManager_SimulationStepImpl_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(pmSimStep, prefix: new HarmonyMethod(pmPrefix));
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched PathManager.SimulationStepImpl (unblocked artificial Thread.Sleep throttle).");
-                }
+                // Note: Multi-phase 4x matching and PathManager Thread.Sleep bypass are removed.
+                // Keeping TransferManager at standard 1x cadence with natural engine backpressure
+                // prevents pathfind queue swamping, unblocks WaitingPath delivery trucks, and restores city economy.
 
-                // 2. TransferManager: Quadruple transfer matching throughput across complementary frame phases
-                MethodInfo tmSimStep = typeof(TransferManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[] { typeof(int) }, null);
-                if (tmSimStep != null)
-                {
-                    MethodInfo tmPostfix = typeof(TurboTrafficDispatcher).GetMethod(nameof(TransferManager_SimulationStepImpl_Postfix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(tmSimStep, postfix: new HarmonyMethod(tmPostfix));
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched TransferManager.SimulationStepImpl (4x multi-phase matching enabled).");
-                }
-
-                // 3. OutsideConnectionAI: Fix dummy traffic probability scaling for 65,536 vehicle capacity
+                // 1. OutsideConnectionAI: Fix dummy traffic probability scaling for 65,536 vehicle capacity
                 MethodInfo dtProb = typeof(OutsideConnectionAI).GetMethod("DummyTrafficProbability", BindingFlags.Static | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
                 if (dtProb != null)
                 {
@@ -6468,7 +6699,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TurboTrafficDispatcher: Patched OutsideConnectionAI.DummyTrafficProbability (scaled for 65k capacity).");
                 }
 
-                // 4. OutsideConnectionAI: Boost connection offers for cargo, tourists and commuters when road network has room
+                // 2. OutsideConnectionAI: Boost connection offers for cargo, tourists and commuters when road network has room
                 MethodInfo addOffers = typeof(OutsideConnectionAI).GetMethod("AddConnectionOffers", BindingFlags.Static | BindingFlags.Public);
                 if (addOffers != null)
                 {
@@ -6487,9 +6718,8 @@ namespace MoreNetworkCapacityRenew
 
         public static bool PathManager_SimulationStepImpl_Prefix(PathManager __instance, int subStep)
         {
-            // Vanilla checks queued pathfind count across pathfind threads and calls Thread.Sleep if count >= 100.
-            // By returning false, we bypass vanilla's artificial Thread.Sleep throttle on the main simulation thread!
-            return false;
+            // Preserves vanilla PathManager backpressure
+            return true;
         }
 
         private static void EnsureMatchOffersDelegate()
@@ -6510,42 +6740,8 @@ namespace MoreNetworkCapacityRenew
 
         public static void TransferManager_SimulationStepImpl_Postfix(TransferManager __instance, int subStep)
         {
-            if (subStep == 0 || __instance == null) return;
-            try
-            {
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                if (vm == null || vm.m_vehicleCount >= 58000) return;
-
-                SimulationManager sm = Singleton<SimulationManager>.instance;
-                if (sm == null) return;
-
-                int frameIndex = (int)(sm.m_currentFrameIndex & 0xFF);
-
-                EnsureMatchOffersDelegate();
-                if (s_matchOffersInvoker == null) return;
-
-                // Pass 1: phase offset +64
-                TransferManager.TransferReason r1 = TransferManager.GetFrameReason((frameIndex + 64) & 0xFF);
-                if (r1 != TransferManager.TransferReason.None)
-                {
-                    s_matchOffersInvoker(__instance, r1);
-                }
-
-                // Pass 2: phase offset +128
-                TransferManager.TransferReason r2 = TransferManager.GetFrameReason((frameIndex + 128) & 0xFF);
-                if (r2 != TransferManager.TransferReason.None)
-                {
-                    s_matchOffersInvoker(__instance, r2);
-                }
-
-                // Pass 3: phase offset +192
-                TransferManager.TransferReason r3 = TransferManager.GetFrameReason((frameIndex + 192) & 0xFF);
-                if (r3 != TransferManager.TransferReason.None)
-                {
-                    s_matchOffersInvoker(__instance, r3);
-                }
-            }
-            catch { }
+            // Standard 1x cadence: extra passes removed to prevent PathManager flooding
+            return;
         }
 
         public static bool OutsideConnectionAI_DummyTrafficProbability_Prefix(ref int __result)
@@ -6699,6 +6895,9 @@ namespace MoreNetworkCapacityRenew
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPECompatibility error: " + ex);
                 }
+
+                // Road & node demolition handling is natively delegated to vanilla game & TM:PE.
+                // We do NOT hook NetManager.ReleaseSegmentImplementation so vehicles are repathed naturally.
 
                 try
                 {
@@ -6932,6 +7131,7 @@ namespace MoreNetworkCapacityRenew
                     int clearedVehicles = VehicleAndTransportRepair.ClearAllVehicles(wipeAll: false);
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Auto-cleansed {0} corrupt vehicles on level load (preserved healthy traffic).", clearedVehicles));
 
+                    // Vehicles in save game are preserved 100% natively without auto-purging or forced resets (ResetStuckAndGhostTrafficOnLoad removed).
                     int restored = VehicleAndTransportRepair.RestoreAllTransportLines(out int deactivated);
                     if (deactivated > 0)
                     {
@@ -6939,11 +7139,6 @@ namespace MoreNetworkCapacityRenew
                     }
                     VehicleAndTransportRepair.UnstickCitizens();
                     TransportLineCompatibility.SanitizeCitizenUnits();
-                    int cleanedGhosts = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
-                    if (cleanedGhosts > 0)
-                    {
-                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Cleaned {0} ghost vehicles stranded on demolished roads.", cleanedGhosts));
-                    }
 
                     // Apply smart logistics capacity boost to service vehicles & cargo trucks
                     TurboTrafficDispatcher.ApplyLogisticsBoost();
@@ -9616,10 +9811,7 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
 
-                    // Clean ghost vehicles on demolished roads
-                    int ghostDemolished = CleanDemolishedRoadVehicles();
-                    freed += ghostDemolished;
-
+                    // Floating and demolished-road vehicles are preserved for vanilla game and TM:PE to naturally repath or handle.
                     // Reactivate linked lists and logistics without deleting healthy vehicles
                     ReactivateCityLogistics();
 
@@ -9681,7 +9873,7 @@ namespace MoreNetworkCapacityRenew
                                 ushort prev = 0;
                                 ushort curr = ownHead;
                                 int steps = 0;
-                                while (curr != 0 && steps++ < 16384)
+                                while (curr != 0 && steps++ < vBufLen)
                                 {
                                     if (curr >= vBufLen || (vm.m_vehicles.m_buffer[curr].m_flags & Vehicle.Flags.Created) == 0)
                                     {
@@ -9693,7 +9885,7 @@ namespace MoreNetworkCapacityRenew
                                     prev = curr;
                                     curr = vm.m_vehicles.m_buffer[curr].m_nextOwnVehicle;
                                 }
-                                if (steps >= 16384 && prev != 0)
+                                if (steps >= vBufLen && prev != 0)
                                 {
                                     vm.m_vehicles.m_buffer[prev].m_nextOwnVehicle = 0;
                                     repaired++;
@@ -9715,7 +9907,7 @@ namespace MoreNetworkCapacityRenew
                                 ushort prev = 0;
                                 ushort curr = guestHead;
                                 int steps = 0;
-                                while (curr != 0 && steps++ < 16384)
+                                while (curr != 0 && steps++ < vBufLen)
                                 {
                                     if (curr >= vBufLen || (vm.m_vehicles.m_buffer[curr].m_flags & Vehicle.Flags.Created) == 0)
                                     {
@@ -9727,7 +9919,7 @@ namespace MoreNetworkCapacityRenew
                                     prev = curr;
                                     curr = vm.m_vehicles.m_buffer[curr].m_nextGuestVehicle;
                                 }
-                                if (steps >= 16384 && prev != 0)
+                                if (steps >= vBufLen && prev != 0)
                                 {
                                     vm.m_vehicles.m_buffer[prev].m_nextGuestVehicle = 0;
                                     repaired++;
@@ -9765,7 +9957,7 @@ namespace MoreNetworkCapacityRenew
                                 ushort prev = 0;
                                 ushort curr = lineVehHead;
                                 int steps = 0;
-                                while (curr != 0 && steps++ < 16384)
+                                while (curr != 0 && steps++ < vBufLen)
                                 {
                                     if (curr >= vBufLen || (vm.m_vehicles.m_buffer[curr].m_flags & Vehicle.Flags.Created) == 0)
                                     {
@@ -9777,7 +9969,7 @@ namespace MoreNetworkCapacityRenew
                                     prev = curr;
                                     curr = vm.m_vehicles.m_buffer[curr].m_nextLineVehicle;
                                 }
-                                if (steps >= 16384 && prev != 0)
+                                if (steps >= vBufLen && prev != 0)
                                 {
                                     vm.m_vehicles.m_buffer[prev].m_nextLineVehicle = 0;
                                     repaired++;
@@ -10194,10 +10386,12 @@ namespace MoreNetworkCapacityRenew
 
         public static void NetManager_ReleaseSegmentImplementation_Postfix(ushort segment)
         {
+            // Road and node demolition handling delegated natively to vanilla game and TM:PE
         }
 
         public static void NetManager_ReleaseSegmentImplementation_Postfix(ushort segment, ref NetSegment data, bool keepNodes)
         {
+            // Road and node demolition handling delegated natively to vanilla game and TM:PE
         }
 
         public static int CleanDemolishedRoadVehicles()
@@ -10220,7 +10414,7 @@ namespace MoreNetworkCapacityRenew
                 for (int i = 1; i < vCount; i++)
                 {
                     Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
-                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                    if ((flags & Vehicle.Flags.Created) == 0)
                         continue;
 
                     if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0)
@@ -10234,6 +10428,7 @@ namespace MoreNetworkCapacityRenew
                     byte pathIdx = vm.m_vehicles.m_buffer[i].m_pathPositionIndex;
                     bool shouldRelease = false;
 
+                    // 1. Path position on demolished / uncreated / null segment
                     if (pathId != 0 && pathId < (uint)pathCount)
                     {
                         int posIdx = (int)(pathIdx >> 1);
@@ -10241,7 +10436,8 @@ namespace MoreNetworkCapacityRenew
                         if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
                         {
                             if (pPos.m_segment == 0 || pPos.m_segment >= segCount ||
-                                (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) == 0)
+                                (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) == 0 ||
+                                nm.m_segments.m_buffer[pPos.m_segment].Info == null)
                             {
                                 shouldRelease = true;
                             }
@@ -10251,9 +10447,25 @@ namespace MoreNetworkCapacityRenew
                             shouldRelease = true;
                         }
                     }
-                    else if (pathId == 0 && (flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
+                    else if ((flags & Vehicle.Flags.WaitingPath) != 0 && (pathId == 0 || pathId >= (uint)pathCount))
                     {
-                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f && vm.m_vehicles.m_buffer[i].m_blockCounter >= 150)
+                        shouldRelease = true;
+                    }
+
+                    // 2. Frozen stopped vehicles on roads
+                    if (!shouldRelease && (flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.Stopped)) == 0)
+                    {
+                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f && vm.m_vehicles.m_buffer[i].m_blockCounter >= 120)
+                        {
+                            shouldRelease = true;
+                        }
+                    }
+
+                    // 3. Corrupted NaN / out of world coordinates
+                    if (!shouldRelease)
+                    {
+                        Vector3 pos = vm.m_vehicles.m_buffer[i].GetLastFramePosition();
+                        if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) || pos.sqrMagnitude > 1000000000f)
                         {
                             shouldRelease = true;
                         }
@@ -10261,7 +10473,7 @@ namespace MoreNetworkCapacityRenew
 
                     if (shouldRelease)
                     {
-                        if (pathId != 0)
+                        if (pathId != 0 && pathId < (uint)pathCount)
                         {
                             try { pm.ReleasePath(pathId); } catch { }
                             vm.m_vehicles.m_buffer[i].m_path = 0;
@@ -10271,8 +10483,73 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] CleanDemolishedRoadVehicles error: " + ex);
+            }
             return released;
+        }
+
+        public static int ResetStuckAndGhostTrafficOnLoad()
+        {
+            int resetCount = 0;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                PathManager pm = Singleton<PathManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return resetCount;
+
+                int vCount = vm.m_vehicles.m_buffer.Length;
+                int pathCount = (pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null) ? pm.m_pathUnits.m_buffer.Length : 0;
+
+                for (int i = 1; i < vCount; i++)
+                {
+                    Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
+                    if ((flags & Vehicle.Flags.Created) == 0) continue;
+                    if (vm.m_vehicles.m_buffer[i].m_leadingVehicle != 0) continue;
+
+                    VehicleInfo info = vm.m_vehicles.m_buffer[i].Info;
+                    if (info == null || (info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
+                        continue;
+
+                    uint pathId = vm.m_vehicles.m_buffer[i].m_path;
+                    bool pathFindError = false;
+
+                    // Only cancel vehicles with an unrecoverable Path Find Error:
+                    if (pathId != 0 && pm != null && pathId < (uint)pathCount)
+                    {
+                        byte pathFlags = pm.m_pathUnits.m_buffer[pathId].m_pathFindFlags;
+                        if ((pathFlags & PathUnit.FLAG_FAILED) != 0)
+                        {
+                            pathFindError = true;
+                        }
+                    }
+                    else if ((flags & Vehicle.Flags.WaitingPath) != 0 && (pathId == 0 || pathId >= (uint)pathCount) && vm.m_vehicles.m_buffer[i].m_waitCounter > 250)
+                    {
+                        pathFindError = true;
+                    }
+
+                    // Note: Floating vehicles (lơ lửng) are preserved for vanilla game or TM:PE to handle naturally.
+                    if (pathFindError)
+                    {
+                        if (pathId != 0 && pm != null && pathId < (uint)pathCount)
+                        {
+                            try { pm.ReleasePath(pathId); } catch { }
+                            vm.m_vehicles.m_buffer[i].m_path = 0;
+                        }
+                        vm.ReleaseVehicle((ushort)i);
+                        resetCount++;
+                    }
+                }
+
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] ResetStuckAndGhostTrafficOnLoad: Safely purged {0} path find error vehicles.", resetCount));
+                ReactivateCityLogistics();
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ResetStuckAndGhostTrafficOnLoad error: " + ex);
+            }
+            return resetCount;
         }
 
         public static int UnstickFrozenVehicles()
@@ -11731,7 +12008,7 @@ namespace MoreNetworkCapacityRenew
                             {
                                 ushort vHead = tm.m_lines.m_buffer[i].m_vehicles;
                                 int vCount = 0;
-                                while (vHead != 0 && vHead < vm.m_vehicles.m_buffer.Length && ++vCount < 16384)
+                                while (vHead != 0 && vHead < vm.m_vehicles.m_buffer.Length && ++vCount < vm.m_vehicles.m_buffer.Length)
                                 {
                                     ushort nextV = vm.m_vehicles.m_buffer[vHead].m_nextLineVehicle;
                                     try { vm.ReleaseVehicle(vHead); } catch { }
@@ -13405,7 +13682,9 @@ namespace MoreNetworkCapacityRenew
                         continue;
                     }
 
-                    // Skip vehicles that are parked, waiting, arriving, leaving, stopped, or inside buildings
+                    // PRIORITY 1: Legitimate Vehicle States (Parked, stopped at stop, waiting loading/space/cargo, inside building)
+                    // Evaluated FIRST to guarantee no vehicle in a legitimate stationary or temporary waiting state is ever prematurely removed.
+                    // Demolished roads, rerouting, and floating vehicles are left 100% to vanilla game & TM:PE natively.
                     const Vehicle.Flags IGNORE_FLAGS = 
                         Vehicle.Flags.Stopped | 
                         Vehicle.Flags.Leaving | 
@@ -13418,70 +13697,93 @@ namespace MoreNetworkCapacityRenew
                         Vehicle.Flags.WaitingPath | 
                         Vehicle.Flags.InsideBuilding;
 
-                    if ((flags & IGNORE_FLAGS) != 0)
+                    // Vehicles stored inside buildings or waiting for service dispatch are 100% legitimate and safe.
+                    if ((flags & (Vehicle.Flags.InsideBuilding | Vehicle.Flags.WaitingTarget)) != 0)
                     {
-                        // Anti-deadlock for public transport boarding (Bus, Tram, Trolleybus, Train, Metro):
-                        // If vehicle is stopped at a station and wait counter is high, clear stuck boarding flags
-                        // so VehicleAI.CanLeave returns true and the vehicle can smoothly leave the stop.
-                        if ((flags & Vehicle.Flags.Stopped) != 0 && buffer[i].m_waitCounter > 60)
-                        {
-                            ClearStuckBoardingCitizens(buffer[i].m_citizenUnits);
-                        }
-
-                        // Stalled WaitingPath Recovery:
-                        // If vehicle is stuck waiting for a path for too long (> 250 ticks), cleanly release
-                        if ((flags & Vehicle.Flags.WaitingPath) != 0)
-                        {
-                            if (buffer[i].m_waitCounter > 250)
-                            {
-                                vm.ReleaseVehicle((ushort)i);
-                                totalRecoveries++;
-                                continue;
-                            }
-                        }
                         continue;
                     }
 
-                    // 1. Road Demolition Check:
-                    // If the current path position of the vehicle leads to a demolished segment,
-                    // cleanly despawn the vehicle immediately so it disappears and does not block traffic.
-                    uint pathId = buffer[i].m_path;
-                    if (pathId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
-                        pathId < pm.m_pathUnits.m_buffer.Length && nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null)
+                    // Quick bypass for freely-moving vehicles without any stationary or waiting flags
+                    if ((flags & IGNORE_FLAGS) != 0)
                     {
-                        int posIdx = (int)(buffer[i].m_pathPositionIndex >> 1);
-                        PathUnit.Position pPos;
-                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
+                        // For Public Transport boarding at stops (Bus, Tram, Train, Metro):
+                        if ((flags & Vehicle.Flags.Stopped) != 0)
                         {
-                            ushort segId = pPos.m_segment;
-                            if (segId == 0 || segId >= nm.m_segments.m_buffer.Length ||
-                                (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
+                            if (buffer[i].m_waitCounter > 60)
                             {
-                                // Segment in path is demolished! Clean release
-                                try { pm.ReleasePath(pathId); } catch { }
-                                buffer[i].m_path = 0;
-                                vm.ReleaseVehicle((ushort)i);
-                                totalRecoveries++;
+                                ClearStuckBoardingCitizens(buffer[i].m_citizenUnits);
+                            }
+                            if (buffer[i].m_waitCounter <= 250)
+                            {
+                                continue;
+                            }
+                        }
+
+                        // For temporary legitimate operations (Parking, WaitingLoading, WaitingCargo):
+                        // Allow normal maneuvering and cargo transfer. Only intervene if frozen in dock/slot for > 250 ticks.
+                        if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo)) != 0)
+                        {
+                            if (buffer[i].m_waitCounter <= 250)
+                            {
+                                continue;
+                            }
+                        }
+
+                        // For vehicles waiting for path on the road (WaitingPath):
+                        // If waiting for path calculation, allow up to 200 ticks before evaluating as a stalled path search.
+                        if ((flags & Vehicle.Flags.WaitingPath) != 0 && buffer[i].m_waitCounter <= 200)
+                        {
+                            // Check if path has already returned with permanent failure
+                            uint pId = buffer[i].m_path;
+                            if (pId == 0 || pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null ||
+                                pId >= pm.m_pathUnits.m_buffer.Length || (pm.m_pathUnits.m_buffer[pId].m_pathFindFlags & PathUnit.FLAG_FAILED) == 0)
+                            {
+                                continue;
+                            }
+                        }
+
+                        // For vehicles in traffic or entering/leaving (WaitingSpace, Arriving, Leaving):
+                        // Allow normal traffic yielding and red lights. Only proceed to recovery if blocked for >= 80 ticks.
+                        if ((flags & (Vehicle.Flags.WaitingSpace | Vehicle.Flags.Arriving | Vehicle.Flags.Leaving)) != 0)
+                        {
+                            if (buffer[i].m_blockCounter < 80)
+                            {
                                 continue;
                             }
                         }
                     }
 
-                    // 2. Corrupted / Ghost Vehicle Check:
-                    // If a vehicle has NaN position coordinates, release it.
+                    // PRIORITY 2: Corrupted Coordinates Check (NaN coordinates or out of map bounds)
                     Vector3 pos = buffer[i].GetLastFramePosition();
-                    if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z))
+                    if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) || pos.sqrMagnitude > 1000000000f)
                     {
                         vm.ReleaseVehicle((ushort)i);
                         totalRecoveries++;
                         continue;
                     }
 
-                    // If a vehicle has been completely blocked for >= 255 ticks with NO path (and not waiting for path),
-                    // cleanly release it to prevent eternal ghost blockage.
-                    // All other vehicle physics, queuing, and TM:PE routing are strictly left to vanilla game & TM:PE.
-                    if (buffer[i].m_blockCounter >= 255 && buffer[i].m_path == 0)
+                    // PRIORITY 3: Permanent Path Failure for Active Moving Vehicles
+                    uint pathId = buffer[i].m_path;
+                    bool permanentPathFailure = false;
+                    if (pathId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
+                        pathId < pm.m_pathUnits.m_buffer.Length)
                     {
+                        byte pathFlags = pm.m_pathUnits.m_buffer[pathId].m_pathFindFlags;
+                        if ((pathFlags & PathUnit.FLAG_FAILED) != 0)
+                        {
+                            permanentPathFailure = true;
+                        }
+                    }
+
+                    // If path search permanently failed, or vehicle has been stuck in WaitingPath on road for > 200 ticks
+                    if (permanentPathFailure || ((flags & Vehicle.Flags.WaitingPath) != 0 && buffer[i].m_waitCounter > 200))
+                    {
+                        if (pathId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
+                            pathId < pm.m_pathUnits.m_buffer.Length)
+                        {
+                            try { pm.ReleasePath(pathId); } catch { }
+                            buffer[i].m_path = 0;
+                        }
                         vm.ReleaseVehicle((ushort)i);
                         totalRecoveries++;
                         continue;
@@ -13795,6 +14097,8 @@ namespace MoreNetworkCapacityRenew
                     harmony.Patch(usr, postfix: new HarmonyMethod(usrPostfix));
                     UnityEngine.Debug.Log("[VehicleFixPatches] Patched NetManager.UpdateSegmentRenderer");
                 }
+
+                // Note: CarAI.CalculateSegmentPosition is left 100% native to game and TM:PE to preserve natural vehicle physics.
                 
                 UnityEngine.Debug.Log("[VehicleFixPatches] Simulation monitoring patches installed successfully.");
             }

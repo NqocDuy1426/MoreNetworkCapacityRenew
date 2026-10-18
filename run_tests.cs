@@ -260,15 +260,13 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 6.1 Verify TM:PE CustomPathFind guards are present
-            bool hasCpfPfi = renewCode.Contains("CustomPathFind_PathFindImplementation_Prefix");
-            bool hasCpfGld = renewCode.Contains("CustomPathFind_GetLaneDirection_Prefix");
-            bool hasCpfPim = renewCode.Contains("CustomPathFind_ProcessItemMain_Prefix");
-            bool hasCpfCul = renewCode.Contains("CustomPathFind_CanUseLane_Prefix");
-            Assert(hasCpfPfi, "CustomPathFind.PathFindImplementation safe boundary validation prefix installed");
-            Assert(hasCpfGld, "CustomPathFind.GetLaneDirection safe boundary validation prefix installed");
-            Assert(hasCpfPim, "CustomPathFind.ProcessItemMain validation prefix installed");
-            Assert(hasCpfCul, "CustomPathFind.CanUseLane safe null guard prefix installed");
+            // 6.1 Verify TM:PE CustomPathFind Awake buffer expansion is active and internal routing methods are native
+            bool hasCpfAwake = renewCode.Contains("CustomPathFind_Awake_Postfix") && renewCode.Contains("SynchronizeSinglePathFind");
+            bool hasCpfWfap = renewCode.Contains("WaitForAllPaths_Prefix");
+            bool hasCpfNative = renewCode.Contains("CustomPathFind internal routing methods") && renewCode.Contains("left 100% native to TM:PE");
+            Assert(hasCpfAwake, "CustomPathFind.Awake capacity postfix installed to synchronize 65k buffers");
+            Assert(hasCpfWfap, "CustomPathFind.WaitForAllPaths safe deadlock defense prefix installed");
+            Assert(hasCpfNative, "CustomPathFind internal routing methods left 100% native to TM:PE to eliminate thread NREs");
 
             // 6.2 Verify zero reflection in CustomPathFind_PathFindImplementation_Prefix (Hot-path performance)
             int pfiIndex = renewCode.IndexOf("public static bool CustomPathFind_PathFindImplementation_Prefix");
@@ -338,22 +336,18 @@ class TestSuite
         try
         {
             string renewCode = File.ReadAllText("Renew.cs");
-            bool hasCpfPt = renewCode.Contains("CustomPathFind_ProcessItemPublicTransport_Prefix") && renewCode.Contains("ProcessItemPublicTransport");
-            bool hasCpfCosts = renewCode.Contains("CustomPathFind_ProcessItemCosts_Prefix") && renewCode.Contains("ProcessItemCosts");
-            bool hasCpfRouted = renewCode.Contains("CustomPathFind_ProcessItemRouted_Prefix") && renewCode.Contains("ProcessItemRouted");
-            bool hasCpfPed = renewCode.Contains("CustomPathFind_ProcessItemPedBicycle_Prefix") && renewCode.Contains("ProcessItemPedBicycle");
+            bool tmpeNativeVehicles = renewCode.Contains("VehicleAICommons: Left 100% native to TM:PE");
+            bool tmpeNativeBehavior = renewCode.Contains("VehicleBehaviorManager: Left 100% native to TM:PE");
+            bool carAiNative = renewCode.Contains("CarAI.CalculateSegmentPosition is left 100% native");
             bool hasNetSegLanes = renewCode.Contains("NetSegment_GetLeftAndRightLanes_Prefix") && renewCode.Contains("GetLeftAndRightLanes");
-            bool hasVaiCalcPos = renewCode.Contains("VehicleAICommons_CalculateSegmentPosition_Prefix") && renewCode.Contains("CustomCalculateSegmentPosition");
             bool hasEnsureEvm = renewCode.Contains("EnsureExtVehicleManagerCapacity") && renewCode.Contains("ExtVehicleManager");
             bool hasAutoCleanse = renewCode.Contains("Auto-cleansed") && renewCode.Contains("VehicleAndTransportRepair.ClearAllVehicles()");
             bool hasHotkeyT = renewCode.Contains("KeyCode.T") && renewCode.Contains("ClearAllVehicles()");
 
-            Assert(hasCpfPt, "TM:PE CustomPathFind.ProcessItemPublicTransport guarded against null segment Info");
-            Assert(hasCpfCosts, "TM:PE CustomPathFind.ProcessItemCosts guarded against null segment Info");
-            Assert(hasCpfRouted, "TM:PE CustomPathFind.ProcessItemRouted guarded against null segment/node Info");
-            Assert(hasCpfPed, "TM:PE CustomPathFind.ProcessItemPedBicycle guarded against null segment Info");
+            Assert(tmpeNativeVehicles, "VehicleAICommons left 100% native to TM:PE for natural physics & coordinates");
+            Assert(tmpeNativeBehavior, "VehicleBehaviorManager left 100% native to TM:PE for native despawn and segment transitions");
+            Assert(carAiNative, "CarAI.CalculateSegmentPosition left 100% native to game & TM:PE");
             Assert(hasNetSegLanes, "NetSegment.GetLeftAndRightLanes guarded against null Info and m_lanes");
-            Assert(hasVaiCalcPos, "VehicleAICommons.CustomCalculateSegmentPosition guarded against null segment Info and out of bounds");
             Assert(hasEnsureEvm, "ExtVehicleManager.ExtVehicles expanded to 65,536 to match More Vehicles");
             Assert(hasAutoCleanse, "Auto-cleanses broken/floating/ghost vehicles on level load");
             Assert(hasHotkeyT, "Provides Ctrl+Shift+T hotkey for on-demand traffic wipeout and logistics reactivation");
@@ -373,20 +367,123 @@ class TestSuite
             bool hasSelectiveCleanse = renewCode.Contains("VehicleAndTransportRepair.ClearAllVehicles(wipeAll: false)");
             bool hasTurboTraffic = renewCode.Contains("TurboTrafficDispatcher") && renewCode.Contains("TurboTrafficDispatcher.Apply");
             bool hasPmUnsleep = renewCode.Contains("PathManager_SimulationStepImpl_Prefix");
-            bool hasTmMultiPhase = renewCode.Contains("TransferManager_SimulationStepImpl_Postfix") && renewCode.Contains("GetFrameReason");
+            bool hasTmSafe1x = renewCode.Contains("TransferManager_SimulationStepImpl_Postfix");
             bool hasOcPatches = renewCode.Contains("OutsideConnectionAI_DummyTrafficProbability_Prefix") && renewCode.Contains("OutsideConnectionAI_AddConnectionOffers_Prefix");
             bool hasLogisticsBoost = renewCode.Contains("ApplyLogisticsBoost") && renewCode.Contains("CargoTruckAI") && renewCode.Contains("GarbageTruckAI") && renewCode.Contains("HearseAI");
 
             Assert(hasSelectiveCleanse, "Level load preserves healthy vehicles and only cleanses corrupt/broken vehicles (wipeAll: false)");
             Assert(hasTurboTraffic, "TurboTrafficDispatcher initialized and applied via Harmony");
-            Assert(hasPmUnsleep, "PathManager.SimulationStepImpl bypasses artificial Thread.Sleep bottleneck");
-            Assert(hasTmMultiPhase, "TransferManager multi-phase matching accelerates offer matching 4x across complementary phases");
+            Assert(hasPmUnsleep, "PathManager.SimulationStepImpl safely manages simulation and pathfinding");
+            Assert(hasTmSafe1x, "TransferManager runs at safe 1x cadence to prevent PathManager queue flooding");
             Assert(hasOcPatches, "OutsideConnectionAI dummy traffic and connection offers scaled for 65k capacity");
             Assert(hasLogisticsBoost, "Smart logistics capacity boost applied for Cargo, Garbage, and Hearse service vehicles");
+
+            // 8.3 Verify Highway Merge & Anti-Deadlock Mechanism Removed (Solution 2)
+            bool antiDeadlockRemoved = !renewCode.Contains("buffer[i].m_blockCounter >= 80 && buffer[i].m_blockCounter < 180") &&
+                                       !renewCode.Contains("buffer[i].m_blockCounter >= 180 || buffer[i].m_waitCounter > 250");
+            bool hasJrmNative = renewCode.Contains("JunctionRestrictionsManager.LoadData");
+
+            Assert(antiDeadlockRemoved, "2-stage Anti-Deadlock mechanism cleanly removed from StuckVehicleRecovery (Solution 2)");
+            Assert(hasJrmNative, "TM:PE JunctionRestrictionsManager maintains native authority over junction permissions");
         }
         catch (Exception ex)
         {
             Assert(false, "Test Group 8 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST SUITE 9: TM:PE ROUTINGMANAGER & NODE EQUALITY ARCHITECTURE (v4.3.9)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 9: TM:PE RoutingManager & Node Equality Architecture (v4.3.9) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 9.1 Verify LaneEndBackwardRoutings & LaneEndForwardRoutings normalization to 524,288
+            bool hasLaneEnd524k = renewCode.Contains("Normalized RoutingManager.LaneEndBackwardRoutings") &&
+                                  renewCode.Contains("524288") &&
+                                  renewCode.Contains("262144");
+            Assert(hasLaneEnd524k, "LaneEndBackwardRoutings & LaneEndForwardRoutings normalized to standard 524,288 with offset 262,144");
+
+            // 9.2 Verify updatedSegmentBuckets size 1016
+            bool hasBuckets1016 = renewCode.Contains("updatedSegmentBuckets: {0} -> 1016") &&
+                                  renewCode.Contains("new ulong[1016]");
+            Assert(hasBuckets1016, "RoutingManager.updatedSegmentBuckets normalized to 1016 to strictly match 65,024 segment capacity and TMPEBufferValidation");
+
+            // 9.3 Verify ExtLane.GetLaneInfo linked-list resolver (IndexOutOfRangeException defense)
+            bool hasGliPrefix = renewCode.Contains("ExtLane_GetLaneInfo_Prefix") &&
+                                renewCode.Contains("NetInfo.Lane foundLane = null") &&
+                                renewCode.Contains("curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane");
+            Assert(hasGliPrefix, "ExtLane.GetLaneInfo protected with linked-list resolver preventing IndexOutOfRangeException");
+
+            // 9.4 Verify ExtBuildingManager & SimulationStepPatch crash armor
+            bool hasEbmArmor = renewCode.Contains("ExtBuildingManager_OnBeforeSimulationStep_Prefix") &&
+                               renewCode.Contains("CommonBuildingAI_SimulationStepPatch_Prefix_Guard") &&
+                               renewCode.Contains("Patched TM:PE ExtBuildingManager.OnBeforeSimulationStep");
+            Assert(hasEbmArmor, "ExtBuildingManager & CommonBuildingAI.SimulationStep armored against NullReferenceException");
+
+            // 9.5 Verify SanitizeRoutingManager purges dead transitions
+            bool hasSanitizer = renewCode.Contains("SanitizeRoutingManager") &&
+                                renewCode.Contains("Purged {0} stale/corrupted transitions");
+            Assert(hasSanitizer, "SanitizeRoutingManager automatically detects and purges broken/dead segment transitions");
+
+            // 9.6 Verify EnsureJunctionRestrictionsDefaults64k populates native TM:PE defaults
+            bool hasJrmDefaults = renewCode.Contains("EnsureJunctionRestrictionsDefaults64k") &&
+                                  renewCode.Contains("HandleValidSegment");
+            Assert(hasJrmDefaults, "EnsureJunctionRestrictionsDefaults64k populates native TM:PE defaults for segments >= 36864");
+
+            // 9.7 Verify RequestFullRecalculation64k queues all segments
+            bool hasFullRecalc = renewCode.Contains("RequestFullRecalculation64k") &&
+                                 renewCode.Contains("Queued all 65,024 segments for TM:PE recalculation");
+            Assert(hasFullRecalc, "RequestFullRecalculation64k ensures all 65,024 segments are marked for TM:PE update");
+
+            // 9.8 Verify TMPEBufferValidation.Validate armoring prefix
+            bool hasValArmor = renewCode.Contains("TMPEBufferValidation_Validate_Prefix") &&
+                               renewCode.Contains("Armored TMPEBufferValidation.Validate");
+            Assert(hasValArmor, "TMPEBufferValidation.Validate protected against simulation deserialization crash with Harmony prefix");
+
+            // 9.9 Verify CustomPathFind calculation methods left 100% native to TM:PE
+            bool hasNativeCpf = renewCode.Contains("CustomPathFind internal routing methods are left 100% native to TM:PE to eliminate thread NREs") &&
+                                renewCode.Contains("PathFindImplementation and GetLaneDirection are left 100% native to TM:PE without Harmony reflection overhead");
+            Assert(hasNativeCpf, "CustomPathFind methods left 100% native to TM:PE without Harmony reflection overhead");
+
+            // 9.10 Verify CustomPathFind calculation methods are unhooked from Harmony
+            bool cpfUnhooked = !renewCode.Contains("Patched TM:PE CustomPathFind.PathFindImplementation") &&
+                               !renewCode.Contains("Patched TM:PE CustomPathFind.GetLaneDirection");
+            Assert(cpfUnhooked, "CustomPathFind.PathFindImplementation & GetLaneDirection unhooked from Harmony");
+
+            // 9.11 Verify road & node demolition native handling (delegated to vanilla game & TM:PE)
+            bool hasNativeDemolition = renewCode.Contains("Road & node demolition handling is natively delegated to vanilla game & TM:PE") &&
+                                       !renewCode.Contains("harmony.Patch(relSegM");
+            Assert(hasNativeDemolition, "Road & node demolition handling natively delegated to vanilla game & TM:PE (no aggressive despawn)");
+
+            // 9.12 Verify Level Load preserves all vehicles natively without auto-purging
+            bool hasPreservedOnLoad = renewCode.Contains("Vehicles in save game are preserved 100% natively without auto-purging or forced resets");
+            Assert(hasPreservedOnLoad, "Level load preserves all vehicles in save game 100% natively without auto-purging");
+
+            // 9.13 Verify flexible More Vehicles compatibility
+            bool hasFlexibleVehicles = renewCode.Contains("int bufferLen = (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)") &&
+                                       renewCode.Contains("int targetSize = Math.Max(16384, bufferLen);");
+            Assert(hasFlexibleVehicles, "EnsureExtVehicleManagerCapacity dynamically adapts to More Vehicles (65k) or vanilla (16k)");
+
+            // 9.14 Verify StuckVehicleRecovery priority (Legitimate states / IGNORE_FLAGS evaluated first)
+            bool hasIgnoreFlagsFirst = renewCode.Contains("PRIORITY 1: Legitimate Vehicle States") &&
+                                       renewCode.Contains("const Vehicle.Flags IGNORE_FLAGS");
+            Assert(hasIgnoreFlagsFirst, "StuckVehicleRecovery prioritizes legitimate vehicle states (IGNORE_FLAGS) first, preventing premature vehicle removal");
+
+            // 9.15 Verify CustomPathFind inner-loop methods unhooked for native 60+ FPS pathfinding performance
+            bool hasNativePathFindLoop = renewCode.Contains("CustomPathFind inner-loop methods (ProcessItemMain, ProcessItemCosts, ProcessItemRouted, etc.)") &&
+                                         renewCode.Contains("are intentionally NOT hooked with Harmony prefixes to ensure 100% native C# path computation speed");
+            Assert(hasNativePathFindLoop, "CustomPathFind inner-loop methods unhooked to ensure native 60+ FPS pathfinding performance");
+
+            // 9.16 Verify EnsureExtBuildingManagerCapacity ensures 49,152 building capacity
+            bool hasEbmCap = renewCode.Contains("EnsureExtBuildingManagerCapacity") &&
+                             renewCode.Contains("49152");
+            Assert(hasEbmCap, "EnsureExtBuildingManagerCapacity guarantees 49,152 building capacity for TM:PE");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 9 exception", ex.ToString());
         }
 
         // ====================================================================

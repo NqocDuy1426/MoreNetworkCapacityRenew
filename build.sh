@@ -22,10 +22,9 @@ mcs -r:"$CECIL_DLL" run_tests.cs -out:run_tests.exe
 mono run_tests.exe
 echo "✅ Test Suite passed 100%."
 
-# 1. Build and run strip_iusermod tool
-echo "1️⃣ Generating clean core engine (MoreNetworkCapacity.Core.dll)..."
-mcs -r:"$CECIL_DLL" strip_iusermod.cs -out:strip_iusermod.exe
-mono strip_iusermod.exe "$ORIGINAL_MNC" MoreNetworkCapacity.Core.dll
+# 1. Use clean, stable core engine (MoreNetworkCapacity.Core.dll v1.0.19 from stable depot)
+echo "1️⃣ Using stable core engine (MoreNetworkCapacity.Core.dll v1.0.19)..."
+cp MoreNetworkCapacity.Core.v1019.dll MoreNetworkCapacity.Core.dll
 
 # 2. Compile Renew.cs into MoreNetworkCapacityRenew.dll
 echo "2️⃣ Compiling MoreNetworkCapacityRenew.dll..."

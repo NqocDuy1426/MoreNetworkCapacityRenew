@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.22 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.23 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -3455,7 +3455,7 @@ namespace MoreNetworkCapacityRenew
                     int filledCount = 0;
 
                     int maxSeg = Math.Min(segBuffer.Length, 65024);
-                    for (ushort segId = 1; segId < maxSeg; segId++)
+                    for (int segId = 1; segId < maxSeg; segId++)
                     {
                         if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
                         NetInfo info = segBuffer[segId].Info;
@@ -6900,11 +6900,10 @@ namespace MoreNetworkCapacityRenew
                     // Apply smart logistics capacity boost to service vehicles & cargo trucks
                     TurboTrafficDispatcher.ApplyLogisticsBoost();
 
-                    // Pre-warm speed limits, unblock frozen traffic saved into the city, and clear building spawn backlogs
+                    // Pre-warm speed limits and unblock frozen traffic saved into the city
                     TMPEBufferSync.SyncSpeedLimitCache();
                     int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
-                    int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Level load traffic activation: unblocked {0} frozen vehicles and reactivated {1} city logistics queues.", unblocked, reactivated));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Level load traffic activation: unblocked {0} frozen vehicles.", unblocked));
                 }
                 catch (Exception ex)
                 {
@@ -10144,7 +10143,7 @@ namespace MoreNetworkCapacityRenew
                     rFlags.EndRead();
 
                     int restored = 0;
-                    for (ushort i = 1; i < 256; i++)
+                    for (int i = 1; i < 256; i++)
                     {
                         if ((flags[i] & 1) != 0)
                         {
@@ -10349,7 +10348,7 @@ namespace MoreNetworkCapacityRenew
                 int segCount = nm.m_segments.m_buffer.Length;
                 int pathCount = pm.m_pathUnits.m_buffer.Length;
 
-                for (ushort i = 1; i < vCount; i++)
+                for (int i = 1; i < vCount; i++)
                 {
                     Vehicle.Flags flags = vm.m_vehicles.m_buffer[i].m_flags;
                     if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
@@ -10404,7 +10403,7 @@ namespace MoreNetworkCapacityRenew
                                     if (vm.m_vehicles.m_buffer[i].m_targetPos2.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos2.w = 1.5f;
                                     if (vm.m_vehicles.m_buffer[i].m_targetPos3.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos3.w = 1.5f;
 
-                                    TMPECompatibility.UnstickVehicle(i);
+                                    TMPECompatibility.UnstickVehicle((ushort)i);
                                     unblocked++;
                                 }
                             }
@@ -13142,7 +13141,8 @@ namespace MoreNetworkCapacityRenew
 
                 int warmed = 0;
                 int segCount = nm.m_segments.m_buffer.Length;
-                for (ushort s = 1; s < segCount; s++)
+                int laneBufLen = nm.m_lanes.m_buffer.Length;
+                for (int s = 1; s < segCount; s++)
                 {
                     if ((nm.m_segments.m_buffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
                     NetInfo info = nm.m_segments.m_buffer[s].Info;
@@ -13150,7 +13150,7 @@ namespace MoreNetworkCapacityRenew
 
                     uint curLane = nm.m_segments.m_buffer[s].m_lanes;
                     int lIdx = 0;
-                    while (curLane != 0 && curLane < arr.Length && lIdx < info.m_lanes.Length)
+                    while (curLane != 0 && curLane < arr.Length && curLane < laneBufLen && lIdx < info.m_lanes.Length)
                     {
                         if (arr[curLane] <= 0.001f)
                         {

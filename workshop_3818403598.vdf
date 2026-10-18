@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.22 - Traffic Flow Restoration & Building Spawn Queue Unblock: 1) Re-enabled time-sliced vehicle recovery (StuckVehicleRecovery) via official MNC_ThreadingExtension.OnBeforeSimulationFrame (256 slots/frame, 0 FPS drop, zero clock lag), actively clearing deadlocks on highways and straight segments. 2) Fixed SpeedLimitManager.GetGameSpeedLimit 4-param reflection signature (uint vs ushort) and added SyncSpeedLimitCache pre-warming, preventing 0 km/h speed limits from freezing vehicles on straight roads/pillars or failing TM:PE CustomPathFind. 3) Automatically purged stalled unspawned vehicles (m_waitCounter > 100) and sanitized building m_ownVehicles/m_guestVehicles on load, completely resolving the '0/X active vehicles' building spawn deadlock."
+	"changenote"		"v4.3.23 - Fixed Critical Loading Screen Hang: 1) Fixed ushort loop counter overflow in UnstickFrozenVehicles and SyncSpeedLimitCache that caused an infinite CPU loop during level loading on expanded vehicle arrays (65536). 2) Removed redundant secondary ReactivateCityLogistics call on load, restoring fast and reliable level loading with Loading Screen Mod. 3) Traffic flow restoration and TM:PE speed limit fixes (v4.3.22) remain fully active."
 }
 

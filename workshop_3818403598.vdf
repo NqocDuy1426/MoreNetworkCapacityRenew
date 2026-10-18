@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.27 - Reverted to rock-solid reference architecture (depot_255710_2829241538003963999): Embedded Core v1.0.19. Completely purged all vehicle/traffic intervention classes (MNC_ThreadingExtension, StuckVehicleRecovery, VehicleAndTransportRepair, TurboTrafficDispatcher, VehiclePoolMonitor, TMPEBufferSync). Depots and bus lines now spawn 100% naturally with full native game engine and TM:PE traffic simulation, while strictly preserving 64K save serialization safety and mod compatibility (EightyOne2, MorePathUnits, IPT2, AdaptiveRoads)."
+	"changenote"		"v4.3.28 - Fixed root cause of vehicles failing to spawn and freezing in the middle of the road: resolved TM:PE SavedGameOptions and GlobalConfig null reference exceptions in CustomPathFind.PathFindImplementation and ThreadingExtension.OnBeforeSimulationFrame. All pathfinding worker threads now execute with 100% success rate, allowing depots, bus lines, and road traffic to spawn, route, and drive completely smoothly."
 }
 

@@ -267,6 +267,18 @@ class TestSuite
             bool hasSegCheck = renewCode.Contains("TransportLineAI_CheckSegmentProblems_Prefix") && renewCode.Contains("PathFailed");
             Assert(hasNodeCheck, "TransportLineAI_CheckNodeProblems_Prefix removes fatal problem flags");
             Assert(hasSegCheck, "TransportLineAI_CheckSegmentProblems_Prefix clears PathFailed flag");
+
+            // 6.5 Verify TM:PE options persistence guards
+            bool hasSgoGuard = renewCode.Contains("CreateDynamicGetterPrefix") && renewCode.Contains("EnsureAndGetSavedGameOptions") && renewCode.Contains("SavedGameOptions_Release_Prefix");
+            bool hasGcGuard = renewCode.Contains("EnsureAndGetGlobalConfig");
+            Assert(hasSgoGuard, "CreateDynamicGetterPrefix & SavedGameOptions_Release_Prefix installed to guarantee non-null options");
+            Assert(hasGcGuard, "EnsureAndGetGlobalConfig installed to guarantee non-null global config");
+
+            // 6.6 Verify ThreadingExtension and PathFindImplementation patches are applied
+            bool hasThreadExtPatch = renewCode.Contains("ThreadingExtension.OnBeforeSimulationFrame") && renewCode.Contains("ThreadingExtension_OnBeforeSimulationFrame_Prefix");
+            bool hasPfiPatch = renewCode.Contains("CustomPathFind.PathFindImplementation") && renewCode.Contains("CustomPathFind_PathFindImplementation_Prefix");
+            Assert(hasThreadExtPatch, "ThreadingExtension.OnBeforeSimulationFrame patched with null-safe prefix");
+            Assert(hasPfiPatch, "CustomPathFind.PathFindImplementation patched with bounds-safe prefix");
         }
         catch (Exception ex)
         {

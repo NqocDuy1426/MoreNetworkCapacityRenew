@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.26 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.28 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -2149,10 +2149,18 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
                         }
 
+                        // CustomPathFind fast bounds safety prefix on PathFindImplementation
+                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (pfiM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
+                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (null-safe bounds prefix, Priority.First)");
+                        }
+
                         // Note: CustomPathFind internal routing methods are left 100% native to TM:PE to eliminate thread NREs.
                         // Note: CustomPathFind inner-loop methods (ProcessItemMain, ProcessItemCosts, ProcessItemRouted, etc.)
                         // are intentionally NOT hooked with Harmony prefixes to ensure 100% native C# path computation speed (60+ FPS).
-                        // PathFindImplementation and GetLaneDirection are left 100% native to TM:PE without Harmony reflection overhead.
 
                         MethodInfo wfapM = cpfType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                         if (wfapM != null)
@@ -2309,6 +2317,66 @@ namespace MoreNetworkCapacityRenew
                 }
 
                 // 31. VehicleBehaviorManager: Left 100% native to TM:PE for native despawn and segment transitions (yielding, turns, and lane directions fully preserved)
+
+                // 32. TM:PE SavedGameOptions & GlobalConfig persistence guards & ThreadingExtension simulation guard
+                try
+                {
+                    Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
+                    if (sgoType != null)
+                    {
+                        MethodInfo getInstM = sgoType.GetMethod("get_Instance", BindingFlags.Public | BindingFlags.Static);
+                        MethodInfo helperM = typeof(TMPECompatibility).GetMethod(nameof(TMPECompatibility.EnsureAndGetSavedGameOptions));
+                        MethodInfo dynamicPrefix = CreateDynamicGetterPrefix(sgoType, helperM);
+                        if (getInstM != null && dynamicPrefix != null)
+                        {
+                            harmony.Patch(getInstM, prefix: new HarmonyMethod(dynamicPrefix));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SavedGameOptions.get_Instance (dynamic non-null prefix)");
+                        }
+
+                        MethodInfo relM = sgoType.GetMethod("Release", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (relM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SavedGameOptions_Release_Prefix));
+                            harmony.Patch(relM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SavedGameOptions.Release (persistent options guard)");
+                        }
+
+                        // Pre-seed static fields immediately
+                        EnsureAndGetSavedGameOptions();
+                    }
+
+                    Type gcType = tmpe.GetType("TrafficManager.State.GlobalConfig");
+                    if (gcType != null)
+                    {
+                        MethodInfo gcGetInstM = gcType.GetMethod("get_Instance", BindingFlags.Public | BindingFlags.Static);
+                        MethodInfo gcHelperM = typeof(TMPECompatibility).GetMethod(nameof(TMPECompatibility.EnsureAndGetGlobalConfig));
+                        MethodInfo dynamicGcPrefix = CreateDynamicGetterPrefix(gcType, gcHelperM);
+                        if (gcGetInstM != null && dynamicGcPrefix != null)
+                        {
+                            harmony.Patch(gcGetInstM, prefix: new HarmonyMethod(dynamicGcPrefix));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE GlobalConfig.get_Instance (dynamic non-null prefix)");
+                        }
+
+                        // Pre-seed static fields immediately
+                        EnsureAndGetGlobalConfig();
+                    }
+
+                    Type threadExtType = tmpe.GetType("TrafficManager.Lifecycle.ThreadingExtension");
+                    if (threadExtType != null)
+                    {
+                        MethodInfo simFrameM = threadExtType.GetMethod("OnBeforeSimulationFrame", BindingFlags.Public | BindingFlags.Instance);
+                        if (simFrameM != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.ThreadingExtension_OnBeforeSimulationFrame_Prefix));
+                            harmony.Patch(simFrameM, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ThreadingExtension.OnBeforeSimulationFrame (null-safe prefix)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SavedGameOptions/GlobalConfig/ThreadingExtension: " + ex);
+                }
 
             }
             catch (Exception ex)
@@ -2932,43 +3000,158 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static void EnsureSavedGameOptions(Assembly tmpe)
+        public static MethodInfo CreateDynamicGetterPrefix(Type targetType, MethodInfo helperMethod)
         {
             try
             {
-                if (tmpe == null) return;
-                Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
-                if (sgoType == null) return;
+                if (targetType == null || helperMethod == null) return null;
+                string asmNameStr = "MNC_DynamicPatch_" + targetType.Name;
+                var asmName = new AssemblyName(asmNameStr);
+                var asmBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+                var modBuilder = asmBuilder.DefineDynamicModule(asmNameStr + "_Module");
+                var typeBuilder = modBuilder.DefineType(asmNameStr + "_Type", TypeAttributes.Public);
 
-                FieldInfo fInst = sgoType.GetField("<Instance>k__BackingField", BindingFlags.NonPublic | BindingFlags.Static);
-                object inst = fInst != null ? fInst.GetValue(null) : null;
-                if (inst == null)
-                {
-                    MethodInfo createM = sgoType.GetMethod("Create", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (createM != null)
-                    {
-                        createM.Invoke(null, null);
-                    }
-                    else
-                    {
-                        MethodInfo ensureM = sgoType.GetMethod("Ensure", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (ensureM != null)
-                        {
-                            ensureM.Invoke(null, null);
-                        }
-                        else
-                        {
-                            object newInst = Activator.CreateInstance(sgoType);
-                            if (fInst != null) fInst.SetValue(null, newInst);
-                        }
-                    }
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Initialized TM:PE SavedGameOptions.Instance");
-                }
+                Type refTargetType = targetType.MakeByRefType();
+                var methodBuilder = typeBuilder.DefineMethod(
+                    "Prefix",
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    typeof(bool),
+                    new Type[] { refTargetType }
+                );
+                methodBuilder.DefineParameter(1, ParameterAttributes.None, "__result");
+
+                var il = methodBuilder.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0); // push &__result
+                il.Emit(OpCodes.Call, helperMethod); // calls EnsureAndGet...() returning object
+                il.Emit(OpCodes.Castclass, targetType);
+                il.Emit(OpCodes.Stind_Ref); // *__result = (targetType)obj
+                il.Emit(OpCodes.Ldc_I4_0); // return false (skip original getter)
+                il.Emit(OpCodes.Ret);
+
+                Type dynamicType = typeBuilder.CreateType();
+                return dynamicType.GetMethod("Prefix");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureSavedGameOptions error: " + ex);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] CreateDynamicGetterPrefix for " + (targetType != null ? targetType.Name : "null") + " error: " + ex);
+                return null;
             }
+        }
+
+        private static object s_persistentSavedGameOptions = null;
+        private static FieldInfo s_sgoBackingField = null;
+        private static FieldInfo s_sgoAvailableField = null;
+
+        public static object EnsureAndGetSavedGameOptions()
+        {
+            try
+            {
+                Assembly tmpe = GetTMPEAssembly();
+                if (tmpe == null) return s_persistentSavedGameOptions;
+                Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
+                if (sgoType == null) return s_persistentSavedGameOptions;
+
+                if (s_sgoBackingField == null)
+                {
+                    s_sgoBackingField = sgoType.GetField("<Instance>k__BackingField", BindingFlags.NonPublic | BindingFlags.Static);
+                }
+                if (s_sgoAvailableField == null)
+                {
+                    s_sgoAvailableField = sgoType.GetField("<Available>k__BackingField", BindingFlags.NonPublic | BindingFlags.Static);
+                }
+
+                object inst = s_sgoBackingField != null ? s_sgoBackingField.GetValue(null) : null;
+                if (inst != null)
+                {
+                    s_persistentSavedGameOptions = inst;
+                    if (s_sgoAvailableField != null) s_sgoAvailableField.SetValue(null, true);
+                    return inst;
+                }
+
+                if (s_persistentSavedGameOptions != null)
+                {
+                    if (s_sgoBackingField != null) s_sgoBackingField.SetValue(null, s_persistentSavedGameOptions);
+                    if (s_sgoAvailableField != null) s_sgoAvailableField.SetValue(null, true);
+                    return s_persistentSavedGameOptions;
+                }
+
+                MethodInfo createM = sgoType.GetMethod("Create", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (createM != null)
+                {
+                    createM.Invoke(null, null);
+                }
+                inst = s_sgoBackingField != null ? s_sgoBackingField.GetValue(null) : null;
+                if (inst == null)
+                {
+                    inst = Activator.CreateInstance(sgoType);
+                    if (s_sgoBackingField != null) s_sgoBackingField.SetValue(null, inst);
+                }
+                s_persistentSavedGameOptions = inst;
+                if (s_sgoAvailableField != null) s_sgoAvailableField.SetValue(null, true);
+                return inst;
+            }
+            catch (Exception ex)
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("EnsureAndGetSavedGameOptions error: " + ex);
+                return s_persistentSavedGameOptions;
+            }
+        }
+
+        private static object s_persistentGlobalConfig = null;
+        private static FieldInfo s_gcInstanceField = null;
+
+        public static object EnsureAndGetGlobalConfig()
+        {
+            try
+            {
+                Assembly tmpe = GetTMPEAssembly();
+                if (tmpe == null) return s_persistentGlobalConfig;
+                Type gcType = tmpe.GetType("TrafficManager.State.GlobalConfig");
+                if (gcType == null) return s_persistentGlobalConfig;
+
+                if (s_gcInstanceField == null)
+                {
+                    s_gcInstanceField = gcType.GetField("instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                }
+
+                object inst = s_gcInstanceField != null ? s_gcInstanceField.GetValue(null) : null;
+                if (inst != null)
+                {
+                    s_persistentGlobalConfig = inst;
+                    return inst;
+                }
+
+                if (s_persistentGlobalConfig != null)
+                {
+                    if (s_gcInstanceField != null) s_gcInstanceField.SetValue(null, s_persistentGlobalConfig);
+                    return s_persistentGlobalConfig;
+                }
+
+                MethodInfo reloadM = gcType.GetMethod("Reload", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (reloadM != null)
+                {
+                    reloadM.Invoke(null, new object[] { false });
+                }
+                inst = s_gcInstanceField != null ? s_gcInstanceField.GetValue(null) : null;
+                if (inst == null)
+                {
+                    inst = Activator.CreateInstance(gcType);
+                    if (s_gcInstanceField != null) s_gcInstanceField.SetValue(null, inst);
+                }
+                s_persistentGlobalConfig = inst;
+                return inst;
+            }
+            catch (Exception ex)
+            {
+                SaveSimulationDataSafetyPatch.LogSaveDebug("EnsureAndGetGlobalConfig error: " + ex);
+                return s_persistentGlobalConfig;
+            }
+        }
+
+        public static void EnsureSavedGameOptions(Assembly tmpe)
+        {
+            EnsureAndGetSavedGameOptions();
+            EnsureAndGetGlobalConfig();
         }
 
         public static void EnsureCustomSegmentLightsCapacity(Assembly tmpe)
@@ -4107,6 +4290,27 @@ namespace MoreNetworkCapacityRenew
                 Array newTarg = Array.CreateInstance(targArr.GetType().GetElementType(), 524288);
                 Array.Copy(targArr, newTarg, targArr.Length);
                 fTarg.SetValue(pf, newTarg);
+            }
+
+            // 6. savedGameOptions_ (guarantee non-null options on pathfinder)
+            FieldInfo fSgo = t.GetField("savedGameOptions_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (fSgo != null && fSgo.GetValue(pf) == null)
+            {
+                fSgo.SetValue(pf, EnsureAndGetSavedGameOptions());
+            }
+
+            // 7. globalConf_ (guarantee non-null global config on pathfinder)
+            FieldInfo fGc = t.GetField("globalConf_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (fGc != null && fGc.GetValue(pf) == null)
+            {
+                fGc.SetValue(pf, EnsureAndGetGlobalConfig());
+            }
+
+            // 8. pathUnits_ (guarantee valid PathManager.m_pathUnits on pathfinder)
+            FieldInfo fPu = t.GetField("pathUnits_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (fPu != null && fPu.GetValue(pf) == null && Singleton<PathManager>.exists)
+            {
+                fPu.SetValue(pf, Singleton<PathManager>.instance.m_pathUnits);
             }
         }
 
@@ -5576,6 +5780,33 @@ namespace MoreNetworkCapacityRenew
             }
 
             return true;
+        }
+
+        public static void SavedGameOptions_get_Instance_Postfix(ref object __result)
+        {
+            if (__result == null)
+            {
+                __result = TMPECompatibility.EnsureAndGetSavedGameOptions();
+            }
+        }
+
+        public static bool SavedGameOptions_Release_Prefix()
+        {
+            // Skip Release() to prevent TM:PE from wiping options to null and breaking pathfinding threads
+            return false;
+        }
+
+        public static void SavedGameOptions_Release_Postfix()
+        {
+            TMPECompatibility.EnsureAndGetSavedGameOptions();
+        }
+
+        public static void GlobalConfig_get_Instance_Postfix(ref object __result)
+        {
+            if (__result == null)
+            {
+                __result = TMPECompatibility.EnsureAndGetGlobalConfig();
+            }
         }
 
 

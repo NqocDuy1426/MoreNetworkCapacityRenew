@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.21 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.22 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -2002,11 +2002,13 @@ namespace MoreNetworkCapacityRenew
                                     harmony.Patch(m, prefix: new HarmonyMethod(pre));
                                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(uint, NetInfo.Lane)");
                                 }
-                                else if (p.Length == 4 && p[0].ParameterType == typeof(ushort) && p[2].ParameterType == typeof(uint))
+                                else if (p.Length == 4 && (p[0].ParameterType == typeof(uint) || p[0].ParameterType == typeof(ushort)) && p[2].ParameterType == typeof(uint))
                                 {
-                                    var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
+                                    MethodInfo pre = (p[0].ParameterType == typeof(uint))
+                                        ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix_Uint))
+                                        : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
                                     harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(ushort, byte, uint, NetInfo.Lane)");
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(4 params: uint/ushort, byte, uint, NetInfo.Lane)");
                                 }
                                 else if (p.Length == 1 && p[0].ParameterType == typeof(uint))
                                 {
@@ -5213,8 +5215,21 @@ namespace MoreNetworkCapacityRenew
             catch { }
 
             // 4. Safe highway/road fallback so vehicles NEVER dead-stop
-            __result = 1.25f;
+            __result = (laneInfo != null && laneInfo.m_speedLimit > 0.001f) ? laneInfo.m_speedLimit : 1.0f;
             return false;
+        }
+
+        public static bool SpeedLimitManager_GetGameSpeedLimit4_Prefix_Uint(uint segmentId, byte laneIndex, uint laneId, NetInfo.Lane laneInfo, ref float __result)
+        {
+            if (laneInfo == null && segmentId != 0 && NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null && segmentId < (uint)NetManager.instance.m_segments.m_buffer.Length)
+            {
+                NetInfo sInfo = NetManager.instance.m_segments.m_buffer[segmentId].Info;
+                if (sInfo != null && sInfo.m_lanes != null && laneIndex < sInfo.m_lanes.Length)
+                {
+                    laneInfo = sInfo.m_lanes[laneIndex];
+                }
+            }
+            return SpeedLimitManager_GetGameSpeedLimit_Prefix(laneId, laneInfo, ref __result);
         }
 
         public static bool SpeedLimitManager_GetGameSpeedLimit4_Prefix(ushort segmentId, byte laneIndex, uint laneId, NetInfo.Lane laneInfo, ref float __result)
@@ -6884,6 +6899,12 @@ namespace MoreNetworkCapacityRenew
 
                     // Apply smart logistics capacity boost to service vehicles & cargo trucks
                     TurboTrafficDispatcher.ApplyLogisticsBoost();
+
+                    // Pre-warm speed limits, unblock frozen traffic saved into the city, and clear building spawn backlogs
+                    TMPEBufferSync.SyncSpeedLimitCache();
+                    int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
+                    int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Level load traffic activation: unblocked {0} frozen vehicles and reactivated {1} city logistics queues.", unblocked, reactivated));
                 }
                 catch (Exception ex)
                 {
@@ -10398,6 +10419,37 @@ namespace MoreNetworkCapacityRenew
 
     public class MNC_ThreadingExtension : ThreadingExtensionBase
     {
+        private static uint lastSimulationFrame = 0;
+
+        public override void OnBeforeSimulationFrame()
+        {
+            try
+            {
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (sm == null || sm.SimulationPaused || sm.ForcedSimulationPaused) return;
+
+                uint currentFrame = sm.m_currentFrameIndex;
+                if (currentFrame == lastSimulationFrame) return;
+                lastSimulationFrame = currentFrame;
+
+                // 1. Time-sliced stuck vehicle recovery (256 slots per frame, < 0.01ms overhead, completes full pass in ~4s)
+                StuckVehicleRecovery.SimulationStepSlice(currentFrame);
+
+                // 2. Periodic vehicle pool integrity check every 1800 frames (~30s)
+                if (currentFrame % 1800 == 0)
+                {
+                    VehiclePoolMonitor.CheckAndRepair();
+                }
+
+                // 3. Periodic logistics verification & building queue unblocking every 3600 frames (~60s)
+                if (currentFrame % 3600 == 0)
+                {
+                    VehicleAndTransportRepair.ReactivateCityLogistics();
+                }
+            }
+            catch { }
+        }
+
         public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
         {
             bool ctrlOrCmd = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftCommand) || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightCommand);
@@ -13041,6 +13093,9 @@ namespace MoreNetworkCapacityRenew
                     SyncBuffer(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions",
                         "_nodeBuffer", nm.m_nodes.m_buffer);
                 }
+
+                // Sync 4: Pre-warm TM:PE SpeedLimitManager cachedLaneSpeedLimits_ to prevent 0 km/h stalls
+                SyncSpeedLimitCache();
                 
                 UnityEngine.Debug.Log(string.Format(
                     "[TMPEBufferSync] Buffers synced (reason: {0}). Total syncs: {1}",
@@ -13049,6 +13104,73 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.LogError("[TMPEBufferSync] SyncAllBuffers error: " + ex);
+            }
+        }
+
+        /// <summary>
+        /// Pre-warms SpeedLimitManager.cachedLaneSpeedLimits_ ensuring no live lane has a 0 km/h speed limit.
+        /// Prevents vehicles from dead-stopping on straight roads or bridge pillars.
+        /// </summary>
+        public static void SyncSpeedLimitCache()
+        {
+            try
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe == null) return;
+                Type slmType = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                if (slmType == null) return;
+
+                FieldInfo instField = slmType.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                object slmInst = instField != null ? instField.GetValue(null) : null;
+                if (slmInst == null) return;
+
+                FieldInfo fCache = slmType.GetField("cachedLaneSpeedLimits_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fCache == null) return;
+
+                float[] arr = fCache.GetValue(slmInst) as float[];
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null || nm.m_lanes == null || nm.m_lanes.m_buffer == null) return;
+
+                if (arr == null || arr.Length < nm.m_lanes.m_buffer.Length)
+                {
+                    float[] newArr = new float[nm.m_lanes.m_buffer.Length];
+                    if (arr != null) Array.Copy(arr, newArr, arr.Length);
+                    fCache.SetValue(slmInst, newArr);
+                    arr = newArr;
+                    TMPECompatibility.s_cachedLaneSpeedLimits = arr;
+                }
+
+                int warmed = 0;
+                int segCount = nm.m_segments.m_buffer.Length;
+                for (ushort s = 1; s < segCount; s++)
+                {
+                    if ((nm.m_segments.m_buffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
+                    NetInfo info = nm.m_segments.m_buffer[s].Info;
+                    if (info == null || info.m_lanes == null) continue;
+
+                    uint curLane = nm.m_segments.m_buffer[s].m_lanes;
+                    int lIdx = 0;
+                    while (curLane != 0 && curLane < arr.Length && lIdx < info.m_lanes.Length)
+                    {
+                        if (arr[curLane] <= 0.001f)
+                        {
+                            float spd = info.m_lanes[lIdx].m_speedLimit;
+                            if (spd <= 0.001f) spd = 1.0f; // 50 km/h safe fallback
+                            arr[curLane] = spd;
+                            warmed++;
+                        }
+                        curLane = nm.m_lanes.m_buffer[curLane].m_nextLane;
+                        lIdx++;
+                    }
+                }
+                if (warmed > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[TMPEBufferSync] Prewarmed {0} uninitialized lane speed limits to prevent 0 km/h vehicle freeze.", warmed));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[TMPEBufferSync] SyncSpeedLimitCache error: " + ex);
             }
         }
         
@@ -13424,7 +13546,7 @@ namespace MoreNetworkCapacityRenew
                         // cleanly release it so the building can spawn fresh vehicles and active vehicle count is freed.
                         if ((flags & Vehicle.Flags.WaitingPath) != 0 || buffer[i].m_path == 0)
                         {
-                            if (buffer[i].m_waitCounter > 250)
+                            if (buffer[i].m_waitCounter > 100 || buffer[i].m_waitCounter > 250)
                             {
                                 if (buffer[i].m_path != 0 && pm != null)
                                 {
@@ -13544,6 +13666,64 @@ namespace MoreNetworkCapacityRenew
                         vm.ReleaseVehicle((ushort)i);
                         totalRecoveries++;
                         continue;
+                    }
+
+                    // PRIORITY 4: Active Vehicles Frozen On Road (Zero velocity, mutual yield deadlock, or stale wait state)
+                    if (buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f &&
+                        (buffer[i].m_targetPos0.w < 0.1f || buffer[i].m_blockCounter > 10))
+                    {
+                        uint pId = buffer[i].m_path;
+                        bool atRedLight = false;
+                        if (pId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pId < pm.m_pathUnits.m_buffer.Length &&
+                            nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null && nm.m_nodes != null && nm.m_nodes.m_buffer != null)
+                        {
+                            int posIdx = (int)(buffer[i].m_pathPositionIndex >> 1);
+                            PathUnit.Position pPos;
+                            if (pm.m_pathUnits.m_buffer[pId].GetPosition(posIdx, out pPos))
+                            {
+                                ushort segId = pPos.m_segment;
+                                if (segId != 0 && segId < nm.m_segments.m_buffer.Length && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
+                                {
+                                    ushort targetNodeId = (pPos.m_offset > 128) ? nm.m_segments.m_buffer[segId].m_endNode : nm.m_segments.m_buffer[segId].m_startNode;
+                                    if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length && (nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
+                                    {
+                                        RoadBaseAI.TrafficLightState vState, pState;
+                                        RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[segId],
+                                            currentFrame - (uint)(targetNodeId << 8) / 32768u, out vState, out pState);
+                                        if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
+                                        {
+                                            atRedLight = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!atRedLight)
+                        {
+                            // If vehicle has been deadlocked on road for extreme blockCounter (>= 220), cleanly release it
+                            if (buffer[i].m_blockCounter >= 220)
+                            {
+                                if (pId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null && pId < pm.m_pathUnits.m_buffer.Length)
+                                {
+                                    try { pm.ReleasePath(pId); } catch { }
+                                    buffer[i].m_path = 0;
+                                }
+                                vm.ReleaseVehicle((ushort)i);
+                                totalRecoveries++;
+                                continue;
+                            }
+
+                            // Restore movement speeds & signal TM:PE leave permission to break mutual yield deadlocks
+                            buffer[i].m_blockCounter = 0;
+                            if (buffer[i].m_targetPos0.w < 0.1f) buffer[i].m_targetPos0.w = 1.5f;
+                            if (buffer[i].m_targetPos1.w < 0.1f) buffer[i].m_targetPos1.w = 1.5f;
+                            if (buffer[i].m_targetPos2.w < 0.1f) buffer[i].m_targetPos2.w = 1.5f;
+                            if (buffer[i].m_targetPos3.w < 0.1f) buffer[i].m_targetPos3.w = 1.5f;
+
+                            TMPECompatibility.UnstickVehicle((ushort)i);
+                            totalRecoveries++;
+                        }
                     }
                 }
             }

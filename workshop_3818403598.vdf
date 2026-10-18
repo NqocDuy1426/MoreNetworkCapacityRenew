@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.16 - Permanent Traffic Stop & Junction Deadlock Fix: 1) Fixed TM:PE LaneEnd routing offset bug by strictly maintaining 524,288 array size with fixed 262,144 offset, eliminating highway node stop deadlocks where end-node vehicles were frozen. 2) Fixed TM:PE MayChangeSegment reflection signature (ushort targetNodeId), rescuing vehicles trapped in TM:PE zero-velocity Leave->Blocked deadlock cycles at intersections, ramps, and building driveways. 3) Vehicles move naturally with 100% TM:PE priority compliance without artificial despawn."
+	"changenote"		"v4.3.17 - Permanent Road Refresh & Native Direction Restoration: 1) Completely removed MayChangeSegment override; TM:PE retains 100% native authority over turn directions, lane arrows, and junction yielding, permanently eliminating erratic turn directions. 2) Automated Full City Road & Segment End Refresh (RefreshAllRoadSegmentsTMPE) on save load and road updates: recalculates ExtSegment, ExtSegmentEnd, corners, LaneArrows, and geometry across all active segments (>= 36,864), eliminating uninitialized segment ends and solving vehicle stops without requiring manual road upgrades. 3) Added instant full road refresh to Ctrl+Shift+V hotkey."
 }
 

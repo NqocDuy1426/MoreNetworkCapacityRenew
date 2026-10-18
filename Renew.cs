@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.16 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.17 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -2347,43 +2347,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching RenderOverlayPatch: " + ex);
                 }
 
-                // 31. VehicleBehaviorManager: Left 100% native to TM:PE for native despawn and segment transitions (with safe anti-freezing Postfix for highway and junction traps)
-                try
-                {
-                    Type vbmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleBehaviorManager");
-                    if (vbmType != null)
-                    {
-                        MethodInfo mcs14 = vbmType.GetMethod("MayChangeSegment", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
-                            typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(float),
-                            typeof(PathUnit.Position).MakeByRefType(), typeof(NetSegment).MakeByRefType(), typeof(ushort), typeof(uint),
-                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(NetNode).MakeByRefType(), typeof(uint),
-                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(float).MakeByRefType()
-                        }, null);
-                        if (mcs14 != null)
-                        {
-                            var postMcs = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment14_Postfix));
-                            harmony.Patch(mcs14, postfix: new HarmonyMethod(postMcs));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (14-arg Postfix)");
-                        }
-
-                        MethodInfo mcs12 = vbmType.GetMethod("MayChangeSegment", BindingFlags.Public | BindingFlags.Instance, null, new Type[] {
-                            typeof(ushort), typeof(Vehicle).MakeByRefType(), typeof(float),
-                            typeof(PathUnit.Position).MakeByRefType(), typeof(NetSegment).MakeByRefType(), typeof(ushort), typeof(uint),
-                            typeof(PathUnit.Position).MakeByRefType(), typeof(ushort), typeof(NetNode).MakeByRefType(), typeof(uint),
-                            typeof(float).MakeByRefType()
-                        }, null);
-                        if (mcs12 != null)
-                        {
-                            var postMcs = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.VehicleBehaviorManager_MayChangeSegment12_Postfix));
-                            harmony.Patch(mcs12, postfix: new HarmonyMethod(postMcs));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE VehicleBehaviorManager.MayChangeSegment (12-arg Postfix)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching VehicleBehaviorManager: " + ex);
-                }
+                // 31. VehicleBehaviorManager: Left 100% native to TM:PE for native despawn and segment transitions (yielding, turns, and lane directions fully preserved)
 
             }
             catch (Exception ex)
@@ -3853,65 +3817,177 @@ namespace MoreNetworkCapacityRenew
 
         public static void RecalculateLiveSegments(Assembly tmpe)
         {
+            RefreshAllRoadSegmentsTMPE(tmpe);
+        }
+
+        public static void RefreshSingleSegmentTMPE(ushort segId)
+        {
             try
             {
-                if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                if (segId == 0) return;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
+                if (segId >= nm.m_segments.m_buffer.Length) return;
+                if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0) return;
+
+                Assembly tmpe = GetTMPEAssembly();
+                if (tmpe == null) return;
+
+                Type esmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentManager");
+                Type esemType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentEndManager");
+                Type gmType = tmpe.GetType("TrafficManager.Manager.Impl.GeometryManager");
+                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+
+                object esmInst = esmType != null ? GetManagerInstance(esmType) : null;
+                object esemInst = esemType != null ? GetManagerInstance(esemType) : null;
+                object gmInst = gmType != null ? GetManagerInstance(gmType) : null;
+                object rmInst = rmType != null ? GetManagerInstance(rmType) : null;
+
+                MethodInfo esmRecalc = esmType?.GetMethod("Recalculate", new Type[] { typeof(ushort) });
+                MethodInfo esemRecalc = esemType?.GetMethod("Recalculate", new Type[] { typeof(ushort) });
+                MethodInfo esemArrows = esemType?.GetMethod("RecalculateAvailableLaneArrows", new Type[] { typeof(ushort) });
+                MethodInfo esemCorners = esemType?.GetMethod("CalculateCorners", new Type[] { typeof(ushort), typeof(bool) });
+                MethodInfo gmMarkUpdated = gmType?.GetMethod("MarkAsUpdated", new Type[] { typeof(ushort), typeof(bool) });
+                MethodInfo rmRecalc = rmType?.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
+
+                if (esmRecalc != null && esmInst != null)
+                {
+                    try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
+                }
+                else if (esemRecalc != null && esemInst != null)
+                {
+                    try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
+                }
+
+                if (esemArrows != null && esemInst != null)
+                {
+                    try { esemArrows.Invoke(esemInst, new object[] { segId }); } catch { }
+                }
+
+                if (esemCorners != null && esemInst != null)
+                {
+                    try
+                    {
+                        esemCorners.Invoke(esemInst, new object[] { segId, true });
+                        esemCorners.Invoke(esemInst, new object[] { segId, false });
+                    }
+                    catch { }
+                }
+
+                if (gmMarkUpdated != null && gmInst != null)
+                {
+                    try { gmMarkUpdated.Invoke(gmInst, new object[] { segId, true }); } catch { }
+                }
+
+                if (rmRecalc != null && rmInst != null)
+                {
+                    try { rmRecalc.Invoke(rmInst, new object[] { segId }); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        public static void RefreshAllRoadSegmentsTMPE(Assembly tmpe)
+        {
+            try
+            {
+                if (tmpe == null) tmpe = GetTMPEAssembly();
+                if (tmpe == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null)
                     return;
 
-                Type esmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentEndManager");
-                if (esmType != null)
-                {
-                    object inst = GetManagerInstance(esmType);
-                    if (inst != null)
-                    {
-                        MethodInfo recalc = esmType.GetMethod("Recalculate", new Type[] { typeof(ushort) })
-                                           ?? esmType.GetMethod("Recalculate", new Type[] { typeof(uint) });
-                        if (recalc != null)
-                        {
-                            int recalcCount = 0;
-                            for (uint segId = 36864u; segId < (uint)Math.Min(NetManager.instance.m_segments.m_buffer.Length, 65024); segId++)
-                            {
-                                if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && NetManager.instance.m_segments.m_buffer[segId].Info != null)
-                                {
-                                    try { recalc.Invoke(inst, new object[] { (ushort)segId }); recalcCount++; } catch { }
-                                }
-                            }
-                            if (recalcCount > 0)
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated {0} existing segments >= 36864 in TM:PE ExtSegmentEndManager", recalcCount));
-                        }
-                    }
-                }
+                EnsureSegmentEndManagersCapacity(tmpe);
+                EnsureExtSegmentManagerCapacity(tmpe);
+                EnsureGeometryManagerCapacity(tmpe);
 
+                Type esmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentManager");
+                Type esemType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentEndManager");
+                Type gmType = tmpe.GetType("TrafficManager.Manager.Impl.GeometryManager");
                 Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
-                if (rmType != null)
+
+                object esmInst = esmType != null ? GetManagerInstance(esmType) : null;
+                object esemInst = esemType != null ? GetManagerInstance(esemType) : null;
+                object gmInst = gmType != null ? GetManagerInstance(gmType) : null;
+                object rmInst = rmType != null ? GetManagerInstance(rmType) : null;
+
+                MethodInfo esmRecalc = esmType?.GetMethod("Recalculate", new Type[] { typeof(ushort) })
+                                    ?? esmType?.GetMethod("Recalculate", new Type[] { typeof(uint) });
+                MethodInfo esemRecalc = esemType?.GetMethod("Recalculate", new Type[] { typeof(ushort) })
+                                     ?? esemType?.GetMethod("Recalculate", new Type[] { typeof(uint) });
+                MethodInfo esemArrows = esemType?.GetMethod("RecalculateAvailableLaneArrows", new Type[] { typeof(ushort) });
+                MethodInfo esemCorners = esemType?.GetMethod("CalculateCorners", new Type[] { typeof(ushort), typeof(bool) });
+                MethodInfo gmMarkUpdated = gmType?.GetMethod("MarkAsUpdated", new Type[] { typeof(ushort), typeof(bool) });
+                MethodInfo gmSimStep = gmType?.GetMethod("SimulationStep", new Type[] { typeof(bool) });
+                MethodInfo rmRecalc = rmType?.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
+
+                int maxSeg = Math.Min(nm.m_segments.m_buffer.Length, 65024);
+                int totalRefreshed = 0;
+
+                for (ushort segId = 1; segId < maxSeg; segId++)
                 {
-                    object rmInst = GetManagerInstance(rmType);
-                    if (rmInst != null)
+                    if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && nm.m_segments.m_buffer[segId].Info != null)
                     {
-                        MethodInfo rmRecalc = rmType.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-                        if (rmRecalc != null)
+                        // 1. Full ExtSegment recalculation (populates ExtSegment, both ExtSegmentEnds, and notifies GeometryManager)
+                        if (esmRecalc != null && esmInst != null)
                         {
-                            int rmCount = 0;
-                            for (uint segId = 36864u; segId < (uint)Math.Min(NetManager.instance.m_segments.m_buffer.Length, 65024); segId++)
-                            {
-                                if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && NetManager.instance.m_segments.m_buffer[segId].Info != null)
-                                {
-                                    try { rmRecalc.Invoke(rmInst, new object[] { (ushort)segId }); rmCount++; } catch { }
-                                }
-                            }
-                            if (rmCount > 0)
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Recalculated {0} existing segments >= 36864 in TM:PE RoutingManager", rmCount));
+                            try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
                         }
+                        else if (esemRecalc != null && esemInst != null)
+                        {
+                            try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
+                        }
+
+                        // 2. Explicitly recalculate available lane arrows (ensures laneArrows != None at both ends)
+                        if (esemArrows != null && esemInst != null)
+                        {
+                            try { esemArrows.Invoke(esemInst, new object[] { segId }); } catch { }
+                        }
+
+                        // 3. Recalculate 3D corners for both startNode and endNode
+                        if (esemCorners != null && esemInst != null)
+                        {
+                            try
+                            {
+                                esemCorners.Invoke(esemInst, new object[] { segId, true });
+                                esemCorners.Invoke(esemInst, new object[] { segId, false });
+                            }
+                            catch { }
+                        }
+
+                        // 4. Mark segment and its nodes as updated in GeometryManager
+                        if (gmMarkUpdated != null && gmInst != null)
+                        {
+                            try { gmMarkUpdated.Invoke(gmInst, new object[] { segId, true }); } catch { }
+                        }
+
+                        // 5. Recalculate routing data in RoutingManager
+                        if (rmRecalc != null && rmInst != null)
+                        {
+                            try { rmRecalc.Invoke(rmInst, new object[] { segId }); } catch { }
+                        }
+
+                        totalRefreshed++;
                     }
                 }
 
+                // 6. Synchronously flush all geometry updates to all TM:PE observer managers
+                if (gmSimStep != null && gmInst != null)
+                {
+                    try { gmSimStep.Invoke(gmInst, new object[] { true }); } catch { }
+                }
+
+                // 7. Ensure junction defaults and request full recalculation for all 64k
                 EnsureJunctionRestrictionsDefaults64k(tmpe);
                 SanitizeRoutingManager(tmpe);
                 RequestFullRecalculation64k(tmpe);
+
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] RefreshAllRoadSegmentsTMPE: Successfully refreshed {0} active road segments (full ends, lane arrows, geometry & routings recalculated).", totalRefreshed));
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RecalculateLiveSegments error: " + ex);
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RefreshAllRoadSegmentsTMPE error: " + ex);
             }
         }
 
@@ -4596,6 +4672,18 @@ namespace MoreNetworkCapacityRenew
         public static void SerializableDataExtension_Load_Prefix()
         {
             TMPECompatibility.SynchronizeTMPEBuffersAndArrays("SerializableDataExtension.Load.Prefix");
+            try
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    TMPECompatibility.RefreshAllRoadSegmentsTMPE(tmpe);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SerializableDataExtension_Load_Prefix error: " + ex);
+            }
         }
 
         public static void SerializableDataExtension_Load_Postfix()
@@ -4606,9 +4694,7 @@ namespace MoreNetworkCapacityRenew
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
-                    TMPECompatibility.EnsureJunctionRestrictionsDefaults64k(tmpe);
-                    TMPECompatibility.SanitizeRoutingManager(tmpe);
-                    TMPECompatibility.RequestFullRecalculation64k(tmpe);
+                    TMPECompatibility.RefreshAllRoadSegmentsTMPE(tmpe);
                 }
             }
             catch (Exception ex)
@@ -5895,115 +5981,7 @@ namespace MoreNetworkCapacityRenew
             // Anti-deadlock is handled via IsEnteringBlockedJunctionAllowed and StuckVehicleRecovery.
         }
 
-        public static void VehicleBehaviorManager_MayChangeSegment14_Postfix(
-            ushort frontVehicleId, 
-            ref Vehicle vehicleData, 
-            float sqrVelocity, 
-            ref PathUnit.Position prevPos, 
-            ref NetSegment prevSegment, 
-            ushort prevTargetNodeId, 
-            uint prevLaneID, 
-            ref PathUnit.Position position, 
-            ushort targetNodeId, 
-            ref NetNode targetNode, 
-            uint laneID, 
-            ref PathUnit.Position nextPosition, 
-            ushort nextTargetNodeId, 
-            ref float maxSpeed, 
-            ref bool __result)
-        {
-            HandleMayChangeSegmentOverride(frontVehicleId, ref vehicleData, sqrVelocity, ref prevPos, ref prevSegment, prevTargetNodeId, prevLaneID, ref position, targetNodeId, ref targetNode, laneID, ref maxSpeed, ref __result);
-        }
-
-        public static void VehicleBehaviorManager_MayChangeSegment12_Postfix(
-            ushort frontVehicleId, 
-            ref Vehicle vehicleData, 
-            float sqrVelocity, 
-            ref PathUnit.Position prevPos, 
-            ref NetSegment prevSegment, 
-            ushort prevTargetNodeId, 
-            uint prevLaneID, 
-            ref PathUnit.Position position, 
-            ushort targetNodeId, 
-            ref NetNode targetNode, 
-            uint laneID, 
-            ref float maxSpeed, 
-            ref bool __result)
-        {
-            HandleMayChangeSegmentOverride(frontVehicleId, ref vehicleData, sqrVelocity, ref prevPos, ref prevSegment, prevTargetNodeId, prevLaneID, ref position, targetNodeId, ref targetNode, laneID, ref maxSpeed, ref __result);
-        }
-
-        private static void HandleMayChangeSegmentOverride(
-            ushort frontVehicleId, 
-            ref Vehicle vehicleData, 
-            float sqrVelocity, 
-            ref PathUnit.Position prevPos, 
-            ref NetSegment prevSegment, 
-            ushort prevTargetNodeId, 
-            uint prevLaneID, 
-            ref PathUnit.Position position, 
-            ushort targetNodeId, 
-            ref NetNode targetNode, 
-            uint laneID, 
-            ref float maxSpeed, 
-            ref bool __result)
-        {
-            try
-            {
-                if (__result) return;
-
-                if (vehicleData.m_path == 0) return;
-                if ((vehicleData.m_flags & Vehicle.Flags.Spawned) == 0) return;
-                if ((vehicleData.m_flags & (Vehicle.Flags.Arriving | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath)) != 0) return;
-
-                NetInfo prevInfo = prevSegment.Info;
-                bool isHighway = (prevInfo != null && prevInfo.m_netAI != null && prevInfo.m_netAI.IsHighway());
-                if (isHighway)
-                {
-                    __result = true;
-                    if (maxSpeed < 0.1f)
-                    {
-                        maxSpeed = (prevInfo.m_lanes != null && position.m_lane < prevInfo.m_lanes.Length && prevInfo.m_lanes[position.m_lane] != null)
-                            ? UnityEngine.Mathf.Max(prevInfo.m_lanes[position.m_lane].m_speedLimit, 2.0f)
-                            : 2.0f;
-                    }
-                    return;
-                }
-
-                if ((targetNode.m_flags & NetNode.Flags.TrafficLights) != 0)
-                {
-                    RoadBaseAI.TrafficLightState vState, pState;
-                    RoadBaseAI.GetTrafficLightState((ushort)targetNodeId, ref prevSegment, 
-                        Singleton<SimulationManager>.instance.m_currentFrameIndex - (uint)((ushort)targetNodeId << 8) / 32768u, 
-                        out vState, out pState);
-
-                    if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
-                    {
-                        return; // Strictly obey red traffic lights!
-                    }
-                }
-
-                // For normal roads / intersections:
-                // Unblock vehicles that yielded / stopped so they do not stay permanently frozen in TM:PE's 0-velocity catch-22.
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm != null && nm.m_lanes != null && nm.m_lanes.m_buffer != null && laneID < nm.m_lanes.m_buffer.Length)
-                {
-                    ushort targetSegId = nm.m_lanes.m_buffer[laneID].m_segment;
-                    if (targetSegId != 0 && (nm.m_segments.m_buffer[targetSegId].m_flags & NetSegment.Flags.Created) != 0)
-                    {
-                        __result = true;
-                        if (maxSpeed < 0.1f)
-                        {
-                            maxSpeed = (prevInfo != null && prevInfo.m_lanes != null && position.m_lane < prevInfo.m_lanes.Length && prevInfo.m_lanes[position.m_lane] != null)
-                                ? UnityEngine.Mathf.Max(prevInfo.m_lanes[position.m_lane].m_speedLimit, 1.25f)
-                                : 1.25f;
-                        }
-                        TMPECompatibility.UnstickVehicle(frontVehicleId);
-                    }
-                }
-            }
-            catch { }
-        }
+        // VehicleBehaviorManager.MayChangeSegment is left 100% native to TM:PE to preserve natural traffic yielding, lane arrows, and turn directions.
 
         public static void CarAI_CalculateSegmentPosition13_Postfix(
             ushort vehicleID, 
@@ -6063,27 +6041,6 @@ namespace MoreNetworkCapacityRenew
                     __result = false;
                     return false;
                 }
-
-                FieldInfo fCdb = __instance.GetType().GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fCdb != null)
-                {
-                    object cdb = fCdb.GetValue(__instance);
-                    if (cdb == null)
-                    {
-                        Type cdbType = __instance.GetType().Assembly.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
-                        if (cdbType != null)
-                        {
-                            cdb = Activator.CreateInstance(cdbType);
-                            fCdb.SetValue(__instance, cdb);
-                        }
-                    }
-
-                    if (cdb == null || (cdb is System.Collections.ICollection coll && coll.Count == 0))
-                    {
-                        __result = false;
-                        return false;
-                    }
-                }
             }
             catch
             {
@@ -6112,27 +6069,6 @@ namespace MoreNetworkCapacityRenew
                         return false;
                     }
                 }
-
-                FieldInfo fCdb = __instance.GetType().GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fCdb != null)
-                {
-                    object cdb = fCdb.GetValue(__instance);
-                    if (cdb == null)
-                    {
-                        Type cdbType = __instance.GetType().Assembly.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
-                        if (cdbType != null)
-                        {
-                            cdb = Activator.CreateInstance(cdbType);
-                            fCdb.SetValue(__instance, cdb);
-                        }
-                    }
-
-                    if (cdb == null || (cdb is System.Collections.ICollection coll && coll.Count == 0))
-                    {
-                        __result = false;
-                        return false;
-                    }
-                }
             }
             catch
             {
@@ -6145,41 +6081,6 @@ namespace MoreNetworkCapacityRenew
 
         public static bool LaneConnectionSubManager_AreLanesConnected_Prefix(object __instance, uint sourceLaneId, uint targetLaneId, ushort nodeId, ref bool __result)
         {
-            if (__instance == null || sourceLaneId == 0 || targetLaneId == 0)
-            {
-                __result = false;
-                return false;
-            }
-
-            try
-            {
-                FieldInfo fCdb = __instance.GetType().GetField("connectionDataBase_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fCdb != null)
-                {
-                    object cdb = fCdb.GetValue(__instance);
-                    if (cdb == null)
-                    {
-                        Type cdbType = __instance.GetType().Assembly.GetType("TrafficManager.Manager.Impl.LaneConnection.ConnectionDataBase");
-                        if (cdbType != null)
-                        {
-                            cdb = Activator.CreateInstance(cdbType);
-                            fCdb.SetValue(__instance, cdb);
-                        }
-                    }
-
-                    if (cdb == null || (cdb is System.Collections.ICollection coll && coll.Count == 0))
-                    {
-                        __result = false;
-                        return false;
-                    }
-                }
-            }
-            catch
-            {
-                __result = false;
-                return false;
-            }
-
             return true;
         }
     }
@@ -10650,7 +10551,8 @@ namespace MoreNetworkCapacityRenew
                 int cleaned = VehicleAndTransportRepair.CleanDemolishedRoadVehicles();
                 int unblocked = VehicleAndTransportRepair.UnstickFrozenVehicles();
                 int reactivated = VehicleAndTransportRepair.ReactivateCityLogistics();
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) executed: cleaned {0} dead vehicles, unblocked {1} frozen vehicles, reactivated {2} logistics entities.", cleaned, unblocked, reactivated));
+                TMPECompatibility.RefreshAllRoadSegmentsTMPE(null);
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Manual hotkey (Ctrl+Shift+V) executed: cleaned {0} dead vehicles, unblocked {1} frozen vehicles, reactivated {2} logistics entities, and refreshed all city roads in TM:PE.", cleaned, unblocked, reactivated));
             }
 
             // Hotkey: Ctrl + Shift + T (or Cmd + Shift + T on Mac) to trigger a FULL vehicle wipeout & traffic regeneration
@@ -14049,6 +13951,10 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 TMPEBufferSync.OnNetworkModified();
+                if (segment != 0)
+                {
+                    TMPECompatibility.RefreshSingleSegmentTMPE(segment);
+                }
             }
             catch { }
         }

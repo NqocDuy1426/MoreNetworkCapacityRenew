@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.17 - Permanent Road Refresh & Native Direction Restoration: 1) Completely removed MayChangeSegment override; TM:PE retains 100% native authority over turn directions, lane arrows, and junction yielding, permanently eliminating erratic turn directions. 2) Automated Full City Road & Segment End Refresh (RefreshAllRoadSegmentsTMPE) on save load and road updates: recalculates ExtSegment, ExtSegmentEnd, corners, LaneArrows, and geometry across all active segments (>= 36,864), eliminating uninitialized segment ends and solving vehicle stops without requiring manual road upgrades. 3) Added instant full road refresh to Ctrl+Shift+V hotkey."
+	"changenote"		"v4.3.18 - Critical TM:PE ExtSegment & Routing Computation Fix: 1) Fixed ExtSegmentManager struct expansion bug where segmentId was 0 for expanded segments (>= 36,864), which prevented TM:PE Recalculate from running. 2) Fixed ExtSegmentEndManager to properly assign node IDs (m_startNode / m_endNode) so segment ends are never uninitialized (nodeId 0). 3) Added RoutingManager.RecalculateAll postfix to compute lane transition routing tables for all 64K segments (TM:PE natively only loops 0..36863), unfreezing traffic city-wide and allowing all vehicles to traverse junctions seamlessly."
 }
 

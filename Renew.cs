@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.17 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.18 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1733,6 +1733,19 @@ namespace MoreNetworkCapacityRenew
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TMPELifecycle_Load_Postfix));
                         harmony.Patch(loadMethod, postfix: new HarmonyMethod(post));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TMPELifecycle.Load");
+                    }
+                }
+
+                // 9. RoutingManager.RecalculateAll (Postfix for 64K routes)
+                Type rmType = tmpe.GetType("TrafficManager.Manager.Impl.RoutingManager");
+                if (rmType != null)
+                {
+                    MethodInfo recalcAllM = rmType.GetMethod("RecalculateAll", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (recalcAllM != null)
+                    {
+                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.RoutingManager_RecalculateAll_Postfix));
+                        harmony.Patch(recalcAllM, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE RoutingManager.RecalculateAll");
                     }
                 }
 
@@ -2738,10 +2751,25 @@ namespace MoreNetworkCapacityRenew
                 {
                     bool isUint = ctor.GetParameters()[0].ParameterType == typeof(uint);
                     int countInitialized = 0;
+                    FieldInfo fSegId = elemType.GetField("segmentId");
                     for (int i = 0; i < targetArr.Length; i++)
                     {
                         object segObj = targetArr.GetValue(i);
+                        bool needsInit = false;
                         if (segObj == null)
+                        {
+                            needsInit = true;
+                        }
+                        else if (i > 0 && fSegId != null)
+                        {
+                            uint currentId = Convert.ToUInt32(fSegId.GetValue(segObj));
+                            if (currentId != (uint)i)
+                            {
+                                needsInit = true;
+                            }
+                        }
+
+                        if (needsInit)
                         {
                             object arg = isUint ? (object)(uint)i : (object)(ushort)i;
                             targetArr.SetValue(ctor.Invoke(new object[] { arg }), i);
@@ -3715,6 +3743,10 @@ namespace MoreNetworkCapacityRenew
                             {
                                 bool isUint = ctor.GetParameters()[0].ParameterType == typeof(uint);
                                 FieldInfo fSegId = elemType.GetField("segmentId");
+                                FieldInfo fNodeId = elemType.GetField("nodeId");
+                                NetManager nm = Singleton<NetManager>.instance;
+                                bool hasNet = (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null);
+
                                 int countFixed = 0;
                                 for (uint segId = 0; segId < 65024u; segId++)
                                 {
@@ -3722,19 +3754,50 @@ namespace MoreNetworkCapacityRenew
                                     int idxEnd = idxStart + 1;
                                     object argId = isUint ? (object)segId : (object)(ushort)segId;
 
+                                    ushort sNode = 0;
+                                    ushort eNode = 0;
+                                    bool isCreated = false;
+                                    if (hasNet && segId < nm.m_segments.m_buffer.Length)
+                                    {
+                                        isCreated = (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0;
+                                        if (isCreated)
+                                        {
+                                            sNode = nm.m_segments.m_buffer[segId].m_startNode;
+                                            eNode = nm.m_segments.m_buffer[segId].m_endNode;
+                                        }
+                                    }
+
                                     object s0 = targetArr.GetValue(idxStart);
                                     if (s0 == null || (segId > 0 && fSegId != null && Convert.ToUInt32(fSegId.GetValue(s0)) != segId))
                                     {
-                                        targetArr.SetValue(ctor.Invoke(new object[] { argId, true }), idxStart);
+                                        s0 = ctor.Invoke(new object[] { argId, true });
                                         countFixed++;
                                     }
+                                    if (isCreated && sNode != 0 && fNodeId != null)
+                                    {
+                                        ushort currNode = Convert.ToUInt16(fNodeId.GetValue(s0));
+                                        if (currNode == 0 || currNode != sNode)
+                                        {
+                                            fNodeId.SetValue(s0, sNode);
+                                        }
+                                    }
+                                    targetArr.SetValue(s0, idxStart);
 
                                     object s1 = targetArr.GetValue(idxEnd);
                                     if (s1 == null || (segId > 0 && fSegId != null && Convert.ToUInt32(fSegId.GetValue(s1)) != segId))
                                     {
-                                        targetArr.SetValue(ctor.Invoke(new object[] { argId, false }), idxEnd);
+                                        s1 = ctor.Invoke(new object[] { argId, false });
                                         countFixed++;
                                     }
+                                    if (isCreated && eNode != 0 && fNodeId != null)
+                                    {
+                                        ushort currNode = Convert.ToUInt16(fNodeId.GetValue(s1));
+                                        if (currNode == 0 || currNode != eNode)
+                                        {
+                                            fNodeId.SetValue(s1, eNode);
+                                        }
+                                    }
+                                    targetArr.SetValue(s1, idxEnd);
                                 }
                                 if (countFixed > 0)
                                 {
@@ -3850,13 +3913,14 @@ namespace MoreNetworkCapacityRenew
                 MethodInfo gmMarkUpdated = gmType?.GetMethod("MarkAsUpdated", new Type[] { typeof(ushort), typeof(bool) });
                 MethodInfo rmRecalc = rmType?.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
 
+                if (esemRecalc != null && esemInst != null)
+                {
+                    try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
+                }
+
                 if (esmRecalc != null && esmInst != null)
                 {
                     try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
-                }
-                else if (esemRecalc != null && esemInst != null)
-                {
-                    try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
                 }
 
                 if (esemArrows != null && esemInst != null)
@@ -3929,23 +3993,25 @@ namespace MoreNetworkCapacityRenew
                 {
                     if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && nm.m_segments.m_buffer[segId].Info != null)
                     {
-                        // 1. Full ExtSegment recalculation (populates ExtSegment, both ExtSegmentEnds, and notifies GeometryManager)
-                        if (esmRecalc != null && esmInst != null)
-                        {
-                            try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
-                        }
-                        else if (esemRecalc != null && esemInst != null)
+                        // 1. Recalculate ExtSegmentEndManager (populates nodeId, incoming, outgoing at both ends and updates ExtNodeManager)
+                        if (esemRecalc != null && esemInst != null)
                         {
                             try { esemRecalc.Invoke(esemInst, new object[] { segId }); } catch { }
                         }
 
-                        // 2. Explicitly recalculate available lane arrows (ensures laneArrows != None at both ends)
+                        // 2. Recalculate ExtSegmentManager (populates ExtSegment, oneWay, highway, buslane, lanes and notifies GeometryManager)
+                        if (esmRecalc != null && esmInst != null)
+                        {
+                            try { esmRecalc.Invoke(esmInst, new object[] { segId }); } catch { }
+                        }
+
+                        // 3. Explicitly recalculate available lane arrows (ensures laneArrows != None at both ends)
                         if (esemArrows != null && esemInst != null)
                         {
                             try { esemArrows.Invoke(esemInst, new object[] { segId }); } catch { }
                         }
 
-                        // 3. Recalculate 3D corners for both startNode and endNode
+                        // 4. Recalculate 3D corners for both startNode and endNode
                         if (esemCorners != null && esemInst != null)
                         {
                             try
@@ -3956,13 +4022,13 @@ namespace MoreNetworkCapacityRenew
                             catch { }
                         }
 
-                        // 4. Mark segment and its nodes as updated in GeometryManager
+                        // 5. Mark segment and its nodes as updated in GeometryManager
                         if (gmMarkUpdated != null && gmInst != null)
                         {
                             try { gmMarkUpdated.Invoke(gmInst, new object[] { segId, true }); } catch { }
                         }
 
-                        // 5. Recalculate routing data in RoutingManager
+                        // 6. Recalculate routing data in RoutingManager
                         if (rmRecalc != null && rmInst != null)
                         {
                             try { rmRecalc.Invoke(rmInst, new object[] { segId }); } catch { }
@@ -4376,6 +4442,9 @@ namespace MoreNetworkCapacityRenew
                             }
                         }
 
+                        TMPECompatibility.EnsureExtSegmentManagerCapacity(TMPECompatibility.GetTMPEAssembly());
+                        TMPECompatibility.EnsureSegmentEndManagersCapacity(TMPECompatibility.GetTMPEAssembly());
+
                         if (_extSegRecalcDelegate != null)
                         {
                             NetManager nm = Singleton<NetManager>.instance;
@@ -4400,6 +4469,42 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ExtSegmentManager_OnBeforeLoadData_Prefix error: " + ex);
             }
             return false;
+        }
+
+        public static void RoutingManager_RecalculateAll_Postfix(object __instance)
+        {
+            try
+            {
+                if (__instance == null) return;
+                Type t = __instance.GetType();
+                MethodInfo recalc = t.GetMethod("RecalculateSegment", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
+                if (recalc == null) return;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
+
+                int maxSeg = Math.Min(nm.m_segments.m_buffer.Length, 65024);
+                int count = 0;
+                for (ushort segId = 36864; segId < maxSeg; segId++)
+                {
+                    if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && nm.m_segments.m_buffer[segId].Info != null)
+                    {
+                        try
+                        {
+                            recalc.Invoke(__instance, new object[] { segId });
+                            count++;
+                        }
+                        catch { }
+                    }
+                }
+                if (count > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] RoutingManager.RecalculateAll Postfix: calculated routing for {0} segments >= 36864", count));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RoutingManager_RecalculateAll_Postfix error: " + ex);
+            }
         }
 
         public static bool ExtSegmentManager_Recalculate_ushort_Prefix(ushort segmentId)

@@ -11,5 +11,5 @@ bin/
 # IDE & Editor files
 .idea/
 .vscode/
-*.user
-*.suo
+# Credentials
+upload_workshop.sh

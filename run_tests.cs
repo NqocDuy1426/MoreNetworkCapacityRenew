@@ -438,6 +438,53 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST SUITE 10: STOPPED VEHICLE DEPARTURE & BUILDING SAFETY (v4.3.29)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 10: Stopped Vehicle Departure & Building Safety (v4.3.29) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+            // 10.1 Verify StoppedVehicleSafety class exists
+            bool hasStoppedSafety = renewCode.Contains("public static class StoppedVehicleSafety");
+            Assert(hasStoppedSafety, "StoppedVehicleSafety class is present");
+
+            // 10.2 Verify dual tracking buffers
+            bool hasTrackingBuffers = renewCode.Contains("s_canLeaveWaitFrames = new ushort[65536]") &&
+                                      renewCode.Contains("s_carStoppedFallback = new ushort[65536]");
+            Assert(hasTrackingBuffers, "Dual tracking buffers for CanLeave and CarAI fallback exist with 65,536 capacity");
+
+            // 10.3 Verify BoardWaitingCitizens safely handles citizens
+            bool hasBoardCitizens = renewCode.Contains("public static void BoardWaitingCitizens") &&
+                                    renewCode.Contains("cit.SetVehicle(citId, vehicleID, 0)") &&
+                                    renewCode.Contains("inst.Unspawn(instId)");
+            Assert(hasBoardCitizens, "BoardWaitingCitizens safely boards driver instances and clears outside walking flags");
+
+            // 10.4 Verify CanLeave_Postfix handles departures
+            bool hasCanLeavePost = renewCode.Contains("public static void CanLeave_Postfix") &&
+                                   renewCode.Contains("__result = true") &&
+                                   renewCode.Contains("BoardWaitingCitizens(vehicleID, ref vehicleData)");
+            Assert(hasCanLeavePost, "CanLeave_Postfix enables clean departure and boards citizens upon reaching threshold");
+
+            // 10.5 Verify CarAI_SimulationStep_Postfix fallback
+            bool hasCarAiFallback = renewCode.Contains("public static void CarAI_SimulationStep_Postfix") &&
+                                    renewCode.Contains("vehicleData.m_flags &= ~Vehicle.Flags.Stopped") &&
+                                    renewCode.Contains("vehicleData.m_flags |= Vehicle.Flags.Leaving");
+            Assert(hasCarAiFallback, "CarAI_SimulationStep_Postfix provides fail-safe departure defense for stopped vehicles");
+
+            // 10.6 Verify StoppedVehicleSafety.Apply hooked in EnsureAllPatchesApplied
+            bool hasApplyHook = renewCode.Contains("StoppedVehicleSafety.Apply(harmony)");
+            Assert(hasApplyHook, "StoppedVehicleSafety.Apply is registered in EnsureAllPatchesApplied");
+
+            // 10.7 Verify StoppedVehicleSafety.Reset hooked in lifecycle
+            bool hasResetHook = renewCode.Contains("StoppedVehicleSafety.Reset()");
+            Assert(hasResetHook, "StoppedVehicleSafety.Reset is hooked in OnLevelLoaded and OnLevelUnloading");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 10 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

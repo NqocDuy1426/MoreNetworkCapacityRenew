@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.28 - Fixed root cause of vehicles failing to spawn and freezing in the middle of the road: resolved TM:PE SavedGameOptions and GlobalConfig null reference exceptions in CustomPathFind.PathFindImplementation and ThreadingExtension.OnBeforeSimulationFrame. All pathfinding worker threads now execute with 100% success rate, allowing depots, bus lines, and road traffic to spawn, route, and drive completely smoothly."
+	"changenote"		"v4.3.29 - Fixed vehicles (Hearses, Ambulances, Service and Passenger vehicles) stopping indefinitely at buildings: introduced StoppedVehicleSafety watchdog that automatically boards citizen drivers and clears vehicle stop blocks if walking citizen models get stuck or delayed. Vehicles cleanly depart within 3 seconds when collection is complete."
 }
 

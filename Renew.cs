@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.19 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.20 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1746,19 +1746,6 @@ namespace MoreNetworkCapacityRenew
                         var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.RoutingManager_RecalculateAll_Postfix));
                         harmony.Patch(recalcAllM, postfix: new HarmonyMethod(post));
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE RoutingManager.RecalculateAll");
-                    }
-                }
-
-                // 9b. TrafficLightSimulationManager.SimulationStep (Postfix for 64K timed traffic lights)
-                Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
-                if (tlsmType != null)
-                {
-                    MethodInfo stepM = tlsmType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (stepM != null)
-                    {
-                        var post = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficLightSimulationManager_SimulationStep_Postfix));
-                        harmony.Patch(stepM, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficLightSimulationManager.SimulationStep");
                     }
                 }
 
@@ -3557,6 +3544,11 @@ namespace MoreNetworkCapacityRenew
 
                 FieldInfo instField = evmType.GetField("Instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 object inst = (instField != null) ? instField.GetValue(null) : null;
+                if (inst == null)
+                {
+                    PropertyInfo instProp = evmType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                    if (instProp != null) inst = instProp.GetValue(null, null);
+                }
                 if (inst == null) return;
 
                 PropertyInfo extVehiclesProp = evmType.GetProperty("ExtVehicles", BindingFlags.Public | BindingFlags.Instance);
@@ -3565,8 +3557,12 @@ namespace MoreNetworkCapacityRenew
                     s_extVehiclesArray = extVehiclesProp.GetValue(inst, null) as Array;
                 }
 
-                Assembly apiAsm = GetTMPEApiAssembly() ?? tmpe;
-                Type extVehicleType = apiAsm.GetType("TrafficManager.API.Traffic.Data.ExtVehicle");
+                Type extVehicleType = (s_extVehiclesArray != null) ? s_extVehiclesArray.GetType().GetElementType() : null;
+                if (extVehicleType == null)
+                {
+                    Assembly apiAsm = GetTMPEApiAssembly() ?? tmpe;
+                    extVehicleType = apiAsm.GetType("TrafficManager.API.Traffic.Data.ExtVehicle") ?? tmpe.GetType("TrafficManager.API.Traffic.Data.ExtVehicle");
+                }
                 if (extVehicleType != null)
                 {
                     s_extVehicleJunctionTransitStateField = extVehicleType.GetField("junctionTransitState", BindingFlags.Public | BindingFlags.Instance);
@@ -3590,7 +3586,8 @@ namespace MoreNetworkCapacityRenew
                     object extVeh = s_extVehiclesArray.GetValue(vehicleId);
                     if (extVeh != null)
                     {
-                        s_extVehicleJunctionTransitStateField.SetValue(extVeh, 3); // Leave (3)
+                        object noneState = Enum.ToObject(s_extVehicleJunctionTransitStateField.FieldType, 0); // None (0)
+                        s_extVehicleJunctionTransitStateField.SetValue(extVeh, noneState);
                         if (s_extVehicleWaitTimeField != null) s_extVehicleWaitTimeField.SetValue(extVeh, 0);
                         if (s_extVehicleLastTransitStateUpdateField != null) s_extVehicleLastTransitStateUpdateField.SetValue(extVeh, 0u);
                         s_extVehiclesArray.SetValue(extVeh, vehicleId);
@@ -4979,7 +4976,6 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                s_hasAnyUpperTimedLightSimulation = true;
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
@@ -5212,11 +5208,11 @@ namespace MoreNetworkCapacityRenew
         private static SimOneDelegate simOneDel = null;
         private static bool tmpePostfixInitDone = false;
         private static bool tmpePostfixLoggedOnce = false;
-        public static bool s_hasAnyUpperTimedLightSimulation = true;
+        public static bool s_hasAnyUpperTimedLightSimulation = false;
 
         public static void TrafficLightSimulationManager_SimulationStep_Postfix(object __instance)
         {
-            if (__instance == null) return;
+            if (!s_hasAnyUpperTimedLightSimulation || __instance == null) return;
             try
             {
                 if (propSimulations == null)
@@ -5278,18 +5274,11 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] TM:PE Postfix RUNNING. frame={0} range=[{1}..{2}) arrayLen={3} delegate={4}", f, start, end, rawArray.Length, simOneDel != null ? "JIT" : "reflection"));
                 }
 
-                NetNode[] nodes = null;
-                if (Singleton<NetManager>.exists)
-                {
-                    var nm = Singleton<NetManager>.instance;
-                    if (nm != null && nm.m_nodes != null) nodes = nm.m_nodes.m_buffer;
-                }
-
                 for (int i = start; i < end; i++)
                 {
-                    if (nodes != null && i < nodes.Length)
+                    if (NetManager.instance != null && NetManager.instance.m_nodes != null && NetManager.instance.m_nodes.m_buffer != null && i < NetManager.instance.m_nodes.m_buffer.Length)
                     {
-                        if ((nodes[i].m_flags & NetNode.Flags.Created) == 0)
+                        if ((NetManager.instance.m_nodes.m_buffer[i].m_flags & NetNode.Flags.Created) == 0)
                             continue;
                     }
 
@@ -6923,21 +6912,6 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TMPECompatibility error: " + ex);
                 }
 
-                try
-                {
-                    MethodInfo nmsi = typeof(NetManager).GetMethod("SimulationStepImpl", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (nmsi != null)
-                    {
-                        MethodInfo post = typeof(NetManagerSimulationPatches).GetMethod(nameof(NetManagerSimulationPatches.Postfix), BindingFlags.Static | BindingFlags.Public);
-                        harmony.Patch(nmsi, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetManager.SimulationStepImpl for 64K simulation");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetManager.SimulationStepImpl: " + ex);
-                }
-
                 // Road & node demolition handling is natively delegated to vanilla game & TM:PE.
                 // We do NOT hook NetManager.ReleaseSegmentImplementation so vehicles are repathed naturally.
 
@@ -7181,6 +7155,13 @@ namespace MoreNetworkCapacityRenew
                     }
                     VehicleAndTransportRepair.UnstickCitizens();
                     TransportLineCompatibility.SanitizeCitizenUnits();
+
+                    // Awaken and unstick all frozen vehicles from savegame load (without despawning)
+                    int unblockedVehicles = VehicleAndTransportRepair.UnstickFrozenVehicles();
+                    if (unblockedVehicles > 0)
+                    {
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initial unstick awakened {0} frozen vehicles on level load.", unblockedVehicles));
+                    }
 
                     // Apply smart logistics capacity boost to service vehicles & cargo trucks
                     TurboTrafficDispatcher.ApplyLogisticsBoost();
@@ -10624,15 +10605,14 @@ namespace MoreNetworkCapacityRenew
                     if (info == null || (info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
                         continue;
 
-                    // Legitimate stops: parking, waiting to load/cargo, stopped at station/stop, arriving, or waiting for pathfind
-                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.Arriving | Vehicle.Flags.WaitingPath)) != 0)
+                    // Legitimate stops: parking, waiting to load/cargo, stopped at station/stop, or waiting for pathfind
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingPath | Vehicle.Flags.InsideBuilding | Vehicle.Flags.WaitingTarget)) != 0)
                         continue;
 
                     uint pathId = vm.m_vehicles.m_buffer[i].m_path;
                     if (pathId != 0 && pathId < (uint)pathCount)
                     {
-                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f &&
-                            (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f || vm.m_vehicles.m_buffer[i].m_blockCounter > 10))
+                        if (vm.m_vehicles.m_buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.001f)
                         {
                             int posIdx = (int)(vm.m_vehicles.m_buffer[i].m_pathPositionIndex >> 1);
                             PathUnit.Position pPos;
@@ -10645,7 +10625,8 @@ namespace MoreNetworkCapacityRenew
                                     ushort startNode = nm.m_segments.m_buffer[pPos.m_segment].m_startNode;
                                     ushort endNode = nm.m_segments.m_buffer[pPos.m_segment].m_endNode;
                                     ushort targetNodeId = (pPos.m_offset > 128) ? endNode : startNode;
-                                    if (targetNodeId != 0 && targetNodeId < nm.m_nodes.m_buffer.Length)
+                                    if (targetNodeId != 0 && nm.m_nodes != null && nm.m_nodes.m_buffer != null &&
+                                        targetNodeId < nm.m_nodes.m_buffer.Length)
                                     {
                                         if ((nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
                                         {
@@ -10661,10 +10642,10 @@ namespace MoreNetworkCapacityRenew
                                     }
 
                                     vm.m_vehicles.m_buffer[i].m_blockCounter = 0;
-                                    if (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos0.w = 1.5f;
-                                    if (vm.m_vehicles.m_buffer[i].m_targetPos1.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos1.w = 1.5f;
-                                    if (vm.m_vehicles.m_buffer[i].m_targetPos2.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos2.w = 1.5f;
-                                    if (vm.m_vehicles.m_buffer[i].m_targetPos3.w < 0.1f) vm.m_vehicles.m_buffer[i].m_targetPos3.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos0.w < 1.5f) vm.m_vehicles.m_buffer[i].m_targetPos0.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos1.w < 1.5f) vm.m_vehicles.m_buffer[i].m_targetPos1.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos2.w < 1.5f) vm.m_vehicles.m_buffer[i].m_targetPos2.w = 1.5f;
+                                    if (vm.m_vehicles.m_buffer[i].m_targetPos3.w < 1.5f) vm.m_vehicles.m_buffer[i].m_targetPos3.w = 1.5f;
 
                                     TMPECompatibility.UnstickVehicle(i);
                                     unblocked++;
@@ -13638,6 +13619,7 @@ namespace MoreNetworkCapacityRenew
         // ========================================================================
         private static int totalScans = 0;
         private static int totalRecoveries = 0;
+        private static readonly byte[] s_stuckCounter = new byte[65536];
         
         // ========================================================================
         // PUBLIC API
@@ -13656,6 +13638,7 @@ namespace MoreNetworkCapacityRenew
         /// </summary>
         public static void ClearCache()
         {
+            Array.Clear(s_stuckCounter, 0, s_stuckCounter.Length);
         }
         
         /// <summary>
@@ -13697,14 +13680,21 @@ namespace MoreNetworkCapacityRenew
                 {
                     Vehicle.Flags flags = buffer[i].m_flags;
                     if ((flags & Vehicle.Flags.Created) == 0)
+                    {
+                        s_stuckCounter[i] = 0;
                         continue;
+                    }
 
                     if (buffer[i].m_leadingVehicle != 0)
+                    {
+                        s_stuckCounter[i] = 0;
                         continue;
+                    }
 
                     // Unspawned vehicles (Created, but not yet Spawned onto road network)
                     if ((flags & Vehicle.Flags.Spawned) == 0)
                     {
+                        s_stuckCounter[i] = 0;
                         // Stalled WaitingPath / unspawned vehicle recovery:
                         // If an unspawned vehicle is stuck waiting for a path or stuck in building spawn queue for > 250 ticks,
                         // cleanly release it so the building can spawn fresh vehicles and active vehicle count is freed.
@@ -13741,58 +13731,48 @@ namespace MoreNetworkCapacityRenew
                         Vehicle.Flags.InsideBuilding;
 
                     // Vehicles stored inside buildings or waiting for service dispatch are 100% legitimate and safe.
-                    if ((flags & (Vehicle.Flags.InsideBuilding | Vehicle.Flags.WaitingTarget)) != 0)
+                    if ((flags & (Vehicle.Flags.InsideBuilding | Vehicle.Flags.WaitingTarget)) != 0 && (flags & IGNORE_FLAGS) != 0)
                     {
+                        s_stuckCounter[i] = 0;
                         continue;
                     }
 
-                    // Quick bypass for freely-moving vehicles without any stationary or waiting flags
-                    if ((flags & IGNORE_FLAGS) != 0)
+                    // For Public Transport boarding at stops (Bus, Tram, Train, Metro):
+                    if ((flags & Vehicle.Flags.Stopped) != 0)
                     {
-                        // For Public Transport boarding at stops (Bus, Tram, Train, Metro):
-                        if ((flags & Vehicle.Flags.Stopped) != 0)
+                        if (buffer[i].m_waitCounter > 60)
                         {
-                            if (buffer[i].m_waitCounter > 60)
-                            {
-                                ClearStuckBoardingCitizens(buffer[i].m_citizenUnits);
-                            }
-                            if (buffer[i].m_waitCounter <= 250)
-                            {
-                                continue;
-                            }
+                            ClearStuckBoardingCitizens(buffer[i].m_citizenUnits);
                         }
-
-                        // For temporary legitimate operations (Parking, WaitingLoading, WaitingCargo):
-                        // Allow normal maneuvering and cargo transfer. Only intervene if frozen in dock/slot for > 250 ticks.
-                        if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo)) != 0)
+                        if (buffer[i].m_waitCounter <= 250)
                         {
-                            if (buffer[i].m_waitCounter <= 250)
-                            {
-                                continue;
-                            }
+                            s_stuckCounter[i] = 0;
+                            continue;
                         }
+                    }
 
-                        // For vehicles waiting for path on the road (WaitingPath):
-                        // If waiting for path calculation, allow up to 200 ticks before evaluating as a stalled path search.
-                        if ((flags & Vehicle.Flags.WaitingPath) != 0 && buffer[i].m_waitCounter <= 200)
+                    // For temporary legitimate operations (Parking, WaitingLoading, WaitingCargo):
+                    // Allow normal maneuvering and cargo transfer. Only intervene if frozen in dock/slot for > 250 ticks.
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingCargo)) != 0)
+                    {
+                        if (buffer[i].m_waitCounter <= 250)
                         {
-                            // Check if path has already returned with permanent failure
-                            uint pId = buffer[i].m_path;
-                            if (pId == 0 || pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null ||
-                                pId >= pm.m_pathUnits.m_buffer.Length || (pm.m_pathUnits.m_buffer[pId].m_pathFindFlags & PathUnit.FLAG_FAILED) == 0)
-                            {
-                                continue;
-                            }
+                            s_stuckCounter[i] = 0;
+                            continue;
                         }
+                    }
 
-                        // For vehicles in traffic or entering/leaving (WaitingSpace, Arriving, Leaving):
-                        // Allow normal traffic yielding and red lights. Only proceed to recovery if blocked for >= 80 ticks.
-                        if ((flags & (Vehicle.Flags.WaitingSpace | Vehicle.Flags.Arriving | Vehicle.Flags.Leaving)) != 0)
+                    // For vehicles waiting for path on the road (WaitingPath):
+                    // If waiting for path calculation, allow up to 200 ticks before evaluating as a stalled path search.
+                    if ((flags & Vehicle.Flags.WaitingPath) != 0 && buffer[i].m_waitCounter <= 200)
+                    {
+                        // Check if path has already returned with permanent failure
+                        uint pId = buffer[i].m_path;
+                        if (pId == 0 || pm == null || pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null ||
+                            pId >= pm.m_pathUnits.m_buffer.Length || (pm.m_pathUnits.m_buffer[pId].m_pathFindFlags & PathUnit.FLAG_FAILED) == 0)
                         {
-                            if (buffer[i].m_blockCounter < 80)
-                            {
-                                continue;
-                            }
+                            s_stuckCounter[i] = 0;
+                            continue;
                         }
                     }
 
@@ -13801,6 +13781,7 @@ namespace MoreNetworkCapacityRenew
                     if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) || pos.sqrMagnitude > 1000000000f)
                     {
                         vm.ReleaseVehicle((ushort)i);
+                        s_stuckCounter[i] = 0;
                         totalRecoveries++;
                         continue;
                     }
@@ -13828,8 +13809,94 @@ namespace MoreNetworkCapacityRenew
                             buffer[i].m_path = 0;
                         }
                         vm.ReleaseVehicle((ushort)i);
+                        s_stuckCounter[i] = 0;
                         totalRecoveries++;
                         continue;
+                    }
+
+                    // PRIORITY 4: Anti-Deadlock Recovery for Motionless Road Traffic
+                    VehicleInfo info = buffer[i].Info;
+                    if (info == null || (info.m_vehicleType & (VehicleInfo.VehicleType.Plane | VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Rocket | VehicleInfo.VehicleType.Meteor)) != 0)
+                    {
+                        s_stuckCounter[i] = 0;
+                        continue;
+                    }
+
+                    // If vehicle is moving, reset stuck counter
+                    if (buffer[i].GetLastFrameVelocity().sqrMagnitude > 0.001f)
+                    {
+                        s_stuckCounter[i] = 0;
+                        continue;
+                    }
+
+                    // Vehicle is motionless on the road. Check if waiting at a legitimate red traffic light
+                    bool atRedLight = false;
+                    if (pathId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
+                        pathId < pm.m_pathUnits.m_buffer.Length)
+                    {
+                        int posIdx = (int)(buffer[i].m_pathPositionIndex >> 1);
+                        PathUnit.Position pPos;
+                        if (pm.m_pathUnits.m_buffer[pathId].GetPosition(posIdx, out pPos))
+                        {
+                            if (pPos.m_segment != 0 && nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null &&
+                                pPos.m_segment < nm.m_segments.m_buffer.Length &&
+                                (nm.m_segments.m_buffer[pPos.m_segment].m_flags & NetSegment.Flags.Created) != 0)
+                            {
+                                ushort startNode = nm.m_segments.m_buffer[pPos.m_segment].m_startNode;
+                                ushort endNode = nm.m_segments.m_buffer[pPos.m_segment].m_endNode;
+                                ushort targetNodeId = (pPos.m_offset > 128) ? endNode : startNode;
+                                if (targetNodeId != 0 && nm.m_nodes != null && nm.m_nodes.m_buffer != null &&
+                                    targetNodeId < nm.m_nodes.m_buffer.Length &&
+                                    (nm.m_nodes.m_buffer[targetNodeId].m_flags & NetNode.Flags.TrafficLights) != 0)
+                                {
+                                    RoadBaseAI.TrafficLightState vState, pState;
+                                    RoadBaseAI.GetTrafficLightState(targetNodeId, ref nm.m_segments.m_buffer[pPos.m_segment], 
+                                        currentFrame - (uint)(targetNodeId << 8) / 32768u, 
+                                        out vState, out pState);
+                                    if (vState == RoadBaseAI.TrafficLightState.Red || vState == RoadBaseAI.TrafficLightState.GreenToRed)
+                                    {
+                                        atRedLight = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Legitimate red light wait: allow normal waiting without counting as stuck
+                    if (atRedLight && s_stuckCounter[i] < 12)
+                    {
+                        s_stuckCounter[i] = 0;
+                        continue;
+                    }
+
+                    // Motionless vehicle waiting in gridlock / junction deadlock:
+                    if (s_stuckCounter[i] < 255) s_stuckCounter[i]++;
+                    byte stuckCount = s_stuckCounter[i];
+
+                    // Stage 1 (stuckCount >= 3 && < 8, ~12s at 1x / ~4s at 3x):
+                    // Nudge forward: reset TM:PE transit state to None (0) and restore forward target speed
+                    if (stuckCount >= 3 && stuckCount < 8)
+                    {
+                        buffer[i].m_blockCounter = 0;
+                        if (buffer[i].m_targetPos0.w < 1.5f) buffer[i].m_targetPos0.w = 1.5f;
+                        if (buffer[i].m_targetPos1.w < 1.5f) buffer[i].m_targetPos1.w = 1.5f;
+                        if (buffer[i].m_targetPos2.w < 1.5f) buffer[i].m_targetPos2.w = 1.5f;
+                        if (buffer[i].m_targetPos3.w < 1.5f) buffer[i].m_targetPos3.w = 1.5f;
+                        TMPECompatibility.UnstickVehicle((ushort)i);
+                    }
+                    // Stage 2 (stuckCount >= 8, ~34s at 1x / ~11s at 3x):
+                    // Unresolvable circular gridlock: release the single deadlocked vehicle to break the deadlock chain
+                    else if (stuckCount >= 8)
+                    {
+                        if (pathId != 0 && pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null &&
+                            pathId < pm.m_pathUnits.m_buffer.Length)
+                        {
+                            try { pm.ReleasePath(pathId); } catch { }
+                            buffer[i].m_path = 0;
+                        }
+                        vm.ReleaseVehicle((ushort)i);
+                        s_stuckCounter[i] = 0;
+                        totalRecoveries++;
                     }
                 }
             }

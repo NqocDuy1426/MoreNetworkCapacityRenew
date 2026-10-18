@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.24 - Pathfinding Throttling Bypass & Demolished Road Despawn: 1) Removed artificial Thread.Sleep throttling on the simulation thread in PathManager and TM:PE CustomPathManager, eliminating the pathfinding backlog and restoring fast vehicle spawns (0/X building unblock) and repathing across large cities. 2) Fixed vehicle unstick logic to strictly detect broken/demolished roads (broken segment ahead) and cleanly despawn the vehicle instead of nudging it forward, preventing vehicles from floating across empty space."
+	"changenote"		"v4.3.25 - CRITICAL FIX: Restore pathfinding (vehicles not spawning/moving): The v4.3.24 Thread.Sleep bypass accidentally used Harmony prefix return false which skipped the ENTIRE PathManager.SimulationStepImpl and CustomPathManager.SimulationStepImpl methods, completely disabling all pathfinding. No vehicle could calculate a route, so no vehicle could spawn or move. Fixed by changing to return true so pathfinding runs normally."
 }
 

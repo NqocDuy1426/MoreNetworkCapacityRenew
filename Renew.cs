@@ -5266,8 +5266,9 @@ namespace MoreNetworkCapacityRenew
 
         public static bool CustomPathManager_SimulationStepImpl_Prefix()
         {
-            // Skip TM:PE artificial Thread.Sleep on the simulation thread
-            return false;
+            // Allow TM:PE CustomPathManager.SimulationStepImpl to run normally.
+            // Thread.Sleep throttling is tolerable; completely skipping this method kills ALL pathfinding.
+            return true;
         }
 
         public static void CustomPathFind_Awake_Postfix(object __instance)
@@ -6497,8 +6498,9 @@ namespace MoreNetworkCapacityRenew
 
         public static bool PathManager_SimulationStepImpl_Prefix(PathManager __instance, int subStep)
         {
-            // Skip vanilla artificial Thread.Sleep on the simulation thread
-            return false;
+            // Allow vanilla PathManager.SimulationStepImpl to run normally.
+            // Thread.Sleep throttling is tolerable; completely skipping this method kills ALL pathfinding.
+            return true;
         }
 
         private static void EnsureMatchOffersDelegate()

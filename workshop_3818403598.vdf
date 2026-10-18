@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.23 - Fixed Critical Loading Screen Hang: 1) Fixed ushort loop counter overflow in UnstickFrozenVehicles and SyncSpeedLimitCache that caused an infinite CPU loop during level loading on expanded vehicle arrays (65536). 2) Removed redundant secondary ReactivateCityLogistics call on load, restoring fast and reliable level loading with Loading Screen Mod. 3) Traffic flow restoration and TM:PE speed limit fixes (v4.3.22) remain fully active."
+	"changenote"		"v4.3.24 - Pathfinding Throttling Bypass & Demolished Road Despawn: 1) Removed artificial Thread.Sleep throttling on the simulation thread in PathManager and TM:PE CustomPathManager, eliminating the pathfinding backlog and restoring fast vehicle spawns (0/X building unblock) and repathing across large cities. 2) Fixed vehicle unstick logic to strictly detect broken/demolished roads (broken segment ahead) and cleanly despawn the vehicle instead of nudging it forward, preventing vehicles from floating across empty space."
 }
 

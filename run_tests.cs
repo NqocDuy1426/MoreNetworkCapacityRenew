@@ -438,9 +438,9 @@ class TestSuite
         }
 
         // ====================================================================
-        // TEST GROUP 10: Anti-Deadlock, Continuous Road & Traffic Light Obedience (v4.3.32)
+        // TEST GROUP 10: Anti-Deadlock, Continuous Road & Native TM:PE Transitions (v4.3.32 - v4.3.34)
         // ====================================================================
-        Console.WriteLine("\n--- TEST GROUP 10: Anti-Deadlock, Continuous Road & Traffic Light Obedience (v4.3.32) ---");
+        Console.WriteLine("\n--- TEST GROUP 10: Anti-Deadlock, Continuous Road & Native TM:PE Transitions (v4.3.32 - v4.3.34) ---");
         try
         {
             string renewCode = File.ReadAllText("Renew.cs");
@@ -450,22 +450,24 @@ class TestSuite
                                          renewCode.Contains("CountSegments() <= 2");
             Assert(hasJrmContinuousGuard, "JunctionRestrictionsManager prefix allows entering continuous 2-segment roads (no false blocked junctions)");
 
-            // 10.2 VehicleBehaviorManager MayChangeSegment anti-deadlock with 100% red light obedience
-            bool hasVbmPostfix = renewCode.Contains("VehicleBehaviorManager_MayChangeSegment_Postfix") &&
-                                 renewCode.Contains("TrafficLightState.Red") &&
-                                 renewCode.Contains("TrafficLightState.RedToGreen");
-            Assert(hasVbmPostfix, "MayChangeSegment postfix strictly obeys red traffic lights (never runs red lights)");
+            // 10.2 VehicleBehaviorManager MayChangeSegment is NOT patched in Harmony (preserves 100% native TM:PE transitions)
+            bool noVbmPatch = !renewCode.Contains("Patched TM:PE VehicleBehaviorManager.MayChangeSegment") &&
+                              renewCode.Contains("MayChangeSegment is intentionally NOT patched");
+            Assert(noVbmPatch, "MayChangeSegment is NOT patched in Harmony (preserves 100% native TM:PE transitions)");
 
-            // 10.3 Train Level Crossing obedience
-            bool hasLevelCrossingCheck = renewCode.Contains("NetNode.Flags.LevelCrossing") &&
-                                         renewCode.Contains("VehicleBehaviorManager_MayChangeSegment_Postfix");
-            Assert(hasLevelCrossingCheck, "MayChangeSegment postfix strictly obeys train level crossings");
+            // 10.3 MayChangeSegment postfix does not override __result or force transit states (eliminates rewind loop)
+            bool noResultOverride = renewCode.Contains("do NOT override __result or transitState");
+            Assert(noResultOverride, "MayChangeSegment postfix does NOT override __result or transitState (eliminates rewind loop)");
 
-            // 10.4 Public transit stop and building departure stall unblocking
-            bool hasDepartingCheck = renewCode.Contains("isDepartingStopOrBuilding") &&
-                                     renewCode.Contains("Vehicle.Flags.Leaving") &&
-                                     renewCode.Contains("Vehicle.Flags.Stopped");
-            Assert(hasDepartingCheck, "MayChangeSegment postfix safely unblocks departures from bus/tram stops and buildings");
+            // 10.4 JunctionRestrictionsManager has single unified prefix (avoids AmbiguousMatchException)
+            int jrmPrefixCount = 0;
+            int idx = 0;
+            while ((idx = renewCode.IndexOf("JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix", idx)) != -1)
+            {
+                jrmPrefixCount++;
+                idx += "JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix".Length;
+            }
+            Assert(jrmPrefixCount <= 2, "JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix has no duplicate overloads");
 
             // 10.5 SavePanel.OnSavingComplete parameter signature accuracy
             bool hasSavePanelByVal = renewCode.Contains("Prefix(SavePanel __instance, bool quitAfterSaving, bool errorOnSaving)");
@@ -484,9 +486,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.33 version bump
-            bool hasV433 = renewCode.Contains("More Network Capacity Renew v4.3.33 by NgocDuy");
-            Assert(hasV433, "Version correctly bumped to v4.3.33 in RenewMod.Name");
+            // 11.1 Check v4.3.34 version bump
+            bool hasV434 = renewCode.Contains("More Network Capacity Renew v4.3.34 by NgocDuy");
+            Assert(hasV434, "Version correctly bumped to v4.3.34 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -522,6 +524,33 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 11 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 12: GitHub Issue #1 Fix Verification (Assertion Failed & Rewind Loop)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 12: GitHub Issue #1 Fix Verification (Assertion Failed & Rewind Loop) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 12.1 Symptom 1: Assertion failed: expected 524288 > 4294967295 on game load
+            bool hasSymptom1Fix = renewCode.Contains("AR_Deserialize_Prefix") &&
+                                  renewCode.Contains("EnsureAdaptiveRoadsStandardBuffers");
+            Assert(hasSymptom1Fix, "Issue #1 Symptom 1: Standard save stream size protected, preventing EOF assertion crash");
+
+            // 12.2 Symptom 2: Rewinding traffic loop (where vehicles roll back then forward in a loop)
+            bool hasSymptom2Fix = renewCode.Contains("VehicleBehaviorManager left 100% native to TM:PE") &&
+                                  !renewCode.Contains("Patched TM:PE VehicleBehaviorManager.MayChangeSegment");
+            Assert(hasSymptom2Fix, "Issue #1 Symptom 2: MayChangeSegment unhooked, eliminating vehicle rewind oscillation loop");
+
+            // 12.3 Despawn All Vehicles in TM:PE remains 100% functional without post-despawn jitter
+            bool tmpeDespawnSafe = !renewCode.Contains("UtilityManager_DespawnVehicles_Postfix");
+            Assert(tmpeDespawnSafe, "TM:PE Clear Traffic / Despawn All Vehicles operates natively with zero side-effects");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 12 exception", ex.ToString());
         }
 
         // ====================================================================

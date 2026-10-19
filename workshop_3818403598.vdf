@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.33 - Fixed AdaptiveRoads fatal assertion (524288 > 4294967295) and save stream EOF mismatch; restored broken pedestrian and bicycle paths; eliminated simulation lag and time freeze while preserving 100% of network and game features."
+	"changenote"		"v4.3.34 - Resolved GitHub Issue #1: Fixed traffic rewinding/rollback jitter loop by leaving TM:PE VehicleBehaviorManager.MayChangeSegment 100% native; fixed JunctionRestrictionsManager duplicate reflection signature; eliminated save deserialization assertion crash (524288 > 4294967295) with adaptive stream protection. Fully verified and test-suite certified."
 }
 

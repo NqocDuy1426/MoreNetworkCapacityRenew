@@ -486,9 +486,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.35 version bump
-            bool hasV435 = renewCode.Contains("More Network Capacity Renew v4.3.35 by NgocDuy");
-            Assert(hasV435, "Version correctly bumped to v4.3.35 in RenewMod.Name");
+            // 11.1 Check v4.3.36 version bump
+            bool hasV436 = renewCode.Contains("More Network Capacity Renew v4.3.36 by NgocDuy");
+            Assert(hasV436, "Version correctly bumped to v4.3.36 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -590,6 +590,32 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 13 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 14: Rebalanced Industries Revisited 1.0.3 Compatibility (v4.3.36)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 14: Rebalanced Industries Revisited 1.0.3 Compatibility (v4.3.36) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 14.1 RebalancedIndustriesRevisited registered in IsTargetModAssembly
+            bool hasRirTarget = renewCode.Contains("name == \"RebalancedIndustriesRevisited\"");
+            Assert(hasRirTarget, "RebalancedIndustriesRevisited registered in target third-party mod assemblies");
+
+            // 14.2 RebalancedIndustriesRevisited registered in DynamicPatcher
+            bool hasRirPatcher = renewCode.Contains("\"RebalancedIndustriesRevisited\"");
+            Assert(hasRirPatcher, "RebalancedIndustriesRevisited registered in DynamicPatcher targetModNames");
+
+            // 14.3 No conflicting vehicle/cargo tampering with Rebalanced Industries
+            bool noCargoConflict = !renewCode.Contains("CargoTruckAI_SetSource_Prefix") &&
+                                   !renewCode.Contains("WarehouseAI_GetMaxLoadSize_Prefix");
+            Assert(noCargoConflict, "Zero conflicting overrides against Rebalanced Industries cargo & warehouse calculations");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 14 exception", ex.ToString());
         }
 
         // ====================================================================

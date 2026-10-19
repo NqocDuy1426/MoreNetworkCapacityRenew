@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.35 - Added full TransferManager Extended (TransferManagerCE) compatibility: expanded PathDistance m_visited bit-array to 65K to support extended network nodes (>32K) without ArgumentOutOfRangeException; synchronized PathNode buffers with expanded 65K network arrays."
+	"changenote"		"v4.3.36 - Added full Rebalanced Industries Revisited 1.0.3 compatibility & dynamic synchronization; cleaned duplicate local installations; ensured smooth coexistence with industry cargo scaling, warehouse buffer adjustments, and expanded 65K networks."
 }
 

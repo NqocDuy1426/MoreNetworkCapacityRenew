@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.35 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.36 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -7006,7 +7006,10 @@ namespace MoreNetworkCapacityRenew
                         "NetworkAnarchy",
                         "AdvancedRoadTools",
                         "NetworkExtensions2",
-                        "MoreTransportLines"
+                        "MoreTransportLines",
+                        "TransferManagerCE",
+                        "TransferManagerExtended",
+                        "RebalancedIndustriesRevisited"
                     };
 
                     foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -7368,6 +7371,7 @@ namespace MoreNetworkCapacityRenew
                    name == "EightyOne2" ||
                    name == "TransferManagerCE" ||
                    name == "TransferManagerExtended" ||
+                   name == "RebalancedIndustriesRevisited" ||
                    name == "MorePathUnits";
         }
 

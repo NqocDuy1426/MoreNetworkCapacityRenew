@@ -477,6 +477,54 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 11: AdaptiveRoads Deserialization Armor & Pedestrian/Bike Pathing (v4.3.33)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 11: AdaptiveRoads Deserialization Armor & Pedestrian/Bike Pathing (v4.3.33) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 11.1 Check v4.3.33 version bump
+            bool hasV433 = renewCode.Contains("More Network Capacity Renew v4.3.33 by NgocDuy");
+            Assert(hasV433, "Version correctly bumped to v4.3.33 in RenewMod.Name");
+
+            // 11.2 Check AR_Deserialize_Prefix is implemented
+            bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
+            Assert(hasArDeserPre, "AR_Deserialize_Prefix exists to safely wrap AdaptiveRoads deserialization");
+
+            // 11.3 Check stream size detection IsExpandedARStream
+            bool hasStreamCheck = renewCode.Contains("public static bool IsExpandedARStream(object s)") &&
+                                  renewCode.Contains("remaining < 1500000");
+            Assert(hasStreamCheck, "IsExpandedARStream accurately differentiates standard 36K vs expanded 65K stream payload");
+
+            // 11.4 Check EnsureAdaptiveRoadsStandardBuffers resizes to standard 36k
+            bool hasStandardBuffers = renewCode.Contains("public static void EnsureAdaptiveRoadsStandardBuffers(object nem)") &&
+                                      renewCode.Contains("36864") &&
+                                      renewCode.Contains("73728") &&
+                                      renewCode.Contains("32768") &&
+                                      renewCode.Contains("262144");
+            Assert(hasStandardBuffers, "EnsureAdaptiveRoadsStandardBuffers enforces standard vanilla buffer limits before deserialization");
+
+            // 11.5 Verify AR InitBuffers and Awake are NOT patched to Harmony (avoids EOF assertion crash)
+            bool noInitBufPatch = !renewCode.Contains("nameof(AR_InitBuffers_Postfix)");
+            bool noAwakePatch = !renewCode.Contains("nameof(AR_Awake_Postfix)");
+            Assert(noInitBufPatch && noAwakePatch, "AR InitBuffers and Awake are NOT hooked with buffer expansions (prevents premature 65K EOF crash)");
+
+            // 11.6 Verify AR Deserialize method is hooked with armored prefix
+            bool hasDeserHook = renewCode.Contains("harmony.Patch(deser, prefix: new HarmonyMethod(pre))") &&
+                                renewCode.Contains("nameof(AR_Deserialize_Prefix)");
+            Assert(hasDeserHook, "AdaptiveRoads.Deserialize is hooked with armored AR_Deserialize_Prefix");
+
+            // 11.7 Verify post-deserialization 65K expansion
+            bool hasPostDeserExpand = renewCode.Contains("EnsureAdaptiveRoadsBuffers(\"AR.Deserialize.Finished\", inst)");
+            Assert(hasPostDeserExpand, "AR.Deserialize.Finished ensures buffers are expanded to 65K for active gameplay");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 11 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

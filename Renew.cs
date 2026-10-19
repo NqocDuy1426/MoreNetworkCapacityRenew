@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.32 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.33 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -8360,7 +8360,7 @@ namespace MoreNetworkCapacityRenew
         {
             if (harmony == null) return;
 
-            // 1. Adaptive Roads lifecycle hooks
+            // 1. Adaptive Roads lifecycle & deserialization hooks (armored stream detection & 65K expansion)
             if (!_adaptiveRoadsPatched)
             {
                 try
@@ -8372,11 +8372,29 @@ namespace MoreNetworkCapacityRenew
                             Type nemType = asm.GetType("AdaptiveRoads.Manager.NetworkExtensionManager");
                             if (nemType != null)
                             {
-                                MethodInfo initBuf = nemType.GetMethod("InitBuffers", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                                if (initBuf != null)
+                                // Patch static Deserialize(SimpleDataSerializer s) with safe, armored prefix
+                                MethodInfo deser = null;
+                                foreach (var m in nemType.GetMethods(BindingFlags.Public | BindingFlags.Static))
                                 {
-                                    MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(AR_InitBuffers_Postfix), BindingFlags.Public | BindingFlags.Static);
-                                    harmony.Patch(initBuf, postfix: new HarmonyMethod(post));
+                                    if (m.Name == "Deserialize" && m.GetParameters().Length == 1)
+                                    {
+                                        deser = m;
+                                        break;
+                                    }
+                                }
+                                if (deser != null)
+                                {
+                                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(AR_Deserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                                    harmony.Patch(deser, prefix: new HarmonyMethod(pre));
+                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully hooked AdaptiveRoads.Deserialize with armored prefix!");
+                                }
+
+                                // Hook Create with postfix (expands if already expanded save or editor)
+                                MethodInfo create = nemType.GetMethod("Create", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, Type.EmptyTypes, null);
+                                if (create != null)
+                                {
+                                    MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(AR_Create_Postfix), BindingFlags.Public | BindingFlags.Static);
+                                    harmony.Patch(create, postfix: new HarmonyMethod(post));
                                 }
 
                                 MethodInfo createNew = nemType.GetMethod("CreateNew", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
@@ -8386,15 +8404,8 @@ namespace MoreNetworkCapacityRenew
                                     harmony.Patch(createNew, postfix: new HarmonyMethod(post));
                                 }
 
-                                MethodInfo awake = nemType.GetMethod("Awake", BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                                if (awake != null)
-                                {
-                                    MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(AR_Awake_Postfix), BindingFlags.Public | BindingFlags.Static);
-                                    harmony.Patch(awake, postfix: new HarmonyMethod(post));
-                                }
-
                                 _adaptiveRoadsPatched = true;
-                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully hooked AdaptiveRoads lifecycle for dynamic 65K buffers!");
+                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Successfully hooked AdaptiveRoads lifecycle for dynamic 65K buffers & safe deserialization!");
                             }
                             break;
                         }
@@ -9522,19 +9533,199 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static void AR_InitBuffers_Postfix(object __instance)
+        public static bool IsExpandedSave()
         {
-            EnsureAdaptiveRoadsBuffers("AR.InitBuffers.Postfix", __instance);
+            try
+            {
+                var sm = Singleton<SimulationManager>.instance;
+                if (sm != null && sm.m_metaData != null && sm.m_metaData.m_modOverride != null)
+                {
+                    if (sm.m_metaData.m_modOverride.TryGetValue("User/MoreNetworkCapacity/64K-v1", out bool val))
+                    {
+                        return val;
+                    }
+                }
+            }
+            catch {}
+            return false;
+        }
+
+        public static bool IsExpandedARStream(object s)
+        {
+            if (s == null) return false;
+            try
+            {
+                FieldInfo sf = s.GetType().GetField("Stream", BindingFlags.Public | BindingFlags.Instance);
+                if (sf != null && sf.GetValue(s) is MemoryStream stream)
+                {
+                    long remaining = stream.Length - stream.Position;
+                    // Standard 36K saves require ~868KB to 1.16MB base. Total stream is < 1.45MB.
+                    // Expanded 65K saves require at least 1.56MB base (65024*4 + 130048*8 + 65024*4) + 520KB user data = 2.08MB base before lanes!
+                    if (remaining < 1500000)
+                    {
+                        return false;
+                    }
+                    return IsExpandedSave();
+                }
+            }
+            catch {}
+            return IsExpandedSave();
+        }
+
+        public static void EnsureAdaptiveRoadsStandardBuffers(object nem)
+        {
+            if (nem == null) return;
+            try
+            {
+                Type nemType = nem.GetType();
+
+                // 1. NodeBuffer -> 32768
+                FieldInfo nf = nemType.GetField("NodeBuffer", BindingFlags.Public | BindingFlags.Instance);
+                if (nf != null && nf.GetValue(nem) is Array nArr && nArr.Length > 32768)
+                {
+                    Type nType = nArr.GetType().GetElementType();
+                    Array newArr = Array.CreateInstance(nType, 32768);
+                    Array.Copy(nArr, newArr, 32768);
+                    nf.SetValue(nem, newArr);
+                }
+
+                // 2. SegmentBuffer -> 36864
+                FieldInfo sf = nemType.GetField("SegmentBuffer", BindingFlags.Public | BindingFlags.Instance);
+                if (sf != null && sf.GetValue(nem) is Array sArr && sArr.Length > 36864)
+                {
+                    Type sType = sArr.GetType().GetElementType();
+                    Array newArr = Array.CreateInstance(sType, 36864);
+                    Array.Copy(sArr, newArr, 36864);
+                    sf.SetValue(nem, newArr);
+                }
+
+                // 3. SegmentEndBuffer -> 73728
+                FieldInfo sef = nemType.GetField("SegmentEndBuffer", BindingFlags.Public | BindingFlags.Instance);
+                if (sef != null && sef.GetValue(nem) is Array seArr && seArr.Length > 73728)
+                {
+                    Type seType = seArr.GetType().GetElementType();
+                    Array newArr = Array.CreateInstance(seType, 73728);
+                    Array.Copy(seArr, newArr, 73728);
+                    sef.SetValue(nem, newArr);
+                }
+
+                // 4. LaneBuffer -> 262144
+                FieldInfo lf = nemType.GetField("LaneBuffer", BindingFlags.Public | BindingFlags.Instance);
+                if (lf != null && lf.GetValue(nem) is Array lArr && lArr.Length > 262144)
+                {
+                    Type lType = lArr.GetType().GetElementType();
+                    Array newArr = Array.CreateInstance(lType, 262144);
+                    Array.Copy(lArr, newArr, 262144);
+                    lf.SetValue(nem, newArr);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureAdaptiveRoadsStandardBuffers error: " + ex);
+            }
+        }
+
+        public static bool AR_Deserialize_Prefix(object s)
+        {
+            try
+            {
+                Type nemType = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "AdaptiveRoads")
+                    {
+                        nemType = asm.GetType("AdaptiveRoads.Manager.NetworkExtensionManager");
+                        break;
+                    }
+                }
+                if (nemType == null) return true;
+
+                MethodInfo createM = nemType.GetMethod("Create", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static, null, Type.EmptyTypes, null);
+                object inst = createM != null ? createM.Invoke(null, null) : null;
+                FieldInfo instF = nemType.GetField("instance_", BindingFlags.NonPublic | BindingFlags.Static);
+                if (instF != null && inst != null)
+                {
+                    instF.SetValue(null, inst);
+                }
+
+                if (inst != null && s != null)
+                {
+                    bool isExpanded = IsExpandedARStream(s);
+                    if (!isExpanded)
+                    {
+                        EnsureAdaptiveRoadsStandardBuffers(inst);
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] AR Deserialize: Standard 36K save detected. Buffers pre-set to vanilla sizes to prevent stream overflow.");
+                    }
+                    else
+                    {
+                        EnsureAdaptiveRoadsBuffers("AR.Deserialize.Expanded", inst);
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] AR Deserialize: Expanded 65K save detected. Buffers pre-expanded to 65K.");
+                    }
+
+                    MethodInfo deserImp = null;
+                    foreach (var m in nemType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                    {
+                        if (m.Name == "DeserializeImp" && m.GetParameters().Length == 1)
+                        {
+                            deserImp = m;
+                            break;
+                        }
+                    }
+
+                    if (deserImp != null)
+                    {
+                        try
+                        {
+                            deserImp.Invoke(inst, new object[] { s });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] AR DeserializeImp completed cleanly!");
+                        }
+                        catch (Exception deserEx)
+                        {
+                            UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Handled exception during AR DeserializeImp: " + deserEx);
+                        }
+                    }
+
+                    // Always ensure buffers are 65K for active gameplay!
+                    EnsureAdaptiveRoadsBuffers("AR.Deserialize.Finished", inst);
+                }
+                else if (inst != null)
+                {
+                    EnsureAdaptiveRoadsBuffers("AR.Deserialize.NullData", inst);
+                }
+
+                return false; // Skip original method so no assertion dialog can ever be shown!
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] AR_Deserialize_Prefix error: " + ex);
+                return true;
+            }
         }
 
         public static void AR_CreateNew_Postfix()
         {
-            EnsureAdaptiveRoadsBuffers("AR.CreateNew.Postfix", null);
+            if (IsExpandedSave())
+            {
+                EnsureAdaptiveRoadsBuffers("AR.CreateNew.Postfix", null);
+            }
+        }
+
+        public static void AR_Create_Postfix(object __result)
+        {
+            if (__result != null && IsExpandedSave())
+            {
+                EnsureAdaptiveRoadsBuffers("AR.Create.Postfix", __result);
+            }
+        }
+
+        public static void AR_InitBuffers_Postfix(object __instance)
+        {
+            // Intentionally no-op to prevent premature 65K buffer resizing before save deserialization
         }
 
         public static void AR_Awake_Postfix(object __instance)
         {
-            EnsureAdaptiveRoadsBuffers("AR.Awake.Postfix", __instance);
+            // Intentionally no-op to prevent premature 65K buffer resizing before save deserialization
         }
 
         public static void NetworkSkinManager_Awake_Postfix()

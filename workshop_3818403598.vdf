@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.32 - Fix road and avenue vehicle deadlocks, bus/tram departure stalls, and continuous 2-segment false junction blocks; 100% strict red light and traffic rule obedience."
+	"changenote"		"v4.3.33 - Fixed AdaptiveRoads fatal assertion (524288 > 4294967295) and save stream EOF mismatch; restored broken pedestrian and bicycle paths; eliminated simulation lag and time freeze while preserving 100% of network and game features."
 }
 

@@ -486,9 +486,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.34 version bump
-            bool hasV434 = renewCode.Contains("More Network Capacity Renew v4.3.34 by NgocDuy");
-            Assert(hasV434, "Version correctly bumped to v4.3.34 in RenewMod.Name");
+            // 11.1 Check v4.3.35 version bump
+            bool hasV435 = renewCode.Contains("More Network Capacity Renew v4.3.35 by NgocDuy");
+            Assert(hasV435, "Version correctly bumped to v4.3.35 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -551,6 +551,45 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 12 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 13: Transfer Manager Extended (TransferManagerCE) 65K Compatibility (v4.3.35)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 13: Transfer Manager Extended (TransferManagerCE) 65K Compatibility (v4.3.35) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 13.1 TransferManagerCE registration in target assemblies
+            bool hasTmeTarget = renewCode.Contains("name == \"TransferManagerCE\"") &&
+                                renewCode.Contains("name == \"TransferManagerExtended\"");
+            Assert(hasTmeTarget, "TransferManagerCE / Extended registered in target third-party mod assemblies");
+
+            // 13.2 PathDistance BitArray expansion to 65536
+            bool hasBitArrayExpand = renewCode.Contains("TransferManager_PathDistance_Ctor_Postfix") &&
+                                     renewCode.Contains("new System.Collections.BitArray(65536)");
+            Assert(hasBitArrayExpand, "PathDistance constructor expands m_visited BitArray to 65536 (eliminates ArgumentOutOfRangeException)");
+
+            // 13.3 PathDistance ResetArrays safety prefix
+            bool hasResetArraysPre = renewCode.Contains("TransferManager_PathDistance_ResetArrays_Prefix") &&
+                                     renewCode.Contains("ba.Length < 65536");
+            Assert(hasResetArraysPre, "PathDistance.ResetArrays prefix guarantees 65536 BitArray capacity before each Dijkstra search");
+
+            // 13.4 PathDistance UpdateNode bounds guard prefix
+            bool hasUpdateNodePre = renewCode.Contains("TransferManager_PathDistance_UpdateNode_Prefix") &&
+                                    renewCode.Contains("nodeId >= 65024");
+            Assert(hasUpdateNodePre, "PathDistance.UpdateNode prefix safely bounds-checks node IDs and dynamically resizes BitArray");
+
+            // 13.5 EnsureTransferManagerBuffers synchronizes NetNodes and NetSegments
+            bool hasBufferSync = renewCode.Contains("EnsureTransferManagerBuffers") &&
+                                 renewCode.Contains("pathNodeType.GetField(\"NetSegments\"") &&
+                                 renewCode.Contains("pathNodeType.GetField(\"NetNodes\"");
+            Assert(hasBufferSync, "EnsureTransferManagerBuffers synchronizes PathNode NetNodes & NetSegments with 65K arrays");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 13 exception", ex.ToString());
         }
 
         // ====================================================================

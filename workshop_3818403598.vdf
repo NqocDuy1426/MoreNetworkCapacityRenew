@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.34 - Resolved GitHub Issue #1: Fixed traffic rewinding/rollback jitter loop by leaving TM:PE VehicleBehaviorManager.MayChangeSegment 100% native; fixed JunctionRestrictionsManager duplicate reflection signature; eliminated save deserialization assertion crash (524288 > 4294967295) with adaptive stream protection. Fully verified and test-suite certified."
+	"changenote"		"v4.3.35 - Added full TransferManager Extended (TransferManagerCE) compatibility: expanded PathDistance m_visited bit-array to 65K to support extended network nodes (>32K) without ArgumentOutOfRangeException; synchronized PathNode buffers with expanded 65K network arrays."
 }
 

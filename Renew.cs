@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.34 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.35 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -7287,6 +7287,7 @@ namespace MoreNetworkCapacityRenew
         private static bool _toolControllerPatched = false;
         private static bool _eightyOne2Patched = false;
         private static bool _morePathUnitsPatched = false;
+        private static bool _transferManagerPatched = false;
         private static HarmonyInstance _harmonyInstance = null;
 
         public static void Apply(HarmonyInstance harmony)
@@ -7365,6 +7366,8 @@ namespace MoreNetworkCapacityRenew
                    name == "NetworkExtensions2" ||
                    name == "MoreTransportLines" ||
                    name == "EightyOne2" ||
+                   name == "TransferManagerCE" ||
+                   name == "TransferManagerExtended" ||
                    name == "MorePathUnits";
         }
 
@@ -7379,6 +7382,7 @@ namespace MoreNetworkCapacityRenew
                 EnsureMoveItBuffers(context);
                 EnsureKianCommonsBuffers(context);
                 EnsureImprovedPublicTransportBuffers(context);
+                EnsureTransferManagerBuffers(context);
                 SynchronizeMorePathUnits(context);
             }
             catch (Exception ex)
@@ -8213,6 +8217,9 @@ namespace MoreNetworkCapacityRenew
 
             // 5. MorePathUnits load synchronization & safety hooks
             PatchMorePathUnits(harmony);
+
+            // 6. Transfer Manager Extended (TransferManagerCE) path distance & 65K node safety hooks
+            PatchTransferManager(harmony);
         }
 
         public static void EnsureEightyOne2Patched()
@@ -9456,6 +9463,184 @@ namespace MoreNetworkCapacityRenew
         public static void NodeController_Clear_Postfix()
         {
             EnsureNodeControllerBuffers("NC.Clear.Postfix");
+        }
+
+        // ====================================================================
+        // TRANSFER MANAGER EXTENDED (TRANSFERMANAGERCE) 65K COMPATIBILITY
+        // ====================================================================
+        public static void EnsureTransferManagerPatched()
+        {
+            if (_transferManagerPatched) return;
+            try
+            {
+                var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.TransferManager");
+                PatchTransferManager(harmony);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureTransferManagerPatched error: " + ex);
+            }
+        }
+
+        public static void PatchTransferManager(HarmonyInstance harmony)
+        {
+            if (_transferManagerPatched || harmony == null) return;
+            try
+            {
+                Assembly tmeAsm = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "TransferManagerCE" || asm.GetName().Name == "TransferManagerExtended")
+                    {
+                        tmeAsm = asm;
+                        break;
+                    }
+                }
+                if (tmeAsm == null) return;
+
+                int patchedCount = 0;
+                Type pdType = tmeAsm.GetType("TransferManagerCore.PathDistance");
+                if (pdType != null)
+                {
+                    // 1. Hook .ctor to expand m_visited to 65536
+                    foreach (var ctor in pdType.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                    {
+                        MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(TransferManager_PathDistance_Ctor_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(ctor, postfix: new HarmonyMethod(post));
+                        patchedCount++;
+                    }
+
+                    // 2. Hook ResetArrays to ensure m_visited has 65536 capacity
+                    MethodInfo resetArrays = pdType.GetMethod("ResetArrays", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (resetArrays != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(TransferManager_PathDistance_ResetArrays_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(resetArrays, prefix: new HarmonyMethod(pre));
+                        patchedCount++;
+                    }
+
+                    // 3. Hook UpdateNode to protect against out-of-range node IDs and ensure m_visited bounds
+                    MethodInfo updateNode = pdType.GetMethod("UpdateNode", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(ushort), typeof(float) }, null);
+                    if (updateNode != null)
+                    {
+                        MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(TransferManager_PathDistance_UpdateNode_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(updateNode, prefix: new HarmonyMethod(pre));
+                        patchedCount++;
+                    }
+                }
+
+                if (patchedCount > 0)
+                {
+                    _transferManagerPatched = true;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully applied {0} TransferManagerCE 65K node expansion & safety patches!", patchedCount));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchTransferManager error: " + ex);
+            }
+        }
+
+        public static void EnsureTransferManagerBuffers(string context)
+        {
+            try
+            {
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "TransferManagerCE" || asm.GetName().Name == "TransferManagerExtended")
+                    {
+                        Type pathNodeType = asm.GetType("TransferManagerCore.PathNode");
+                        if (pathNodeType != null && Singleton<NetManager>.instance != null)
+                        {
+                            NetManager nm = Singleton<NetManager>.instance;
+                            if (nm.m_segments != null)
+                            {
+                                FieldInfo fSegs = pathNodeType.GetField("NetSegments", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                                if (fSegs != null)
+                                {
+                                    fSegs.SetValue(null, nm.m_segments.m_buffer);
+                                }
+                            }
+                            if (nm.m_nodes != null)
+                            {
+                                FieldInfo fNodes = pathNodeType.GetField("NetNodes", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                                if (fNodes != null)
+                                {
+                                    fNodes.SetValue(null, nm.m_nodes.m_buffer);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureTransferManagerBuffers error: " + ex);
+            }
+        }
+
+        public static void TransferManager_PathDistance_Ctor_Postfix(object __instance)
+        {
+            try
+            {
+                if (__instance != null)
+                {
+                    FieldInfo fVisited = __instance.GetType().GetField("m_visited", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fVisited != null)
+                    {
+                        fVisited.SetValue(__instance, new System.Collections.BitArray(65536));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] TransferManager_PathDistance_Ctor_Postfix error: " + ex);
+            }
+        }
+
+        public static void TransferManager_PathDistance_ResetArrays_Prefix(object __instance)
+        {
+            try
+            {
+                if (__instance != null)
+                {
+                    FieldInfo fVisited = __instance.GetType().GetField("m_visited", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fVisited != null && fVisited.GetValue(__instance) is System.Collections.BitArray ba && ba.Length < 65536)
+                    {
+                        fVisited.SetValue(__instance, new System.Collections.BitArray(65536));
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static bool TransferManager_PathDistance_UpdateNode_Prefix(object __instance, ushort nodeId, ushort prevId, float travelTime)
+        {
+            if (nodeId == 0 || nodeId >= 65024 || travelTime <= 0f)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (__instance != null)
+                {
+                    FieldInfo fVisited = __instance.GetType().GetField("m_visited", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fVisited != null && fVisited.GetValue(__instance) is System.Collections.BitArray ba && nodeId >= ba.Length)
+                    {
+                        System.Collections.BitArray newBa = new System.Collections.BitArray(65536);
+                        for (int i = 0; i < ba.Length; i++)
+                        {
+                            newBa[i] = ba[i];
+                        }
+                        fVisited.SetValue(__instance, newBa);
+                    }
+                }
+            }
+            catch { }
+
+            return true;
         }
     }
 

@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.36 - Added full Rebalanced Industries Revisited 1.0.3 compatibility & dynamic synchronization; cleaned duplicate local installations; ensured smooth coexistence with industry cargo scaling, warehouse buffer adjustments, and expanded 65K networks."
+	"changenote"		"v4.3.37 - Restored 100% native TM:PE pathfinding, junction restrictions, and building simulation without external Harmony prefixes. Fixed issue where clearing traffic / despawning all vehicles caused vehicles to remain stuck inside buildings and fail to spawn onto the road network. Preserved TM:PE native laneLocation_ and laneTarget_ buffers."
 }
 

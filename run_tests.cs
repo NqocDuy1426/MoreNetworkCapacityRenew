@@ -244,10 +244,10 @@ class TestSuite
 
             // 6.1 Verify TM:PE CustomPathFind Awake buffer expansion is active and internal routing methods are native
             bool hasCpfAwake = renewCode.Contains("CustomPathFind_Awake_Postfix") && renewCode.Contains("SynchronizeSinglePathFind");
-            bool hasCpfWfap = renewCode.Contains("WaitForAllPaths_Prefix");
+            bool noCpfWfap = !renewCode.Contains("Patched TM:PE CustomPathFind.WaitForAllPaths");
             bool hasCpfNative = renewCode.Contains("CustomPathFind internal routing methods") && renewCode.Contains("left 100% native to TM:PE");
             Assert(hasCpfAwake, "CustomPathFind.Awake capacity postfix installed to synchronize 65k buffers");
-            Assert(hasCpfWfap, "CustomPathFind.WaitForAllPaths safe deadlock defense prefix installed");
+            Assert(noCpfWfap, "CustomPathFind.WaitForAllPaths left 100% native to TM:PE without thread lock overrides");
             Assert(hasCpfNative, "CustomPathFind internal routing methods left 100% native to TM:PE to eliminate thread NREs");
 
             // 6.2 Verify zero reflection in CustomPathFind_PathFindImplementation_Prefix (Hot-path performance)
@@ -274,11 +274,12 @@ class TestSuite
             Assert(hasSgoGuard, "CreateDynamicGetterPrefix & SavedGameOptions_Release_Prefix installed to guarantee non-null options");
             Assert(hasGcGuard, "EnsureAndGetGlobalConfig installed to guarantee non-null global config");
 
-            // 6.6 Verify ThreadingExtension and PathFindImplementation patches are applied
+            // 6.6 Verify ThreadingExtension patched and CustomPathFind.PathFindImplementation is 100% native (unhooked)
             bool hasThreadExtPatch = renewCode.Contains("ThreadingExtension.OnBeforeSimulationFrame") && renewCode.Contains("ThreadingExtension_OnBeforeSimulationFrame_Prefix");
-            bool hasPfiPatch = renewCode.Contains("CustomPathFind.PathFindImplementation") && renewCode.Contains("CustomPathFind_PathFindImplementation_Prefix");
+            bool pfiUnhooked = !renewCode.Contains("Patched TM:PE CustomPathFind.PathFindImplementation") &&
+                               renewCode.Contains("CustomPathFind.PathFindImplementation and WaitForAllPaths are intentionally left 100% native");
             Assert(hasThreadExtPatch, "ThreadingExtension.OnBeforeSimulationFrame patched with null-safe prefix");
-            Assert(hasPfiPatch, "CustomPathFind.PathFindImplementation patched with bounds-safe prefix");
+            Assert(pfiUnhooked, "CustomPathFind.PathFindImplementation left 100% native to TM:PE (zero interference with pathfinding)");
         }
         catch (Exception ex)
         {
@@ -377,10 +378,10 @@ class TestSuite
                                 renewCode.Contains("curLane = NetManager.instance.m_lanes.m_buffer[curLane].m_nextLane");
             Assert(hasGliPrefix, "ExtLane.GetLaneInfo protected with linked-list resolver preventing IndexOutOfRangeException");
 
-            // 9.4 Verify ExtBuildingManager & SimulationStepPatch crash armor
+            // 9.4 Verify ExtBuildingManager crash armor & native SimulationStep
             bool hasEbmArmor = renewCode.Contains("ExtBuildingManager_OnBeforeSimulationStep_Prefix") &&
-                               renewCode.Contains("CommonBuildingAI_SimulationStepPatch_Prefix_Guard");
-            Assert(hasEbmArmor, "ExtBuildingManager & CommonBuildingAI.SimulationStep armored against NullReferenceException");
+                               !renewCode.Contains("Patched TM:PE SimulationStepPatch.Prefix with safe guard");
+            Assert(hasEbmArmor, "ExtBuildingManager armored while CommonBuildingAI.SimulationStep is 100% native");
 
             // 9.5 Verify SanitizeRoutingManager purges invalid segments
             bool hasSanitizeRm = renewCode.Contains("SanitizeRoutingManager") &&
@@ -445,10 +446,10 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 10.1 Continuous 2-segment corridor false-blocked junction guard
-            bool hasJrmContinuousGuard = renewCode.Contains("JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix") &&
-                                         renewCode.Contains("CountSegments() <= 2");
-            Assert(hasJrmContinuousGuard, "JunctionRestrictionsManager prefix allows entering continuous 2-segment roads (no false blocked junctions)");
+            // 10.1 JunctionRestrictionsManager is NOT patched in Harmony (preserves 100% native TM:PE junction rules)
+            bool noJrmPatch = !renewCode.Contains("Patched TM:PE JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed") &&
+                              renewCode.Contains("JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed is intentionally left 100% native to TM:PE");
+            Assert(noJrmPatch, "JunctionRestrictionsManager left 100% native to TM:PE (zero interference with natural junction algorithm)");
 
             // 10.2 VehicleBehaviorManager MayChangeSegment is NOT patched in Harmony (preserves 100% native TM:PE transitions)
             bool noVbmPatch = !renewCode.Contains("Patched TM:PE VehicleBehaviorManager.MayChangeSegment") &&
@@ -486,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.36 version bump
-            bool hasV436 = renewCode.Contains("More Network Capacity Renew v4.3.36 by NgocDuy");
-            Assert(hasV436, "Version correctly bumped to v4.3.36 in RenewMod.Name");
+            // 11.1 Check v4.3.37 version bump
+            bool hasV437 = renewCode.Contains("More Network Capacity Renew v4.3.37 by NgocDuy");
+            Assert(hasV437, "Version correctly bumped to v4.3.37 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -616,6 +617,42 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 14 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 15: PURE NATIVE TM:PE PATHFINDING & VEHICLE SPAWN INTEGRITY (v4.3.37)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 15: Pure Native TM:PE Pathfinding & Vehicle Spawn Integrity (v4.3.37) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 15.1 CustomPathFind.PathFindImplementation is 100% native (not patched)
+            bool noCpfPatch = !renewCode.Contains("harmony.Patch(pfiM") &&
+                              !renewCode.Contains("Patched TM:PE CustomPathFind.PathFindImplementation");
+            Assert(noCpfPatch, "CustomPathFind.PathFindImplementation is NOT hooked in Harmony (eliminates thread deadlock & vehicle spawn lockup)");
+
+            // 15.2 CustomPathFind.WaitForAllPaths & CustomPathManager.WaitForAllPaths are 100% native
+            bool noWfapPatch = !renewCode.Contains("harmony.Patch(wfapM");
+            Assert(noWfapPatch, "CustomPathFind & CustomPathManager WaitForAllPaths are NOT hooked in Harmony (preserves native thread synchronization)");
+
+            // 15.3 JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed is 100% native
+            bool noJrmEntering = !renewCode.Contains("harmony.Patch(isEnteringM");
+            Assert(noJrmEntering, "JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed is NOT hooked in Harmony (preserves native junction rules)");
+
+            // 15.4 laneLocation_ and laneTarget_ are NOT resized to 524,288
+            bool nativeLaneArrays = !renewCode.Contains("uint[] newLoc = new uint[524288]") &&
+                                    !renewCode.Contains("fLoc.SetValue(pf, newLoc)") &&
+                                    renewCode.Contains("262144");
+            Assert(nativeLaneArrays, "CustomPathFind laneLocation_ and laneTarget_ preserved at native 262,144 capacity");
+
+            // 15.5 SimulationStepPatch is NOT hooked in Harmony
+            bool noSspPatch = !renewCode.Contains("harmony.Patch(prefixM, prefix: new HarmonyMethod(safeGuard)");
+            Assert(noSspPatch, "TM:PE SimulationStepPatch is NOT hooked in Harmony (buildings freely dispatch vehicles)");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 15 exception", ex.ToString());
         }
 
         // ====================================================================

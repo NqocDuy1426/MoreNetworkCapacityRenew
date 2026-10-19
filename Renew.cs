@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.36 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.37 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1735,13 +1735,7 @@ namespace MoreNetworkCapacityRenew
                         UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.UpdateWithPathManagerValues (Postfix)");
                     }
 
-                    MethodInfo wfapM = cpmType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (wfapM != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
-                        harmony.Patch(wfapM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathManager.WaitForAllPaths (deadlock defense prefix, Priority.First)");
-                    }
+                    // CustomPathManager.WaitForAllPaths is left 100% native to TM:PE to preserve natural thread signaling and path draining.
                 }
 
                 // 11. CustomSegmentLightsManager (Overflow protection & capacity)
@@ -1908,13 +1902,8 @@ namespace MoreNetworkCapacityRenew
                             }
                         }
 
-                        MethodInfo isEnteringM = jrmType.GetMethod("IsEnteringBlockedJunctionAllowed", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
-                        if (isEnteringM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix));
-                            harmony.Patch(isEnteringM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed (2-segment continuous corridor guard)");
-                        }
+                        // Note: JunctionRestrictionsManager.IsEnteringBlockedJunctionAllowed is intentionally left 100% native to TM:PE
+                        // to preserve natural junction rules, priority signs, and vehicle spacing without external interference.
                     }
                 }
                 catch (Exception ex)
@@ -2157,26 +2146,12 @@ namespace MoreNetworkCapacityRenew
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.Awake (capacity postfix)");
                         }
 
-                        // CustomPathFind fast bounds safety prefix on PathFindImplementation
-                        MethodInfo pfiM = cpfType.GetMethod("PathFindImplementation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (pfiM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CustomPathFind_PathFindImplementation_Prefix));
-                            harmony.Patch(pfiM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.PathFindImplementation (null-safe bounds prefix, Priority.First)");
-                        }
-
                         // Note: CustomPathFind internal routing methods are left 100% native to TM:PE to eliminate thread NREs.
                         // Note: CustomPathFind inner-loop methods (ProcessItemMain, ProcessItemCosts, ProcessItemRouted, etc.)
                         // are intentionally NOT hooked with Harmony prefixes to ensure 100% native C# path computation speed (60+ FPS).
-
-                        MethodInfo wfapM = cpfType.GetMethod("WaitForAllPaths", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (wfapM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.WaitForAllPaths_Prefix));
-                            harmony.Patch(wfapM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE CustomPathFind.WaitForAllPaths (deadlock defense prefix, Priority.First)");
-                        }
+                        // Note: CustomPathFind.PathFindImplementation and WaitForAllPaths are intentionally left 100% native
+                        // to TM:PE without Harmony prefixes to guarantee thread safety across all worker threads, prevent vehicle spawning lockups,
+                        // and strictly adhere to TM:PE's natural pathfinding algorithms.
                     }
                 }
                 catch (Exception ex)
@@ -2230,17 +2205,7 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
 
-                    Type sspType = tmpe.GetType("TrafficManager.Patch._CommonBuildingAI.SimulationStepPatch");
-                    if (sspType != null)
-                    {
-                        MethodInfo prefixM = sspType.GetMethod("Prefix", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        var safeGuard = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.CommonBuildingAI_SimulationStepPatch_Prefix_Guard));
-                        if (prefixM != null && safeGuard != null)
-                        {
-                            harmony.Patch(prefixM, prefix: new HarmonyMethod(safeGuard) { prioritiy = Harmony.Priority.First });
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SimulationStepPatch.Prefix with safe guard");
-                        }
-                    }
+                    // Note: CommonBuildingAI.SimulationStep is left 100% native to TM:PE to ensure unhindered building simulation and vehicle dispatching.
                 }
                 catch (Exception ex)
                 {
@@ -4282,24 +4247,20 @@ namespace MoreNetworkCapacityRenew
                 fl.SetValue(pf, liveLanes);
             }
 
-            // 4. LaneLocation (524288)
+            // 4. LaneLocation & LaneTarget (preserved at TM:PE native 262,144 / NetManager.MAX_LANE_COUNT to preserve thread safety and clearing loop)
             FieldInfo fLoc = t.GetField("laneLocation_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                           ?? t.GetField("m_laneLocation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (fLoc != null && fLoc.GetValue(pf) is uint[] locArr && locArr.Length < 524288)
+            if (fLoc != null && fLoc.GetValue(pf) == null)
             {
-                uint[] newLoc = new uint[524288];
-                Array.Copy(locArr, newLoc, locArr.Length);
-                fLoc.SetValue(pf, newLoc);
+                fLoc.SetValue(pf, new uint[262144]);
             }
 
-            // 5. LaneTarget (524288)
             FieldInfo fTarg = t.GetField("laneTarget_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                            ?? t.GetField("m_laneTarget", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (fTarg != null && fTarg.GetValue(pf) is Array targArr && targArr.Length < 524288)
+            if (fTarg != null && fTarg.GetValue(pf) == null)
             {
-                Array newTarg = Array.CreateInstance(targArr.GetType().GetElementType(), 524288);
-                Array.Copy(targArr, newTarg, targArr.Length);
-                fTarg.SetValue(pf, newTarg);
+                Type targetElemType = fTarg.FieldType.GetElementType() ?? typeof(PathUnit.Position);
+                fTarg.SetValue(pf, Array.CreateInstance(targetElemType, 262144));
             }
 
             // 6. savedGameOptions_ (guarantee non-null options on pathfinder)

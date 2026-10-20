@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.38 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.39 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1704,11 +1704,73 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
 
-                // 3-7 & 9. Hot-path methods (SegmentEndManager.GetIndex, TurnOnRedManager.GetIndex,
-                // TrafficMeasurementManager.GetDirIndex, RoutingManager.GetLaneEndRoutingIndex,
-                // TrafficLightSimulationManager.SimulationStep, SpeedLimitManager.GetGameSpeedLimit)
-                // are handled 100% natively and efficiently by MoreNetworkCapacity.Core transpilers
-                // without redundant Harmony prefix/postfix overhead.
+                // 3. SegmentEndManager (Expand GetIndex & GetSegmentAndNodeFromIndex to 65K segments)
+                try
+                {
+                    Type semType = tmpe.GetType("TrafficManager.Manager.Impl.SegmentEndManager");
+                    if (semType != null)
+                    {
+                        MethodInfo getIdx = semType.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static, null, new Type[] { typeof(ushort), typeof(bool) }, null);
+                        if (getIdx != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetIndex_ushort_Prefix));
+                            harmony.Patch(getIdx, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.GetIndex (65K capacity)");
+                        }
+
+                        MethodInfo getSegAndNode = semType.GetMethod("GetSegmentAndNodeFromIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static, null, new Type[] { typeof(int), typeof(ushort).MakeByRefType(), typeof(bool).MakeByRefType() }, null);
+                        if (getSegAndNode != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SegmentEndManager_GetSegmentAndNodeFromIndex_ushort_Prefix));
+                            harmony.Patch(getSegAndNode, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SegmentEndManager.GetSegmentAndNodeFromIndex (65K capacity)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SegmentEndManager: " + ex);
+                }
+
+                // 4. TurnOnRedManager (Expand GetIndex to 65K segments)
+                try
+                {
+                    Type tormType = tmpe.GetType("TrafficManager.Manager.Impl.TurnOnRedManager");
+                    if (tormType != null)
+                    {
+                        MethodInfo getIdx = tormType.GetMethod("GetIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static, null, new Type[] { typeof(ushort), typeof(bool) }, null);
+                        if (getIdx != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TurnOnRedManager_GetIndex_ushort_Prefix));
+                            harmony.Patch(getIdx, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TurnOnRedManager.GetIndex (65K capacity)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TurnOnRedManager: " + ex);
+                }
+
+                // 5. TrafficMeasurementManager (Expand GetDirIndex to 65K segments)
+                try
+                {
+                    Type tmmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficMeasurementManager");
+                    if (tmmType != null)
+                    {
+                        MethodInfo getDirIdx = tmmType.GetMethod("GetDirIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static, null, new Type[] { typeof(ushort), typeof(NetInfo.Direction) }, null);
+                        if (getDirIdx != null)
+                        {
+                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficMeasurementManager_GetDirIndex_ushort_Prefix));
+                            harmony.Patch(getDirIdx, prefix: new HarmonyMethod(pre));
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficMeasurementManager.GetDirIndex (65K capacity)");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TrafficMeasurementManager: " + ex);
+                }
 
                 // 8. TMPELifecycle.Load
                 Type lifecycleType = tmpe.GetType("TrafficManager.Lifecycle.TMPELifecycle");
@@ -6467,9 +6529,6 @@ namespace MoreNetworkCapacityRenew
 
                 // Vehicle grid sanitization (breaks any circular vehicle loops)
                 SanitizeVehicleGrid();
-
-                // Clear any deadlocked/immortal stuck vehicles from save
-                CleanStuckVehicles();
                 
                 // Report missing asset stats
                 MissingAssetProtection.ReportFinalStats();
@@ -6690,139 +6749,6 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeVehicleGrid error: " + ex);
             }
         }
-
-        public static int CleanStuckVehicles()
-        {
-            int released = 0;
-            try
-            {
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return 0;
-
-                Vehicle[] buffer = vm.m_vehicles.m_buffer;
-                for (int i = 1; i < buffer.Length; i++)
-                {
-                    Vehicle.Flags flags = buffer[i].m_flags;
-                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
-                        continue;
-
-                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingSpace | Vehicle.Flags.WaitingCargo | Vehicle.Flags.WaitingTarget | Vehicle.Flags.InsideBuilding | Vehicle.Flags.Landing | Vehicle.Flags.TakingOff)) != 0)
-                        continue;
-
-                    if (buffer[i].m_blockCounter >= 180 && buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.0001f)
-                    {
-                        try
-                        {
-                            vm.ReleaseVehicle((ushort)i);
-                            released++;
-                        }
-                        catch { }
-                    }
-                }
-                if (released > 0)
-                {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] CleanStuckVehicles: Released {0} deadlocked/immortal vehicles from save.", released));
-                }
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] CleanStuckVehicles error: " + ex);
-            }
-            return released;
-        }
-    }
-
-    // ============================================================================
-    // NON-INTRUSIVE ENGINE-LEVEL STUCK VEHICLE WATCHDOG (THREADING EXTENSION)
-    // ============================================================================
-    public class MNCVehicleWatchdogThreading : ThreadingExtensionBase
-    {
-        private int m_lastCheckedIndex = 0;
-        private const int VEHICLES_PER_FRAME = 256;
-
-        public override void OnAfterSimulationFrame()
-        {
-            base.OnAfterSimulationFrame();
-
-            try
-            {
-                if (SimulationManager.instance == null || SimulationManager.instance.SimulationPaused)
-                    return;
-
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null)
-                    return;
-
-                Vehicle[] buffer = vm.m_vehicles.m_buffer;
-                int bufLen = buffer.Length;
-                if (bufLen <= 1) return;
-
-                int startIndex = m_lastCheckedIndex;
-                int endIndex = startIndex + VEHICLES_PER_FRAME;
-                if (endIndex > bufLen) endIndex = bufLen;
-
-                PathManager pm = Singleton<PathManager>.instance;
-                NetManager nm = Singleton<NetManager>.instance;
-                bool hasNet = (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null);
-                bool hasPath = (pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null);
-
-                for (int i = startIndex; i < endIndex; i++)
-                {
-                    if (i == 0) continue;
-
-                    Vehicle.Flags flags = buffer[i].m_flags;
-
-                    // Only inspect active, spawned vehicles
-                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
-                        continue;
-
-                    // Ignore vehicles in legitimate stationary/stopped states
-                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingSpace | Vehicle.Flags.WaitingCargo | Vehicle.Flags.WaitingTarget | Vehicle.Flags.InsideBuilding | Vehicle.Flags.Landing | Vehicle.Flags.TakingOff)) != 0)
-                        continue;
-
-                    // Condition 1: Severe Block Deadlock
-                    // Vanilla limit is 100/150. If m_blockCounter >= 180 and velocity < 0.0001f:
-                    // The vehicle has been motionless beyond all normal engine limits (immortal ghost vehicle / mutual yield deadlock).
-                    // Safely release it via the engine's official VehicleManager API:
-                    if (buffer[i].m_blockCounter >= 180 && buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.0001f)
-                    {
-                        try
-                        {
-                            vm.ReleaseVehicle((ushort)i);
-                        }
-                        catch { }
-                        continue;
-                    }
-
-                    // Condition 2: Broken/demolished road segment in active path
-                    if (buffer[i].m_path != 0 && hasNet && hasPath && buffer[i].m_path < (uint)pm.m_pathUnits.m_buffer.Length)
-                    {
-                        int posIdx = (int)(buffer[i].m_pathPositionIndex >> 1);
-                        PathUnit.Position pPos;
-                        if (pm.m_pathUnits.m_buffer[buffer[i].m_path].GetPosition(posIdx, out pPos))
-                        {
-                            ushort segId = pPos.m_segment;
-                            if (segId != 0 && segId < nm.m_segments.m_buffer.Length)
-                            {
-                                if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
-                                {
-                                    // Active path references a destroyed road segment -> vehicle is stranded mid-road
-                                    try
-                                    {
-                                        vm.ReleaseVehicle((ushort)i);
-                                    }
-                                    catch { }
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                m_lastCheckedIndex = (endIndex >= bufLen) ? 1 : endIndex;
-            }
-            catch { }
-        }
     }
 
     // ============================================================================
@@ -6901,7 +6827,8 @@ namespace MoreNetworkCapacityRenew
                         "MoreTransportLines",
                         "TransferManagerCE",
                         "TransferManagerExtended",
-                        "RebalancedIndustriesRevisited"
+                        "RebalancedIndustriesRevisited",
+                        "TrafficManager"
                     };
 
                     foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -6985,7 +6912,7 @@ namespace MoreNetworkCapacityRenew
             if (type == null || type.IsInterface || type.IsGenericTypeDefinition || type.IsGenericType || type.IsEnum)
                 return 0;
 
-            if (type.Name.Contains("PathFind") || type.Name.Contains("CustomPathFind"))
+            if (type.Name.Contains("PathFind") || type.Name.Contains("CustomPathFind") || (type.FullName != null && type.FullName.StartsWith("TrafficManager.Custom.PathFinding.")))
                 return 0;
 
             int count = 0;

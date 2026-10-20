@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.38 - Resolved vehicles stopping mid-road and persistent traffic gridlocks. Unhooked TM:PE SpeedLimitManager, Flags, and junction tool methods so TM:PE vehicle behavior, speed calculations, and lane arrows run 100% natively without external interference. Introduced a non-intrusive engine-level vehicle watchdog (MNCVehicleWatchdogThreading) and level-load sanitizer that cleanly releases vehicles stuck in mutual yield deadlocks or dead-end broken segments without any Harmony hooks into TM:PE algorithms."
+	"changenote"		"v4.3.39 - Fully expanded TM:PE coverage and influence to 65,024 segments and nodes without interfering with TM:PE algorithms. Dynamically transpiles TM:PE segment/node bounds and array allocations across all tools, overlays, routing, speed limits, and junction restrictions. Patched SegmentEndManager, TurnOnRedManager, and TrafficMeasurementManager split array indices for 65K capacity. Removed any external vehicle watchdog/cleaner to preserve pure native traffic simulation and user-configured despawn rules."
 }
 

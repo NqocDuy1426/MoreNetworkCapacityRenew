@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.38 version bump
-            bool hasV438 = renewCode.Contains("More Network Capacity Renew v4.3.38 by NgocDuy");
-            Assert(hasV438, "Version correctly bumped to v4.3.38 in RenewMod.Name");
+            // 11.1 Check v4.3.39 version bump
+            bool hasV439 = renewCode.Contains("More Network Capacity Renew v4.3.39 by NgocDuy");
+            Assert(hasV439, "Version correctly bumped to v4.3.39 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -656,9 +656,9 @@ class TestSuite
         }
 
         // ====================================================================
-        // TEST GROUP 16: ZERO TM:PE ALGORITHM HOOKS & NON-INTRUSIVE WATCHDOG (v4.3.38)
+        // TEST GROUP 16: PURE NATIVE TM:PE SIMULATION & 65K SCOPE EXPANSION (v4.3.39)
         // ====================================================================
-        Console.WriteLine("\n--- TEST GROUP 16: Zero TM:PE Algorithm Hooks & Non-Intrusive Watchdog (v4.3.38) ---");
+        Console.WriteLine("\n--- TEST GROUP 16: Pure Native TM:PE Simulation & 65K Scope Expansion (v4.3.39) ---");
         try
         {
             string renewCode = File.ReadAllText("Renew.cs");
@@ -686,16 +686,22 @@ class TestSuite
             bool noLcsmHook = !renewCode.Contains("Patched TM:PE LaneConnectionSubManager");
             Assert(noLcsmHook, "LaneConnectionSubManager is NOT hooked in Harmony (preserves native lane connections)");
 
-            // 16.6 Non-intrusive engine-level watchdog exists
-            bool hasWatchdog = renewCode.Contains("public class MNCVehicleWatchdogThreading : ThreadingExtensionBase") &&
-                               renewCode.Contains("buffer[i].m_blockCounter >= 180") &&
-                               renewCode.Contains("vm.ReleaseVehicle((ushort)i)");
-            Assert(hasWatchdog, "MNCVehicleWatchdogThreading monitors severe block deadlocks & releases immortal stuck vehicles without TM:PE hooks");
+            // 16.6 Zero vehicle watchdog or forced despawn interference
+            bool noWatchdog = !renewCode.Contains("MNCVehicleWatchdogThreading") &&
+                              !renewCode.Contains("CleanStuckVehicles");
+            Assert(noWatchdog, "Zero external vehicle watchdog/cleaner: vehicles and despawning follow pure user/game/TM:PE rules");
 
-            // 16.7 Level-load vehicle sanitizer exists
-            bool hasCleanStuck = renewCode.Contains("public static int CleanStuckVehicles()") &&
-                                 renewCode.Contains("CleanStuckVehicles();");
-            Assert(hasCleanStuck, "CleanStuckVehicles clears deadlocked/immortal stuck vehicles upon loading save");
+            // 16.7 TrafficManager registered in DynamicPatcher for 65K scope expansion
+            bool tmpeTranspiled = renewCode.Contains("\"TrafficManager\"") &&
+                                  renewCode.Contains("type.FullName.StartsWith(\"TrafficManager.Custom.PathFinding.\")");
+            Assert(tmpeTranspiled, "TrafficManager dynamically transpiled to expand scope to 65,024 while safely preserving native pathfinding");
+
+            // 16.8 Split array index methods patched for 65K capacity
+            bool splitIndicesPatched = renewCode.Contains("Patched TM:PE SegmentEndManager.GetIndex (65K capacity)") &&
+                                       renewCode.Contains("Patched TM:PE SegmentEndManager.GetSegmentAndNodeFromIndex (65K capacity)") &&
+                                       renewCode.Contains("Patched TM:PE TurnOnRedManager.GetIndex (65K capacity)") &&
+                                       renewCode.Contains("Patched TM:PE TrafficMeasurementManager.GetDirIndex (65K capacity)");
+            Assert(splitIndicesPatched, "SegmentEndManager, TurnOnRedManager, and TrafficMeasurementManager split array indices patched for 65K capacity");
         }
         catch (Exception ex)
         {

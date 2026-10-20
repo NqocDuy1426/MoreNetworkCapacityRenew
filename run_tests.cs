@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.40 version bump
-            bool hasV440 = renewCode.Contains("More Network Capacity Renew v4.3.40 by NgocDuy");
-            Assert(hasV440, "Version correctly bumped to v4.3.40 in RenewMod.Name");
+            // 11.1 Check v4.3.41 version bump
+            bool hasV441 = renewCode.Contains("More Network Capacity Renew v4.3.41 by NgocDuy");
+            Assert(hasV441, "Version correctly bumped to v4.3.41 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -725,10 +725,10 @@ class TestSuite
             bool resetCalled = renewCode.Contains("MNCTrafficLightStepper.ResetStepper();");
             Assert(resetCalled, "MNCTrafficLightStepper.ResetStepper() called in RenewLoading.OnLevelLoaded");
 
-            // 17.3 Anti-freeze non-zero speed cache guarantee
-            bool antiFreeze = renewCode.Contains("arr[i] <= 0.001f") &&
-                              renewCode.Contains("arr[i] = 1.25f;");
-            Assert(antiFreeze, "Anti-freeze non-zero speed cache guarantee: all unmapped slots default to 1.25f (50 km/h)");
+            // 17.3 Preserved native speed limits with 524,288 cache capacity
+            bool cacheExp = renewCode.Contains("int targetSize = 524288;") &&
+                            renewCode.Contains("Expanded SpeedLimitManager.cachedLaneSpeedLimits_");
+            Assert(cacheExp, "cachedLaneSpeedLimits_ expanded to 524,288 elements with natural speed limits preserved");
 
             // 17.4 Contiguous 131,072 expansion for split array index compatibility without hooks
             bool contiguous131k = renewCode.Contains("newArr = Array.CreateInstance(arr.GetType().GetElementType(), 131072);") &&
@@ -744,6 +744,53 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 17 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 18: UNIVERSAL PUBLIC TRANSPORT & CITY ECONOMY ARMOR (v4.3.41)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 18: Universal Public Transport & City Economy Armor (v4.3.41) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 18.1 EconomyProtection patches registered
+            bool hasEconApply = renewCode.Contains("EconomyProtection.Apply(harmony);") &&
+                                renewCode.Contains("nameof(EconomyManager_FetchResource_Prefix)") &&
+                                renewCode.Contains("nameof(EconomyManager_AddResource_Prefix)") &&
+                                renewCode.Contains("nameof(EconomyManager_AddPrivateIncome_Prefix)") &&
+                                renewCode.Contains("nameof(PlayerNetAI_GetMaintenanceCost_Prefix)");
+            Assert(hasEconApply, "EconomyProtection.Apply hooks FetchResource, AddResource, AddPrivateIncome, and GetMaintenanceCost");
+
+            // 18.2 Non-negative guard prevents budget skyrocketing and negative expenses/income
+            bool hasNonNegGuard = renewCode.Contains("amount = 0;") &&
+                                  renewCode.Contains("__result = 0;") &&
+                                  renewCode.Contains("return false;");
+            Assert(hasNonNegGuard, "Universal non-negative guard prevents negative maintenance/income from corrupting city economy");
+
+            // 18.3 Save repair SanitizeEconomy
+            bool hasSanitizeEcon = renewCode.Contains("EconomyProtection.SanitizeEconomy();") &&
+                                   renewCode.Contains("m_expenses") &&
+                                   renewCode.Contains("m_totalExpenses") &&
+                                   renewCode.Contains("m_income") &&
+                                   renewCode.Contains("m_totalIncome");
+            Assert(hasSanitizeEcon, "SanitizeEconomy cleans and restores all corrupted negative economic entries on level load");
+
+            // 18.4 Transport line cycle-breaker and sanity
+            bool hasLineSanitizer = renewCode.Contains("TransportLineCompatibility.SanitizeTransportLines();") &&
+                                    renewCode.Contains("visitedVehicles.Add(curVehicle)") &&
+                                    renewCode.Contains("m_ticketPrice > 50000");
+            Assert(hasLineSanitizer, "TransportLineCompatibility.SanitizeTransportLines detects vehicle cycles and resets corrupted ticket prices");
+
+            // 18.5 Track maintenance NaN/Inf overflow armor
+            bool hasTrackArmor = renewCode.Contains("float.IsNaN(startPos.x)") &&
+                                 renewCode.Contains("float.IsInfinity(startPos.x)") &&
+                                 renewCode.Contains("calc > (long)int.MaxValue");
+            Assert(hasTrackArmor, "PlayerNetAI.GetMaintenanceCost protected against NaN, Infinity, and 32-bit integer overflow");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 18 exception", ex.ToString());
         }
 
         // ====================================================================

@@ -6,31 +6,23 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.40 (Full-Map TM:PE Traffic Light Stepper & 100% Zero-Hook Architecture) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.41 (Universal Public Transport & City Economy Armor) ✨[/h1]
 [list]
-[*] [b]Full-Map TM:PE Traffic Light Stepper (Fixed Frozen Vehicles):[/b]
+[*] [b]Universal Economy & Public Transport Protection (Fixed Train Negative Expenses & Budget Spike):[/b]
 [list]
-    [*] Solved the root cause of vehicles standing completely still mid-road or at intersections despite having a valid route and destination: TM:PE's native [i]SimulationStep[/i] hardcoded simulation stepping to nodes [i]0..32,767[/i]. Nodes [i]32,768..65,023[/i] were never stepped, causing traffic lights on those nodes to remain perpetually stuck in red/unadvanced phases.
-    [*] Added native [i]MNCTrafficLightStepper[/i] ([i]ICities.ThreadingExtensionBase[/i]) that runs seamlessly on the simulation thread, natively stepping nodes [i]32,768..65,023[/i] (504 nodes per frame) with zero overhead via JIT-compiled dynamic invocation ([i]ldelema[/i] on struct array).
-    [*] Timed traffic lights and adaptive signals across the entire 64K map now cycle fluidly.
+    [*] Fixed the severe train economic bug where corrupted maintenance calculations or vehicle loops caused negative maintenance values in [i]EconomyManager.FetchResource[/i], turning expenses negative and causing city funds to skyrocket by billions.
+    [*] Added universal non-negative shields on [i]EconomyManager.FetchResource[/i], [i]EconomyManager.AddResource[/i], and [i]EconomyManager.AddPrivateIncome[/i]. Maintenance costs and fare revenues can never become negative across [b]ALL[/b] public transport modes (Train, Metro, Tram, Bus, Monorail, Cable Car, Ferry, Plane, Trolleybus, etc.) and city services.
+    [*] Added [i]PlayerNetAI.GetMaintenanceCost[/i] safety guard against NaN/Infinity coordinates and 32-bit integer overflow on track and road segment maintenance.
+    [*] Automatic Save Repair: On level load, [i]SanitizeEconomy[/i] automatically repairs and restores any existing negative values in [i]m_expenses[/i], [i]m_totalExpenses[/i], [i]m_income[/i], and [i]m_totalIncome[/i] back to normal.
+    [*] Transport Line Vehicle Chain Sanitization: [i]SanitizeTransportLines[/i] detects and breaks any circular vehicle chains and resets corrupted ticket prices (> 50,000) or invalid lengths.
 [/list]
-[*] [b]Strictly Zero Harmony Hooks into TM:PE (Full Performance & FPS Restored):[/b]
+[*] [b]Preserved Natural Custom Speed Limits:[/b]
 [list]
-    [*] Completely eliminated all intrusive Harmony hooks into TM:PE methods ([i]SegmentEndManager.GetIndex[/i], [i]TurnOnRedManager.GetIndex[/i], [i]TrafficMeasurementManager.GetDirIndex[/i], [i]GlobalConfig[/i], etc.). TM:PE runs 100% pure native code.
-    [*] Excluded [i]TrafficManager[/i] from [i]DynamicPatcher.targetModNames[/i] to preserve native enum values ([i]ExtVehicleType.CableCar[/i]) and retain full Mono JIT optimization, resolving severe FPS degradation.
-    [*] All TM:PE data synchronization is accomplished safely via direct memory buffers ([i]_segBuffer[/i], [i]_nodeBuffer[/i], [i]_laneBuffer[/i]) and expanded array capacities.
+    [*] Removed artificial blanket speed limit assignments in [i]EnsureSpeedLimitManagerCapacity[/i]. TM:PE speed limit cache capacity is preserved at 524,288 while allowing natural road and track speeds (including custom/TM:PE adjusted speeds) to function undisturbed.
 [/list]
-[*] [b]Contiguous 131,072 Buffer Expansion for TM:PE Split Arrays:[/b]
+[*] [b]Full-Map TM:PE Traffic Light Stepper & 100% Zero-Hook Architecture (from v4.3.40):[/b]
 [list]
-    [*] Expanded [i]TurnOnRedSegments[/i], [i]SegmentDirTrafficData[/i], and [i]SegmentEnds[/i] contiguously to 131,072 elements. TM:PE's native indexing ([i]segmentId + 36864[/i], max 101,888) fits comfortably without any hooks or shifting.
-[/list]
-[*] [b]Anti-Freeze Speed Limit Cache Guarantee:[/b]
-[list]
-    [*] Ensured all entries in TM:PE's speed limit cache ([i]cachedLaneSpeedLimits_[/i]) <= 0.001f default to [i]1.25f[/i] (50 km/h), completely preventing vehicles from stopping dead mid-lane due to zero-speed cache entries.
-[/list]
-[*] [b]Safe Pulse Unit Casting:[/b]
-[list]
-    [*] Wrapped [i]SafeCopyPulseUnits[/i] in safe exception handling to prevent [i]InvalidCastException[/i] with mods like 81 Tiles 2.
+    [*] Retains [i]MNCTrafficLightStepper[/i] ([i]ICities.ThreadingExtensionBase[/i]) stepping nodes [i]32,768..65,023[/i] and contiguous 131,072 buffer expansion with strictly zero Harmony hooks into TM:PE methods.
 [/list]
 [/list]
 
@@ -108,6 +100,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.40 - Added MNCTrafficLightStepper (ICities.ThreadingExtensionBase) to natively step TM:PE traffic light simulations for nodes 32,768..65,023 on the simulation thread, solving vehicle freeze mid-road/at junctions. Strictly zero Harmony hooks into TM:PE methods (pure native TM:PE execution). Excluded TM:PE from DynamicPatcher to maintain native enums and eliminate FPS drop. Expanded split arrays (TurnOnRedSegments, SegmentDirTrafficData, SegmentEnds) contiguously to 131,072 elements. Guaranteed non-zero lane speed limits in cache."
+	"changenote"		"v4.3.41 - Added Universal Public Transport & City Economy Armor: fixed negative maintenance and skyrocketing city budget caused by corrupted train expenses or vehicle loops. Universal non-negative shields on EconomyManager.FetchResource, AddResource, and AddPrivateIncome for all public transport (Train, Metro, Tram, Bus, Monorail, Cable Car, Ferry, Plane) and city services. Armored PlayerNetAI.GetMaintenanceCost against NaN/Infinity/overflow. Added SanitizeEconomy save repair for existing corrupted expenses/income on level load. Added SanitizeTransportLines vehicle chain loop detection and ticket price sanity. Preserved natural custom speed limits in EnsureSpeedLimitManagerCapacity."
 }
 

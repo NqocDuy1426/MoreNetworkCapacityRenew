@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.40 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.41 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -2828,80 +2828,8 @@ namespace MoreNetworkCapacityRenew
                 }
                 s_cachedLaneSpeedLimits = arr;
 
-                // Populate all lanes with valid positive speed limits so NO vehicle ever stops dead
-                if (NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null && NetManager.instance.m_lanes != null && NetManager.instance.m_lanes.m_buffer != null)
-                {
-                    NetSegment[] segBuffer = NetManager.instance.m_segments.m_buffer;
-                    NetLane[] laneBuffer = NetManager.instance.m_lanes.m_buffer;
-                    int filledCount = 0;
-
-                    int maxSeg = Math.Min(segBuffer.Length, 65024);
-                    for (int segId = 1; segId < maxSeg; segId++)
-                    {
-                        if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
-                        NetInfo info = segBuffer[segId].Info;
-                        if (info == null || info.m_lanes == null) continue;
-
-                        uint curLane = segBuffer[segId].m_lanes;
-                        int laneIndex = 0;
-                        while (curLane != 0 && curLane < (uint)arr.Length && laneIndex < info.m_lanes.Length)
-                        {
-                            NetInfo.Lane lInfo = info.m_lanes[laneIndex];
-                            float defSpeed = (lInfo != null && lInfo.m_speedLimit > 0.001f) ? lInfo.m_speedLimit : 1.25f;
-
-                            if (arr[curLane] <= 0.001f)
-                            {
-                                arr[curLane] = defSpeed;
-                                filledCount++;
-                            }
-
-                            curLane = laneBuffer[curLane].m_nextLane;
-                            laneIndex++;
-                        }
-                    }
-
-                    int maxLane = Math.Min(laneBuffer.Length, arr.Length);
-                    for (uint laneId = 1; laneId < (uint)maxLane; laneId++)
-                    {
-                        if (arr[laneId] <= 0.001f && laneBuffer[laneId].m_segment != 0)
-                        {
-                            ushort sId = laneBuffer[laneId].m_segment;
-                            if (sId < (ushort)segBuffer.Length && (segBuffer[sId].m_flags & NetSegment.Flags.Created) != 0)
-                            {
-                                NetInfo sInfo = segBuffer[sId].Info;
-                                if (sInfo != null && sInfo.m_lanes != null)
-                                {
-                                    float fallback = 1.25f;
-                                    for (int li = 0; li < sInfo.m_lanes.Length; li++)
-                                    {
-                                        if (sInfo.m_lanes[li] != null && sInfo.m_lanes[li].m_speedLimit > 0.001f)
-                                        {
-                                            fallback = sInfo.m_lanes[li].m_speedLimit;
-                                            break;
-                                        }
-                                    }
-                                    arr[laneId] = fallback;
-                                    filledCount++;
-                                }
-                            }
-                        }
-                    }
-
-                    // Anti-freeze guarantee: Ensure NO slot in the entire cache is 0.0f
-                    // Any unmapped slot receives standard default speed 1.25f (50 km/h)
-                    for (int i = 0; i < arr.Length; i++)
-                    {
-                        if (arr[i] <= 0.001f)
-                        {
-                            arr[i] = 1.25f;
-                        }
-                    }
-
-                    if (filledCount > 0)
-                    {
-                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Initialized {0} lane speed limits in TM:PE cache", filledCount));
-                    }
-                }
+                // TM:PE manages speed limits naturally via CacheSegmentSpeeds and CalculateGameSpeedLimit.
+                // No artificial default assignment is applied so non-road or custom speeds are preserved.
             }
             catch (Exception ex)
             {
@@ -5809,6 +5737,16 @@ namespace MoreNetworkCapacityRenew
 
                 try
                 {
+                    // Economy protection (prevents negative maintenance / skyrocketing city budget)
+                    EconomyProtection.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EconomyProtection error: " + ex);
+                }
+
+                try
+                {
                     // Patch KianCommons limits
                     int patchedCount = 0;
                     foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -5944,6 +5882,12 @@ namespace MoreNetworkCapacityRenew
 
                 // Vehicle grid sanitization (breaks any circular vehicle loops)
                 SanitizeVehicleGrid();
+
+                // Economy sanitization: repair any existing negative expenses/budget corruption
+                EconomyProtection.SanitizeEconomy();
+
+                // Transport line sanitization (cycle-check and sanitize vehicle chains)
+                TransportLineCompatibility.SanitizeTransportLines();
                 
                 // Report missing asset stats
                 MissingAssetProtection.ReportFinalStats();
@@ -9971,16 +9915,40 @@ namespace MoreNetworkCapacityRenew
                             {
                                 tm.m_lines.m_buffer[i].m_stops = 0;
                             }
+                            if (tm.m_lines.m_buffer[i].m_ticketPrice > 50000)
+                            {
+                                tm.m_lines.m_buffer[i].m_ticketPrice = 0;
+                                sanitized++;
+                            }
+                            if (float.IsNaN(tm.m_lines.m_buffer[i].m_totalLength) || float.IsInfinity(tm.m_lines.m_buffer[i].m_totalLength) || tm.m_lines.m_buffer[i].m_totalLength < 0f)
+                            {
+                                tm.m_lines.m_buffer[i].m_totalLength = 0f;
+                                sanitized++;
+                            }
                             if (vBufLen > 0)
                             {
-                                ushort vHead = tm.m_lines.m_buffer[i].m_vehicles;
-                                if (vHead != 0)
+                                ushort curVehicle = tm.m_lines.m_buffer[i].m_vehicles;
+                                ushort prevVehicle = 0;
+                                HashSet<ushort> visitedVehicles = new HashSet<ushort>();
+                                while (curVehicle != 0)
                                 {
-                                    if (vHead >= vBufLen || (vm.m_vehicles.m_buffer[vHead].m_flags & Vehicle.Flags.Created) == 0)
+                                    if (curVehicle >= vBufLen ||
+                                        (vm.m_vehicles.m_buffer[curVehicle].m_flags & Vehicle.Flags.Created) == 0 ||
+                                        !visitedVehicles.Add(curVehicle))
                                     {
-                                        tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                        if (prevVehicle != 0)
+                                        {
+                                            vm.m_vehicles.m_buffer[prevVehicle].m_nextLineVehicle = 0;
+                                        }
+                                        else
+                                        {
+                                            tm.m_lines.m_buffer[i].m_vehicles = 0;
+                                        }
                                         sanitized++;
+                                        break;
                                     }
+                                    prevVehicle = curVehicle;
+                                    curVehicle = vm.m_vehicles.m_buffer[curVehicle].m_nextLineVehicle;
                                 }
                             }
                         }
@@ -11175,6 +11143,267 @@ namespace MoreNetworkCapacityRenew
         {
             data.m_flags &= ~NetSegment.Flags.PathFailed;
             return true;
+        }
+    }
+
+    // ========================================================================
+    // ========================================================================
+    // ECONOMY PROTECTION & REPAIR (v4.3.41)
+    // ========================================================================
+    /// <summary>
+    /// Armor against corrupted economy data across all public transport (Train, Metro, Tram, Bus, etc.) & city services:
+    /// 1. Universal FetchResource shield: Prevents negative maintenance/expenses from corrupting m_expenses and inflating city funds.
+    /// 2. Universal AddResource & AddPrivateIncome shields: Prevents negative income/ticket prices from corrupting m_income.
+    /// 3. Track/Road Maintenance shield: Protects PlayerNetAI.GetMaintenanceCost against NaN/Infinity/overflow from invalid nodes/segments.
+    /// 4. Save Repair: Restores and sanitizes any existing negative entries in EconomyManager arrays (expenses, totalExpenses, income, totalIncome).
+    /// </summary>
+    public static class EconomyProtection
+    {
+        public static void Apply(HarmonyInstance harmony)
+        {
+            try
+            {
+                Type emType = typeof(EconomyManager);
+                Type resType = typeof(EconomyManager.Resource);
+                Type servType = typeof(ItemClass.Service);
+                Type subType = typeof(ItemClass.SubService);
+                Type levType = typeof(ItemClass.Level);
+                Type taxType = typeof(DistrictPolicies.Taxation);
+
+                // 1. Universal shield: Patch EconomyManager.FetchResource(Resource, int, Service, SubService, Level)
+                MethodInfo fetchResource = emType.GetMethod(
+                    "FetchResource",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    new Type[] { resType, typeof(int), servType, subType, levType },
+                    null);
+
+                if (fetchResource != null)
+                {
+                    MethodInfo pre = typeof(EconomyProtection).GetMethod(nameof(EconomyManager_FetchResource_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(fetchResource, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched EconomyManager.FetchResource with non-negative guard.");
+                }
+
+                // 2. Universal shield: Patch EconomyManager.AddResource(Resource, int, Service, SubService, Level, Taxation)
+                MethodInfo addResource = emType.GetMethod(
+                    "AddResource",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    new Type[] { resType, typeof(int), servType, subType, levType, taxType },
+                    null);
+
+                if (addResource != null)
+                {
+                    MethodInfo pre = typeof(EconomyProtection).GetMethod(nameof(EconomyManager_AddResource_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(addResource, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched EconomyManager.AddResource with non-negative guard.");
+                }
+
+                // 3. Shield: Patch EconomyManager.AddPrivateIncome(int, Service, SubService, Level, int)
+                MethodInfo addPriv = emType.GetMethod(
+                    "AddPrivateIncome",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(int), servType, subType, levType, typeof(int) },
+                    null);
+
+                if (addPriv != null)
+                {
+                    MethodInfo pre = typeof(EconomyProtection).GetMethod(nameof(EconomyManager_AddPrivateIncome_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(addPriv, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched EconomyManager.AddPrivateIncome with non-negative guard.");
+                }
+
+                // 4. Track & segment maintenance shield: Patch PlayerNetAI.GetMaintenanceCost(Vector3, Vector3)
+                MethodInfo getMaintCost = typeof(PlayerNetAI).GetMethod(
+                    "GetMaintenanceCost",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(Vector3), typeof(Vector3) },
+                    null);
+
+                if (getMaintCost != null)
+                {
+                    MethodInfo pre = typeof(EconomyProtection).GetMethod(nameof(PlayerNetAI_GetMaintenanceCost_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(getMaintCost, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PlayerNetAI.GetMaintenanceCost with NaN/overflow safety.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EconomyProtection.Apply error: " + ex);
+            }
+        }
+
+        public static bool EconomyManager_FetchResource_Prefix(
+            EconomyManager __instance,
+            EconomyManager.Resource resource,
+            ref int amount,
+            ItemClass.Service service,
+            ItemClass.SubService subService,
+            ItemClass.Level level,
+            ref int __result)
+        {
+            if (amount < 0)
+            {
+                // Expenditures and maintenance can NEVER be negative.
+                // A negative amount corrupts m_expenses into negative and subtracts a negative number from m_cashAmount (skyrocketing city funds).
+                amount = 0;
+                __result = 0;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool EconomyManager_AddResource_Prefix(
+            EconomyManager __instance,
+            EconomyManager.Resource resource,
+            ref int amount,
+            ItemClass.Service service,
+            ItemClass.SubService subService,
+            ItemClass.Level level,
+            DistrictPolicies.Taxation taxationPolicies,
+            ref int __result)
+        {
+            if (amount < 0)
+            {
+                // Revenues, ticket fares, and income can NEVER be negative.
+                amount = 0;
+                __result = 0;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool EconomyManager_AddPrivateIncome_Prefix(
+            EconomyManager __instance,
+            ref int amount,
+            ItemClass.Service service,
+            ItemClass.SubService subService,
+            ItemClass.Level level,
+            int taxRate,
+            ref int __result)
+        {
+            if (amount < 0)
+            {
+                amount = 0;
+                __result = 0;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool PlayerNetAI_GetMaintenanceCost_Prefix(
+            PlayerNetAI __instance,
+            Vector3 startPos,
+            Vector3 endPos,
+            ref int __result)
+        {
+            if (float.IsNaN(startPos.x) || float.IsNaN(startPos.y) || float.IsNaN(startPos.z) ||
+                float.IsNaN(endPos.x) || float.IsNaN(endPos.y) || float.IsNaN(endPos.z) ||
+                float.IsInfinity(startPos.x) || float.IsInfinity(startPos.y) || float.IsInfinity(startPos.z) ||
+                float.IsInfinity(endPos.x) || float.IsInfinity(endPos.y) || float.IsInfinity(endPos.z))
+            {
+                __result = 0;
+                return false;
+            }
+
+            float len = ColossalFramework.Math.VectorUtils.LengthXZ(endPos - startPos);
+            if (float.IsNaN(len) || float.IsInfinity(len) || len < 0f)
+            {
+                __result = 0;
+                return false;
+            }
+
+            int num = Mathf.RoundToInt(len / 8f + 0.1f);
+            if (num < 0) num = 0;
+
+            long calc = (long)__instance.m_maintenanceCost * (long)num;
+            if (calc < 0L || calc > (long)int.MaxValue)
+            {
+                __result = 0;
+                return false;
+            }
+
+            int cost = (int)calc;
+            if (Singleton<EconomyManager>.exists && Singleton<EconomyManager>.instance.m_EconomyWrapper != null && __instance.m_info != null && __instance.m_info.m_class != null)
+            {
+                Singleton<EconomyManager>.instance.m_EconomyWrapper.OnGetMaintenanceCost(
+                    ref cost,
+                    __instance.m_info.m_class.m_service,
+                    __instance.m_info.m_class.m_subService,
+                    __instance.m_info.m_class.m_level);
+            }
+
+            if (cost < 0) cost = 0;
+            __result = cost;
+            return false;
+        }
+
+        private static FieldInfo s_fExpenses = null;
+        private static FieldInfo s_fTotalExpenses = null;
+        private static FieldInfo s_fIncome = null;
+        private static FieldInfo s_fTotalIncome = null;
+        private static FieldInfo s_fPolicyExpenses = null;
+        private static FieldInfo s_fLoanExpenses = null;
+        private static bool s_econFieldsReflected = false;
+
+        public static int SanitizeEconomy()
+        {
+            int repaired = 0;
+            try
+            {
+                if (!Singleton<EconomyManager>.exists) return 0;
+                EconomyManager em = Singleton<EconomyManager>.instance;
+                if (em == null) return 0;
+
+                if (!s_econFieldsReflected)
+                {
+                    BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                    s_fExpenses = typeof(EconomyManager).GetField("m_expenses", flags);
+                    s_fTotalExpenses = typeof(EconomyManager).GetField("m_totalExpenses", flags);
+                    s_fIncome = typeof(EconomyManager).GetField("m_income", flags);
+                    s_fTotalIncome = typeof(EconomyManager).GetField("m_totalIncome", flags);
+                    s_fPolicyExpenses = typeof(EconomyManager).GetField("m_policyExpenses", flags);
+                    s_fLoanExpenses = typeof(EconomyManager).GetField("m_loanExpenses", flags);
+                    s_econFieldsReflected = true;
+                }
+
+                repaired += SanitizeArray(s_fExpenses, em);
+                repaired += SanitizeArray(s_fTotalExpenses, em);
+                repaired += SanitizeArray(s_fIncome, em);
+                repaired += SanitizeArray(s_fTotalIncome, em);
+                repaired += SanitizeArray(s_fPolicyExpenses, em);
+                repaired += SanitizeArray(s_fLoanExpenses, em);
+
+                if (repaired > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeEconomy: Repaired {0} negative economic entries in EconomyManager.", repaired));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeEconomy error: " + ex);
+            }
+            return repaired;
+        }
+
+        private static int SanitizeArray(FieldInfo fi, EconomyManager em)
+        {
+            if (fi == null || em == null) return 0;
+            long[] arr = fi.GetValue(em) as long[];
+            if (arr == null) return 0;
+            int count = 0;
+            for (int i = 0; i < arr.Length; i++)
+            {
+                if (arr[i] < 0L)
+                {
+                    arr[i] = 0L;
+                    count++;
+                }
+            }
+            return count;
         }
     }
 }

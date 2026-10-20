@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using Harmony;
 using System.Linq;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection.Emit;
 using ColossalFramework.Plugins;
@@ -1065,7 +1066,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.41 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.42 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -3035,13 +3036,13 @@ namespace MoreNetworkCapacityRenew
                         {
                             Array targetArr = arr;
                             Type elemType = arr.GetType().GetElementType();
-                            if (arr.Length < 130048)
+                            if (arr.Length < 131072)
                             {
-                                Array newArr = Array.CreateInstance(elemType, 130048);
+                                Array newArr = Array.CreateInstance(elemType, 131072);
                                 Array.Copy(arr, newArr, arr.Length);
                                 f.SetValue(inst, newArr);
                                 targetArr = newArr;
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 130048", arr.Length));
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 131072", arr.Length));
                             }
 
                             // Ensure all 65,024 segment ends are properly constructed
@@ -3181,6 +3182,464 @@ namespace MoreNetworkCapacityRenew
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureLaneConnectionManagerCapacity error: " + ex);
             }
+        }
+
+        // ========================================================================
+        // TM:PE SUBTOOL UPPER-NETWORK SYNCHRONIZER (ZERO HARMONY HOOKS)
+        // ========================================================================
+        private static int s_toolSyncFrameCounter = 0;
+        private static MethodInfo s_mGetLaneEnds = null;
+
+        public static void SynchronizeActiveTool()
+        {
+            s_toolSyncFrameCounter++;
+            if ((s_toolSyncFrameCounter & 15) != 0) return;
+
+            ToolController tc = ToolsModifierControl.toolController;
+            if (tc == null) return;
+            ToolBase currentTool = tc.CurrentTool;
+            if (currentTool == null || currentTool.GetType().Name != "TrafficManagerTool")
+                return;
+
+            Assembly tmpe = GetTMPEAssembly();
+            if (tmpe == null) return;
+
+            Type tmToolType = currentTool.GetType();
+            FieldInfo fLegacySubTool = tmToolType.GetField("activeLegacySubTool_", BindingFlags.NonPublic | BindingFlags.Instance);
+            object activeSubTool = fLegacySubTool != null ? fLegacySubTool.GetValue(currentTool) : null;
+            if (activeSubTool == null)
+            {
+                FieldInfo fActiveSubTool = tmToolType.GetField("activeSubTool_", BindingFlags.NonPublic | BindingFlags.Instance);
+                activeSubTool = fActiveSubTool != null ? fActiveSubTool.GetValue(currentTool) : null;
+            }
+            if (activeSubTool == null) return;
+
+            Type subToolType = activeSubTool.GetType();
+            string subToolName = subToolType.Name;
+
+            ExpandSubToolCaches(activeSubTool, subToolType);
+
+            switch (subToolName)
+            {
+                case "JunctionRestrictionsTool":
+                    SynchronizeJunctionRestrictionsTool(activeSubTool, subToolType, tmpe);
+                    break;
+                case "TimedTrafficLightsTool":
+                    SynchronizeTimedTrafficLightsTool(activeSubTool, subToolType, tmpe);
+                    break;
+                case "PrioritySignsTool":
+                    SynchronizePrioritySignsTool(activeSubTool, subToolType, tmpe);
+                    break;
+                case "VehicleRestrictionsTool":
+                    SynchronizeVehicleRestrictionsTool(activeSubTool, subToolType, tmpe);
+                    break;
+                case "LaneConnectorTool":
+                    SynchronizeLaneConnectorTool(activeSubTool, subToolType, tmpe);
+                    break;
+                case "ToggleTrafficLightsTool":
+                    SynchronizeToggleTrafficLightsTool(activeSubTool, subToolType);
+                    break;
+                case "SpeedLimitsTool":
+                    SynchronizeSpeedLimitsTool(activeSubTool, subToolType);
+                    break;
+                case "ParkingRestrictionsTool":
+                    SynchronizeParkingRestrictionsTool(activeSubTool, subToolType);
+                    break;
+            }
+        }
+
+        private static void ExpandSubToolCaches(object subTool, Type subToolType)
+        {
+            try
+            {
+                FieldInfo[] fields = subToolType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    FieldInfo f = fields[i];
+                    if (f.FieldType.Name.StartsWith("GenericArrayCache"))
+                    {
+                        object cacheObj = f.GetValue(subTool);
+                        if (cacheObj != null)
+                        {
+                            EnsureGenericArrayCache64k(cacheObj);
+                        }
+                    }
+                    else if (f.Name == "overlay_" && f.GetValue(subTool) is object overlayObj)
+                    {
+                        ExpandSubToolCaches(overlayObj, overlayObj.GetType());
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void EnsureGenericArrayCache64k(object cacheObj)
+        {
+            try
+            {
+                Type cType = cacheObj.GetType();
+                FieldInfo fValues = cType.GetField("Values", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fMaxSize = cType.GetField("maxSize_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fValues != null && fMaxSize != null)
+                {
+                    Array arr = fValues.GetValue(cacheObj) as Array;
+                    if (arr != null && arr.Length < 65536)
+                    {
+                        Array newArr = Array.CreateInstance(arr.GetType().GetElementType(), 65536);
+                        Array.Copy(arr, newArr, arr.Length);
+                        fValues.SetValue(cacheObj, newArr);
+                        fMaxSize.SetValue(cacheObj, 65536);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeJunctionRestrictionsTool(object tool, Type toolType, Assembly tmpe)
+        {
+            try
+            {
+                FieldInfo f = toolType.GetField("currentRestrictedNodeIds", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (f == null) return;
+                HashSet<ushort> set = f.GetValue(tool) as HashSet<ushort>;
+                if (set == null) return;
+
+                Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
+                if (jrmType == null) return;
+                object jrm = GetManagerInstance(jrmType);
+                if (jrm == null) return;
+
+                MethodInfo mHasJR = jrmType.GetMethod("HasJunctionRestrictions", new Type[] { typeof(ushort) });
+                if (mHasJR == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
+                NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
+
+                object[] args = new object[1];
+                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                {
+                    if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
+                    args[0] = (ushort)nodeId;
+                    if ((bool)mHasJR.Invoke(jrm, args))
+                    {
+                        set.Add((ushort)nodeId);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeTimedTrafficLightsTool(object tool, Type toolType, Assembly tmpe)
+        {
+            try
+            {
+                FieldInfo f = toolType.GetField("currentTimedNodeIds", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (f == null) return;
+                HashSet<ushort> set = f.GetValue(tool) as HashSet<ushort>;
+                if (set == null) return;
+
+                Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                if (tlsmType == null) return;
+                object tlsm = GetManagerInstance(tlsmType);
+                if (tlsm == null) return;
+
+                MethodInfo mHasTimed = tlsmType.GetMethod("HasTimedSimulation", new Type[] { typeof(ushort) });
+                if (mHasTimed == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
+                NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
+
+                object[] args = new object[1];
+                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                {
+                    if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
+                    args[0] = (ushort)nodeId;
+                    if ((bool)mHasTimed.Invoke(tlsm, args))
+                    {
+                        set.Add((ushort)nodeId);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizePrioritySignsTool(object tool, Type toolType, Assembly tmpe)
+        {
+            try
+            {
+                FieldInfo f = toolType.GetField("currentPriorityNodeIds", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (f == null) return;
+                HashSet<ushort> set = f.GetValue(tool) as HashSet<ushort>;
+                if (set == null) return;
+
+                Type tpmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficPriorityManager");
+                if (tpmType == null) return;
+                object tpm = GetManagerInstance(tpmType);
+                if (tpm == null) return;
+
+                MethodInfo mHasSign = tpmType.GetMethod("HasNodePrioritySign", new Type[] { typeof(ushort) });
+                if (mHasSign == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
+                NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
+
+                object[] args = new object[1];
+                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                {
+                    if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
+                    args[0] = (ushort)nodeId;
+                    if ((bool)mHasSign.Invoke(tpm, args))
+                    {
+                        set.Add((ushort)nodeId);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeVehicleRestrictionsTool(object tool, Type toolType, Assembly tmpe)
+        {
+            try
+            {
+                FieldInfo f = toolType.GetField("currentRestrictedSegmentIds", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (f == null) return;
+                HashSet<ushort> set = f.GetValue(tool) as HashSet<ushort>;
+                if (set == null) return;
+
+                Type vrmType = tmpe.GetType("TrafficManager.Manager.Impl.VehicleRestrictionsManager");
+                if (vrmType == null) return;
+                object vrm = GetManagerInstance(vrmType);
+                if (vrm == null) return;
+
+                MethodInfo mHasSeg = vrmType.GetMethod("HasSegmentRestrictions", new Type[] { typeof(ushort) });
+                if (mHasSeg == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
+                NetSegment[] segBuffer = nm.m_segments.m_buffer;
+
+                object[] args = new object[1];
+                for (int segId = 36864; segId < 65024 && segId < segBuffer.Length; segId++)
+                {
+                    if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
+                    args[0] = (ushort)segId;
+                    if ((bool)mHasSeg.Invoke(vrm, args))
+                    {
+                        set.Add((ushort)segId);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeLaneConnectorTool(object tool, Type toolType, Assembly tmpe)
+        {
+            try
+            {
+                FieldInfo fCurrent = toolType.GetField("currentLaneEnds_", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fCurrent == null) return;
+                IDictionary dict = fCurrent.GetValue(tool) as IDictionary;
+                if (dict == null) return;
+
+                Type lcmType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.LaneConnectionManager");
+                if (lcmType == null) return;
+                object lcm = GetManagerInstance(lcmType);
+                if (lcm == null) return;
+
+                MethodInfo mHasNodeConn = lcmType.GetMethod("HasNodeConnections", new Type[] { typeof(ushort) });
+                if (mHasNodeConn == null) return;
+
+                if (s_mGetLaneEnds == null)
+                {
+                    s_mGetLaneEnds = toolType.GetMethod("GetLaneEnds", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                }
+                if (s_mGetLaneEnds == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
+                NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
+
+                FieldInfo fCache = toolType.GetField("<CachedVisibleNodeIds>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
+                object cacheObj = fCache != null ? fCache.GetValue(tool) : null;
+                MethodInfo mAdd = cacheObj != null ? cacheObj.GetType().GetMethod("Add") : null;
+
+                Vector3 camPos = Vector3.zero;
+                if (Singleton<SimulationManager>.instance != null)
+                {
+                    camPos = Singleton<SimulationManager>.instance.m_simulationView.m_position;
+                }
+
+                object[] hasConnArgs = new object[1];
+                object[] gleArgs = new object[3];
+                object[] addArgs = new object[1];
+
+                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                {
+                    if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
+                    hasConnArgs[0] = (ushort)nodeId;
+                    if ((bool)mHasNodeConn.Invoke(lcm, hasConnArgs))
+                    {
+                        ushort usNodeId = (ushort)nodeId;
+                        if (!dict.Contains(usNodeId))
+                        {
+                            gleArgs[0] = usNodeId;
+                            gleArgs[1] = nodeBuffer[nodeId];
+                            gleArgs[2] = null;
+                            object laneEnds = s_mGetLaneEnds.Invoke(null, gleArgs);
+                            if (laneEnds != null)
+                            {
+                                dict[usNodeId] = laneEnds;
+                            }
+                        }
+
+                        if (mAdd != null && camPos != Vector3.zero)
+                        {
+                            Vector3 pos = nodeBuffer[nodeId].m_position;
+                            if ((pos - camPos).sqrMagnitude <= 640000f)
+                            {
+                                addArgs[0] = usNodeId;
+                                try { mAdd.Invoke(cacheObj, addArgs); } catch { }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeToggleTrafficLightsTool(object tool, Type toolType)
+        {
+            try
+            {
+                FieldInfo fCache = toolType.GetField("<CachedVisibleNodeIds>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
+                object cacheObj = fCache != null ? fCache.GetValue(tool) : null;
+                if (cacheObj == null) return;
+                MethodInfo mAdd = cacheObj.GetType().GetMethod("Add");
+                if (mAdd == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
+                NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
+
+                Vector3 camPos = Vector3.zero;
+                if (Singleton<SimulationManager>.instance != null)
+                {
+                    camPos = Singleton<SimulationManager>.instance.m_simulationView.m_position;
+                }
+                if (camPos == Vector3.zero) return;
+
+                object[] addArgs = new object[1];
+                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                {
+                    if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
+                    if (nodeBuffer[nodeId].Info != null && nodeBuffer[nodeId].Info.m_netAI is RoadBaseAI)
+                    {
+                        Vector3 pos = nodeBuffer[nodeId].m_position;
+                        if ((pos - camPos).sqrMagnitude <= 640000f)
+                        {
+                            addArgs[0] = (ushort)nodeId;
+                            try { mAdd.Invoke(cacheObj, addArgs); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeSpeedLimitsTool(object tool, Type toolType)
+        {
+            try
+            {
+                FieldInfo fOverlay = toolType.GetField("overlay_", BindingFlags.NonPublic | BindingFlags.Instance);
+                object overlay = fOverlay != null ? fOverlay.GetValue(tool) : null;
+                if (overlay == null) return;
+
+                Type oType = overlay.GetType();
+                FieldInfo fCache = oType.GetField("cachedVisibleSegmentIds_", BindingFlags.NonPublic | BindingFlags.Instance);
+                object cacheObj = fCache != null ? fCache.GetValue(overlay) : null;
+                if (cacheObj == null) return;
+
+                Type cachedSegType = oType.Assembly.GetType("TrafficManager.UI.SubTools.SpeedLimits.Overlay.SpeedLimitsOverlay+CachedSegment");
+                if (cachedSegType == null) return;
+
+                MethodInfo mAdd = cacheObj.GetType().GetMethod("Add");
+                if (mAdd == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
+                NetSegment[] segBuffer = nm.m_segments.m_buffer;
+
+                Vector3 camPos = Vector3.zero;
+                if (Singleton<SimulationManager>.instance != null)
+                {
+                    camPos = Singleton<SimulationManager>.instance.m_simulationView.m_position;
+                }
+                if (camPos == Vector3.zero) return;
+
+                FieldInfo fId = cachedSegType.GetField("id_");
+                FieldInfo fCenter = cachedSegType.GetField("center_");
+                object[] addArgs = new object[1];
+
+                for (int segId = 36864; segId < 65024 && segId < segBuffer.Length; segId++)
+                {
+                    if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
+                    if (segBuffer[segId].Info != null && segBuffer[segId].Info.m_netAI is RoadBaseAI)
+                    {
+                        Vector3 center = segBuffer[segId].m_bounds.center;
+                        if ((center - camPos).sqrMagnitude <= 640000f)
+                        {
+                            object item = Activator.CreateInstance(cachedSegType);
+                            if (fId != null) fId.SetValue(item, (ushort)segId);
+                            if (fCenter != null) fCenter.SetValue(item, center);
+                            addArgs[0] = item;
+                            try { mAdd.Invoke(cacheObj, addArgs); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static void SynchronizeParkingRestrictionsTool(object tool, Type toolType)
+        {
+            try
+            {
+                FieldInfo fCache = toolType.GetField("<CachedVisibleSegmentIds>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
+                object cacheObj = fCache != null ? fCache.GetValue(tool) : null;
+                if (cacheObj == null) return;
+                MethodInfo mAdd = cacheObj.GetType().GetMethod("Add");
+                if (mAdd == null) return;
+
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_segments == null || nm.m_segments.m_buffer == null) return;
+                NetSegment[] segBuffer = nm.m_segments.m_buffer;
+
+                Vector3 camPos = Vector3.zero;
+                if (Singleton<SimulationManager>.instance != null)
+                {
+                    camPos = Singleton<SimulationManager>.instance.m_simulationView.m_position;
+                }
+                if (camPos == Vector3.zero) return;
+
+                object[] addArgs = new object[1];
+                for (int segId = 36864; segId < 65024 && segId < segBuffer.Length; segId++)
+                {
+                    if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
+                    if (segBuffer[segId].Info != null && segBuffer[segId].Info.m_netAI is RoadBaseAI)
+                    {
+                        Vector3 pos = segBuffer[segId].m_bounds.center;
+                        if ((pos - camPos).sqrMagnitude <= 640000f)
+                        {
+                            addArgs[0] = (ushort)segId;
+                            try { mAdd.Invoke(cacheObj, addArgs); } catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         public static void RecalculateLiveSegments(Assembly tmpe)
@@ -6111,19 +6570,26 @@ namespace MoreNetworkCapacityRenew
     }
 
     // ============================================================================
-    // TM:PE FULL-MAP TRAFFIC LIGHT STEPPER (ZERO HARMONY HOOKS)
+    // TM:PE & FULL-MAP NETWORK STEPPER (ZERO HARMONY HOOKS)
     // ============================================================================
     public class MNCTrafficLightStepper : ThreadingExtensionBase
     {
         private delegate void StepDelegate(Array array, int index);
         private static StepDelegate s_stepDelegate;
         private static Array s_simulationsArray;
+
+        private delegate void TMMStepDelegate(object inst, ushort segId, ref NetSegment seg);
+        private static TMMStepDelegate s_tmmStepDelegate;
+        private static object s_tmmInstance;
+
         private static bool s_initialized;
 
         public static void ResetStepper()
         {
             s_simulationsArray = null;
             s_stepDelegate = null;
+            s_tmmStepDelegate = null;
+            s_tmmInstance = null;
             s_initialized = false;
         }
 
@@ -6132,51 +6598,78 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
-                if (tmpe == null) return;
-
-                Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
-                if (tlsmType == null) return;
-
-                object inst = TMPECompatibility.GetManagerInstance(tlsmType);
-                if (inst == null) return;
-
-                FieldInfo f = tlsmType.GetField("<TrafficLightSimulations>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                           ?? tlsmType.GetField("TrafficLightSimulations", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (f != null)
+                if (tmpe != null)
                 {
-                    s_simulationsArray = f.GetValue(inst) as Array;
-                }
-
-                Type tlsType = tmpe.GetType("TrafficManager.TrafficLight.Impl.TrafficLightSimulation");
-                if (tlsType != null)
-                {
-                    MethodInfo stepMethod = tlsType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance);
-                    if (stepMethod != null)
+                    Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                    if (tlsmType != null)
                     {
-                        DynamicMethod dm = new DynamicMethod(
-                            "MNC_StepTLS",
-                            typeof(void),
-                            new Type[] { typeof(Array), typeof(int) },
-                            typeof(MNCTrafficLightStepper).Module,
-                            true);
+                        object inst = TMPECompatibility.GetManagerInstance(tlsmType);
+                        if (inst != null)
+                        {
+                            FieldInfo f = tlsmType.GetField("<TrafficLightSimulations>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                                       ?? tlsmType.GetField("TrafficLightSimulations", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (f != null)
+                            {
+                                s_simulationsArray = f.GetValue(inst) as Array;
+                            }
+                        }
+                    }
 
-                        ILGenerator il = dm.GetILGenerator();
-                        il.Emit(OpCodes.Ldarg_0);
-                        il.Emit(OpCodes.Castclass, tlsType.MakeArrayType());
-                        il.Emit(OpCodes.Ldarg_1);
-                        il.Emit(OpCodes.Ldelema, tlsType);
-                        il.Emit(OpCodes.Call, stepMethod);
-                        il.Emit(OpCodes.Ret);
+                    Type tlsType = tmpe.GetType("TrafficManager.TrafficLight.Impl.TrafficLightSimulation");
+                    if (tlsType != null)
+                    {
+                        MethodInfo stepMethod = tlsType.GetMethod("SimulationStep", BindingFlags.Public | BindingFlags.Instance);
+                        if (stepMethod != null)
+                        {
+                            DynamicMethod dm = new DynamicMethod(
+                                "MNC_StepTLS",
+                                typeof(void),
+                                new Type[] { typeof(Array), typeof(int) },
+                                typeof(MNCTrafficLightStepper).Module,
+                                true);
 
-                        s_stepDelegate = (StepDelegate)dm.CreateDelegate(typeof(StepDelegate));
+                            ILGenerator il = dm.GetILGenerator();
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Castclass, tlsType.MakeArrayType());
+                            il.Emit(OpCodes.Ldarg_1);
+                            il.Emit(OpCodes.Ldelema, tlsType);
+                            il.Emit(OpCodes.Call, stepMethod);
+                            il.Emit(OpCodes.Ret);
+
+                            s_stepDelegate = (StepDelegate)dm.CreateDelegate(typeof(StepDelegate));
+                        }
+                    }
+
+                    Type tmmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficMeasurementManager");
+                    if (tmmType != null)
+                    {
+                        MethodInfo tmmMethod = tmmType.GetMethod("OnBeforeSimulationStep", BindingFlags.Public | BindingFlags.Instance);
+                        s_tmmInstance = TMPECompatibility.GetManagerInstance(tmmType);
+                        if (tmmMethod != null && s_tmmInstance != null)
+                        {
+                            DynamicMethod dm = new DynamicMethod(
+                                "MNC_StepTMM",
+                                typeof(void),
+                                new Type[] { typeof(object), typeof(ushort), typeof(NetSegment).MakeByRefType() },
+                                typeof(MNCTrafficLightStepper).Module,
+                                true);
+
+                            ILGenerator il = dm.GetILGenerator();
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Castclass, tmmType);
+                            il.Emit(OpCodes.Ldarg_1);
+                            il.Emit(OpCodes.Ldarg_2);
+                            il.Emit(OpCodes.Callvirt, tmmMethod);
+                            il.Emit(OpCodes.Ret);
+
+                            s_tmmStepDelegate = (TMMStepDelegate)dm.CreateDelegate(typeof(TMMStepDelegate));
+                        }
                     }
                 }
 
-                s_initialized = (s_simulationsArray != null && s_stepDelegate != null);
-                if (s_initialized)
-                {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] MNCTrafficLightStepper initialized successfully (array length: {0}, stepping nodes 32768..65023)", s_simulationsArray.Length));
-                }
+                s_initialized = true;
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] MNCTrafficLightStepper initialized successfully (TLS array: {0}, TMM: {1})",
+                    s_simulationsArray != null ? s_simulationsArray.Length : 0, s_tmmStepDelegate != null));
             }
             catch (Exception ex)
             {
@@ -6196,44 +6689,114 @@ namespace MoreNetworkCapacityRenew
             ResetStepper();
         }
 
+        public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
+        {
+            base.OnUpdate(realTimeDelta, simulationTimeDelta);
+            try
+            {
+                TMPECompatibility.SynchronizeActiveTool();
+            }
+            catch { }
+        }
+
         public override void OnAfterSimulationFrame()
         {
             base.OnAfterSimulationFrame();
 
-            if (!s_initialized || s_simulationsArray == null || s_simulationsArray.Length < 65024)
+            if (!s_initialized)
             {
                 Initialize();
             }
-
-            if (s_simulationsArray == null || s_simulationsArray.Length < 65024 || s_stepDelegate == null)
-                return;
 
             var sm = Singleton<SimulationManager>.instance;
             if (sm == null) return;
 
             var nm = Singleton<NetManager>.instance;
-            if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
-            NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
+            if (nm == null) return;
+
+            NetNode[] nodeBuffer = nm.m_nodes != null ? nm.m_nodes.m_buffer : null;
+            NetSegment[] segBuffer = nm.m_segments != null ? nm.m_segments.m_buffer : null;
 
             uint frame = sm.m_currentFrameIndex & 63;
-            int start = 32768 + (int)frame * 504;
-            int end = start + 504;
-            if (end > s_simulationsArray.Length)
-                end = s_simulationsArray.Length;
 
-            for (int i = start; i < end; i++)
+            // 1. Upper Node Stepping (32,768 .. 65,023) across 64 frames (504 nodes per frame)
+            if (nodeBuffer != null)
             {
-                if ((nodeBuffer[i].m_flags & NetNode.Flags.Created) == 0)
-                    continue;
+                int nStart = 32768 + (int)frame * 504;
+                int nEnd = Math.Min(nStart + 504, nodeBuffer.Length);
 
+                for (int i = nStart; i < nEnd; i++)
+                {
+                    if ((nodeBuffer[i].m_flags & NetNode.Flags.Created) == 0)
+                        continue;
+
+                    // Step vanilla NetAI: cycles vanilla traffic lights, pedestrian signals, and node problems
+                    try
+                    {
+                        NetInfo info = nodeBuffer[i].Info;
+                        if (info != null && info.m_netAI != null)
+                        {
+                            info.m_netAI.SimulationStep((ushort)i, ref nodeBuffer[i]);
+                        }
+                    }
+                    catch { }
+
+                    // Step TM:PE Timed Traffic Lights
+                    if (s_stepDelegate != null && s_simulationsArray != null && i < s_simulationsArray.Length)
+                    {
+                        try
+                        {
+                            s_stepDelegate(s_simulationsArray, i);
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            // 2. Upper Segment Stepping (36,864 .. 65,023) across 64 frames (440 segments per frame)
+            if (segBuffer != null)
+            {
+                int sStart = 36864 + (int)frame * 440;
+                int sEnd = Math.Min(sStart + 440, segBuffer.Length);
+
+                for (int s = sStart; s < sEnd; s++)
+                {
+                    if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0)
+                        continue;
+
+                    try
+                    {
+                        NetInfo info = segBuffer[s].Info;
+                        if (info != null && info.m_netAI != null)
+                        {
+                            // TM:PE Traffic Measurement if available
+                            if (s_tmmStepDelegate != null && s_tmmInstance != null)
+                            {
+                                try { s_tmmStepDelegate(s_tmmInstance, (ushort)s, ref segBuffer[s]); } catch { }
+                            }
+
+                            // NetAI SimulationStep: converts m_trafficBuffer -> m_trafficDensity, resets m_trafficBuffer, updates noise & wear
+                            info.m_netAI.SimulationStep((ushort)s, ref segBuffer[s]);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 3. Color Map Synchronization for Upper Network
+            // Every 64 frames (approx once per sec), refresh upper colors if an Info Mode is active
+            if (frame == 0)
+            {
                 try
                 {
-                    s_stepDelegate(s_simulationsArray, i);
+                    var im = Singleton<InfoManager>.instance;
+                    if (im != null && im.CurrentMode != InfoManager.InfoMode.None)
+                    {
+                        nm.UpdateSegmentColors(36864, 65023);
+                        nm.UpdateNodeColors(32768, 65023);
+                    }
                 }
-                catch
-                {
-                    // Fail-safe to avoid disrupting simulation thread
-                }
+                catch { }
             }
         }
     }

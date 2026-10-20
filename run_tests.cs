@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.41 version bump
-            bool hasV441 = renewCode.Contains("More Network Capacity Renew v4.3.41 by NgocDuy");
-            Assert(hasV441, "Version correctly bumped to v4.3.41 in RenewMod.Name");
+            // 11.1 Check v4.3.42 version bump
+            bool hasV442 = renewCode.Contains("More Network Capacity Renew v4.3.42 by NgocDuy");
+            Assert(hasV442, "Version correctly bumped to v4.3.42 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -791,6 +791,53 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 18 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 19: FULL-MAP NETWORK STEPPER & TM:PE HIGH-ID SUBTOOL SYNC (v4.3.42)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 19: Full-Map Network Stepper & TM:PE High-ID Subtool Sync (v4.3.42) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 19.1 Upper segment stepping (36,864..65,023)
+            bool hasSegStepping = renewCode.Contains("int sStart = 36864 + (int)frame * 440;") &&
+                                  renewCode.Contains("info.m_netAI.SimulationStep((ushort)s, ref segBuffer[s]);") &&
+                                  renewCode.Contains("s_tmmStepDelegate(s_tmmInstance, (ushort)s, ref segBuffer[s]);");
+            Assert(hasSegStepping, "Upper segments (36864..65023) stepped natively via NetAI and TM:PE TrafficMeasurement");
+
+            // 19.2 Upper node stepping (32,768..65,023)
+            bool hasNodeStepping = renewCode.Contains("int nStart = 32768 + (int)frame * 504;") &&
+                                   renewCode.Contains("info.m_netAI.SimulationStep((ushort)i, ref nodeBuffer[i]);") &&
+                                   renewCode.Contains("s_stepDelegate(s_simulationsArray, i);");
+            Assert(hasNodeStepping, "Upper nodes (32768..65023) stepped natively via NetAI and TM:PE TrafficLightSimulation");
+
+            // 19.3 Color map synchronization for upper network
+            bool hasColorSync = renewCode.Contains("nm.UpdateSegmentColors(36864, 65023);") &&
+                                renewCode.Contains("nm.UpdateNodeColors(32768, 65023);");
+            Assert(hasColorSync, "Upper segments and nodes regularly sync colors with NetManager.m_objectColorMap");
+
+            // 19.4 TM:PE SubTool high-ID synchronizer (Zero hooks)
+            bool hasSubToolSync = renewCode.Contains("public static void SynchronizeActiveTool()") &&
+                                  renewCode.Contains("SynchronizeJunctionRestrictionsTool") &&
+                                  renewCode.Contains("SynchronizeTimedTrafficLightsTool") &&
+                                  renewCode.Contains("SynchronizePrioritySignsTool") &&
+                                  renewCode.Contains("SynchronizeVehicleRestrictionsTool") &&
+                                  renewCode.Contains("SynchronizeLaneConnectorTool") &&
+                                  renewCode.Contains("SynchronizeToggleTrafficLightsTool") &&
+                                  renewCode.Contains("SynchronizeSpeedLimitsTool") &&
+                                  renewCode.Contains("SynchronizeParkingRestrictionsTool");
+            Assert(hasSubToolSync, "TM:PE active subtools synchronize high-ID nodes/segments (32K-65K) with zero Harmony hooks");
+
+            // 19.5 ExtSegmentEnds expanded to 131,072
+            bool hasExtSegEnd131k = renewCode.Contains("Array.CreateInstance(elemType, 131072);") &&
+                                    renewCode.Contains("Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 131072");
+            Assert(hasExtSegEnd131k, "ExtSegmentEndManager.ExtSegmentEnds expanded to 131,072 to match full 65K network capacity");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 19 exception", ex.ToString());
         }
 
         // ====================================================================

@@ -6,23 +6,32 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.41 (Universal Public Transport & City Economy Armor) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.42 (Full-Map Traffic Stepper & TM:PE High-ID SubTool Sync) ✨[/h1]
 [list]
-[*] [b]Universal Economy & Public Transport Protection (Fixed Train Negative Expenses & Budget Spike):[/b]
+[*] [b]Full-Map Network Simulation Stepper (Fixed Traffic Colors & Traffic Flow Percentage):[/b]
 [list]
-    [*] Fixed the severe train economic bug where corrupted maintenance calculations or vehicle loops caused negative maintenance values in [i]EconomyManager.FetchResource[/i], turning expenses negative and causing city funds to skyrocket by billions.
-    [*] Added universal non-negative shields on [i]EconomyManager.FetchResource[/i], [i]EconomyManager.AddResource[/i], and [i]EconomyManager.AddPrivateIncome[/i]. Maintenance costs and fare revenues can never become negative across [b]ALL[/b] public transport modes (Train, Metro, Tram, Bus, Monorail, Cable Car, Ferry, Plane, Trolleybus, etc.) and city services.
-    [*] Added [i]PlayerNetAI.GetMaintenanceCost[/i] safety guard against NaN/Infinity coordinates and 32-bit integer overflow on track and road segment maintenance.
-    [*] Automatic Save Repair: On level load, [i]SanitizeEconomy[/i] automatically repairs and restores any existing negative values in [i]m_expenses[/i], [i]m_totalExpenses[/i], [i]m_income[/i], and [i]m_totalIncome[/i] back to normal.
-    [*] Transport Line Vehicle Chain Sanitization: [i]SanitizeTransportLines[/i] detects and breaks any circular vehicle chains and resets corrupted ticket prices (> 50,000) or invalid lengths.
+    [*] Vanilla Cities: Skylines hardcoded its frame stepping loops to stop at segment 36,863 and node 32,767. Segments and nodes above these limits were never stepped by the engine, leaving traffic density at 0 (frozen green/neutral color) and breaking average traffic flow statistics.
+    [*] Implemented full network simulation stepping via [i]ThreadingExtensionBase[/i] on simulation thread:
+        - Segments [i]36,864..65,023[/i] are stepped across 64 frames (440 segments/frame), executing [i]NetAI.SimulationStep[/i] to convert [i]m_trafficBuffer[/i] into real-time [i]m_trafficDensity[/i], reset buffers, calculate noise, road condition wear, and trigger TM:PE [i]TrafficMeasurementManager[/i].
+        - Nodes [i]32,768..65,023[/i] are stepped across 64 frames (504 nodes/frame), stepping vanilla signals, pedestrian crossings, node problems, and TM:PE [i]TrafficLightSimulation[/i].
+    [*] Added periodic [i]NetManager.UpdateSegmentColors(36864, 65023)[/i] and [i]UpdateNodeColors(32768, 65023)[/i] to ensure the traffic congestion overlay and info view textures update smoothly across the entire map.
 [/list]
-[*] [b]Preserved Natural Custom Speed Limits:[/b]
+[*] [b]TM:PE High-ID SubTool Synchronizer (Zero Harmony Hooks):[/b]
 [list]
-    [*] Removed artificial blanket speed limit assignments in [i]EnsureSpeedLimitManagerCapacity[/i]. TM:PE speed limit cache capacity is preserved at 524,288 while allowing natural road and track speeds (including custom/TM:PE adjusted speeds) to function undisturbed.
+    [*] TM:PE subtools previously had hardcoded search loops ending at node 32,767 and segment 36,863, preventing markers and configurations from displaying on high-ID nodes.
+    [*] Implemented native synchronization in [i]TMPECompatibility.SynchronizeActiveTool[/i] that populates marker sets and visible caches for high-ID elements:
+        - [b]Lane Connector:[/b] High-ID nodes with custom lane connections now display connection pins and retain full lane routing.
+        - [b]Timed Traffic Lights & Priority Signs:[/b] High-ID intersections properly show timed light icons, step timers, and priority sign overlays.
+        - [b]Junction Restrictions & Vehicle Restrictions:[/b] U-turn, enter blocked junction, pedestrian crossing, and vehicle restriction icons properly display on high-ID nodes and segments.
+        - [b]Toggle Traffic Lights, Speed Limits, & Parking Restrictions:[/b] Cached view overlays extended to 65K elements for seamless visual editing.
 [/list]
-[*] [b]Full-Map TM:PE Traffic Light Stepper & 100% Zero-Hook Architecture (from v4.3.40):[/b]
+[*] [b]100% Zero-Hook TM:PE Architecture Maintained:[/b]
 [list]
-    [*] Retains [i]MNCTrafficLightStepper[/i] ([i]ICities.ThreadingExtensionBase[/i]) stepping nodes [i]32,768..65,023[/i] and contiguous 131,072 buffer expansion with strictly zero Harmony hooks into TM:PE methods.
+    [*] Strictly [b]ZERO[/b] Harmony hooks into TM:PE methods. All synchronization is performed via managed threading extensions and variable expansion to guarantee pure native performance, zero desync, and zero crashes.
+[/list]
+[*] [b]Retains Universal Economy & Public Transport Protection (from v4.3.41):[/b]
+[list]
+    [*] Non-negative shields on [i]EconomyManager[/i], [i]SanitizeEconomy[/i] save repair, and [i]SanitizeTransportLines[/i] remain fully active to guard city funds.
 [/list]
 [/list]
 
@@ -100,6 +109,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.41 - Added Universal Public Transport & City Economy Armor: fixed negative maintenance and skyrocketing city budget caused by corrupted train expenses or vehicle loops. Universal non-negative shields on EconomyManager.FetchResource, AddResource, and AddPrivateIncome for all public transport (Train, Metro, Tram, Bus, Monorail, Cable Car, Ferry, Plane) and city services. Armored PlayerNetAI.GetMaintenanceCost against NaN/Infinity/overflow. Added SanitizeEconomy save repair for existing corrupted expenses/income on level load. Added SanitizeTransportLines vehicle chain loop detection and ticket price sanity. Preserved natural custom speed limits in EnsureSpeedLimitManagerCapacity."
+	"changenote"		"v4.3.42 - Full-Map Traffic Stepper & TM:PE High-ID SubTool Sync: Stepped segments 36,864..65,023 and nodes 32,768..65,023 natively in ThreadingExtensionBase to fix traffic congestion colors and average traffic flow percentage; added periodic color texture syncing with NetManager.m_objectColorMap; synchronized TM:PE subtools (Lane Connector, Timed Traffic Lights, Priority Signs, Junction Restrictions, Vehicle Restrictions, Speed Limits, Parking Restrictions) to recognize and display icons on high-ID nodes/segments (32K-65K) with strictly zero Harmony hooks; expanded ExtSegmentEndManager.ExtSegmentEnds to 131,072."
 }
 

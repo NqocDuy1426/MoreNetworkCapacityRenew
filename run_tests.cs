@@ -274,11 +274,11 @@ class TestSuite
             Assert(hasSgoGuard, "CreateDynamicGetterPrefix & SavedGameOptions_Release_Prefix installed to guarantee non-null options");
             Assert(hasGcGuard, "EnsureAndGetGlobalConfig installed to guarantee non-null global config");
 
-            // 6.6 Verify ThreadingExtension patched and CustomPathFind.PathFindImplementation is 100% native (unhooked)
-            bool hasThreadExtPatch = renewCode.Contains("ThreadingExtension.OnBeforeSimulationFrame") && renewCode.Contains("ThreadingExtension_OnBeforeSimulationFrame_Prefix");
+            // 6.6 Verify TM:PE ThreadingExtension & CustomPathFind.PathFindImplementation are 100% native (unhooked)
+            bool threadExtUnhooked = !renewCode.Contains("Patched TM:PE ThreadingExtension.OnBeforeSimulationFrame");
             bool pfiUnhooked = !renewCode.Contains("Patched TM:PE CustomPathFind.PathFindImplementation") &&
                                renewCode.Contains("CustomPathFind.PathFindImplementation and WaitForAllPaths are intentionally left 100% native");
-            Assert(hasThreadExtPatch, "ThreadingExtension.OnBeforeSimulationFrame patched with null-safe prefix");
+            Assert(threadExtUnhooked, "TM:PE ThreadingExtension left 100% native (timed traffic lights execute without external hook)");
             Assert(pfiUnhooked, "CustomPathFind.PathFindImplementation left 100% native to TM:PE (zero interference with pathfinding)");
         }
         catch (Exception ex)
@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.37 version bump
-            bool hasV437 = renewCode.Contains("More Network Capacity Renew v4.3.37 by NgocDuy");
-            Assert(hasV437, "Version correctly bumped to v4.3.37 in RenewMod.Name");
+            // 11.1 Check v4.3.38 version bump
+            bool hasV438 = renewCode.Contains("More Network Capacity Renew v4.3.38 by NgocDuy");
+            Assert(hasV438, "Version correctly bumped to v4.3.38 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -653,6 +653,53 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 15 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 16: ZERO TM:PE ALGORITHM HOOKS & NON-INTRUSIVE WATCHDOG (v4.3.38)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 16: Zero TM:PE Algorithm Hooks & Non-Intrusive Watchdog (v4.3.38) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 16.1 SpeedLimitManager.GetGameSpeedLimit is 100% native (not hooked)
+            bool noSpeedHook = !renewCode.Contains("Patched TM:PE SpeedLimitManager.GetGameSpeedLimit");
+            Assert(noSpeedHook, "SpeedLimitManager.GetGameSpeedLimit is NOT hooked in Harmony (TM:PE calculates native lane speeds)");
+
+            // 16.2 TrafficManager.State.Flags is 100% native (not hooked)
+            bool noFlagsHook = !renewCode.Contains("Patched TM:PE Flags.CanHaveLaneArrows") &&
+                               !renewCode.Contains("Patched TM:PE Flags.ApplyLaneArrowFlags") &&
+                               !renewCode.Contains("Patched TM:PE Flags.SetLaneAllowedVehicleTypes");
+            Assert(noFlagsHook, "TrafficManager.State.Flags is NOT hooked in Harmony (TM:PE manages lane arrows & vehicle types natively)");
+
+            // 16.3 PrioritySignsTool & JunctionRestrictionsTool are 100% native
+            bool noToolsHook = !renewCode.Contains("Patched TM:PE PrioritySignsTool") &&
+                               !renewCode.Contains("Patched TM:PE JunctionRestrictionsTool");
+            Assert(noToolsHook, "PrioritySignsTool and JunctionRestrictionsTool are NOT hooked in Harmony");
+
+            // 16.4 ExtBuildingManager.OnBeforeSimulationStep is 100% native
+            bool noEbmHook = !renewCode.Contains("Patched TM:PE ExtBuildingManager.OnBeforeSimulationStep");
+            Assert(noEbmHook, "ExtBuildingManager.OnBeforeSimulationStep is NOT hooked in Harmony");
+
+            // 16.5 LaneConnectionSubManager is 100% native
+            bool noLcsmHook = !renewCode.Contains("Patched TM:PE LaneConnectionSubManager");
+            Assert(noLcsmHook, "LaneConnectionSubManager is NOT hooked in Harmony (preserves native lane connections)");
+
+            // 16.6 Non-intrusive engine-level watchdog exists
+            bool hasWatchdog = renewCode.Contains("public class MNCVehicleWatchdogThreading : ThreadingExtensionBase") &&
+                               renewCode.Contains("buffer[i].m_blockCounter >= 180") &&
+                               renewCode.Contains("vm.ReleaseVehicle((ushort)i)");
+            Assert(hasWatchdog, "MNCVehicleWatchdogThreading monitors severe block deadlocks & releases immortal stuck vehicles without TM:PE hooks");
+
+            // 16.7 Level-load vehicle sanitizer exists
+            bool hasCleanStuck = renewCode.Contains("public static int CleanStuckVehicles()") &&
+                                 renewCode.Contains("CleanStuckVehicles();");
+            Assert(hasCleanStuck, "CleanStuckVehicles clears deadlocked/immortal stuck vehicles upon loading save");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 16 exception", ex.ToString());
         }
 
         // ====================================================================

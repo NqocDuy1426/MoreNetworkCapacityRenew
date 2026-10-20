@@ -1065,7 +1065,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.37 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.38 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1857,28 +1857,8 @@ namespace MoreNetworkCapacityRenew
                             }
                         }
 
-                        MethodInfo remSignM = tpmType.GetMethod("RemovePrioritySignFromSegmentEnd", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
-                        if (remSignM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficPriorityManager_RemovePrioritySignFromSegmentEnd_Prefix));
-                            harmony.Patch(remSignM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficPriorityManager.RemovePrioritySignFromSegmentEnd");
-                        }
-
-                        MethodInfo hasSignM1 = tpmType.GetMethod("HasSegmentPrioritySign", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-                        if (hasSignM1 != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficPriorityManager_HasSegmentPrioritySign_Prefix));
-                            harmony.Patch(hasSignM1, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE TrafficPriorityManager.HasSegmentPrioritySign (1-arg)");
-                        }
-
-                        MethodInfo hasSignM2 = tpmType.GetMethod("HasSegmentPrioritySign", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
-                        if (hasSignM2 != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.TrafficPriorityManager_HasSegmentPrioritySign2_Prefix));
-                            harmony.Patch(hasSignM2, prefix: new HarmonyMethod(pre));
-                        }
+                        // Note: TrafficPriorityManager signs and priority calculations are left 100% native to TM:PE
+                        // to strictly prevent interference with TM:PE junction priority algorithms and avoid stopped vehicles.
                     }
                 }
                 catch (Exception ex)
@@ -1977,31 +1957,9 @@ namespace MoreNetworkCapacityRenew
                                 harmony.Patch(m, postfix: new HarmonyMethod(post));
                                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.LoadData");
                             }
-                            else if (m.Name == "GetGameSpeedLimit")
-                            {
-                                var p = m.GetParameters();
-                                if (p.Length == 2 && p[0].ParameterType == typeof(uint) && p[1].ParameterType == typeof(NetInfo.Lane))
-                                {
-                                    var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit_Prefix));
-                                    harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(uint, NetInfo.Lane)");
-                                }
-                                else if (p.Length == 4 && (p[0].ParameterType == typeof(uint) || p[0].ParameterType == typeof(ushort)) && p[2].ParameterType == typeof(uint))
-                                {
-                                    MethodInfo pre = (p[0].ParameterType == typeof(uint))
-                                        ? typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix_Uint))
-                                        : typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit4_Prefix));
-                                    harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(4 params: uint/ushort, byte, uint, NetInfo.Lane)");
-                                }
-                                else if (p.Length == 1 && p[0].ParameterType == typeof(uint))
-                                {
-                                    var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.SpeedLimitManager_GetGameSpeedLimit1_Prefix));
-                                    harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE SpeedLimitManager.GetGameSpeedLimit(uint)");
-                                }
-                            }
                         }
+                        // Note: SpeedLimitManager.GetGameSpeedLimit is left 100% native to TM:PE
+                        // to preserve native speed calculations, speed palettes, and prevent vehicles stopping mid-road.
                     }
                 }
                 catch (Exception ex)
@@ -2009,68 +1967,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SpeedLimitManager: " + ex);
                 }
 
-                // 19. Flags (SetLaneAllowedVehicleTypes, CanHaveLaneArrows, ApplyLaneArrowFlags, RemoveLaneArrowFlags, ResetLaneArrowFlags, ValidateLaneCustomArrows)
-                try
-                {
-                    Type flagsType = tmpe.GetType("TrafficManager.State.Flags");
-                    if (flagsType != null)
-                    {
-                        foreach (var m in flagsType.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                        {
-                            if (m.Name == "SetLaneAllowedVehicleTypes")
-                            {
-                                var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.Flags_SetLaneAllowedVehicleTypes_Prefix));
-                                harmony.Patch(m, prefix: new HarmonyMethod(pre));
-                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE Flags.SetLaneAllowedVehicleTypes");
-                                break;
-                            }
-                        }
-
-                        MethodInfo canHave = flagsType.GetMethod("CanHaveLaneArrows", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (canHave != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.Flags_CanHaveLaneArrows_Prefix));
-                            harmony.Patch(canHave, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE Flags.CanHaveLaneArrows (safety Prefix)");
-                        }
-
-                        MethodInfo applyArrows = flagsType.GetMethod("ApplyLaneArrowFlags", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (applyArrows != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.Flags_ApplyLaneArrowFlags_Prefix));
-                            harmony.Patch(applyArrows, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE Flags.ApplyLaneArrowFlags (safety Prefix)");
-                        }
-
-                        MethodInfo remArrows = flagsType.GetMethod("RemoveLaneArrowFlags", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (remArrows != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.Flags_RemoveLaneArrowFlags_Prefix));
-                            harmony.Patch(remArrows, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE Flags.RemoveLaneArrowFlags (safety Prefix)");
-                        }
-
-                        MethodInfo resetArrows = flagsType.GetMethod("ResetLaneArrowFlags", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (resetArrows != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.Flags_ResetLaneArrowFlags_Prefix));
-                            harmony.Patch(resetArrows, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE Flags.ResetLaneArrowFlags (safety Prefix)");
-                        }
-
-                        MethodInfo valArrows = flagsType.GetMethod("ValidateLaneCustomArrows", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (valArrows != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.Flags_ValidateLaneCustomArrows_Prefix));
-                            harmony.Patch(valArrows, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE Flags.ValidateLaneCustomArrows (safety Prefix)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching Flags: " + ex);
-                }
+                // 19. Flags: Left 100% native to TM:PE (lane arrows, vehicle types, and turn rules fully preserved).
 
                 // 20. RoadUI (Suppress NullReferenceException on level unloading)
                 try
@@ -2092,45 +1989,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching RoadUI: " + ex);
                 }
 
-                // 21. PrioritySignsTool (Safe RefreshCurrentPriorityNodeIds)
-                try
-                {
-                    Type pstType = tmpe.GetType("TrafficManager.UI.SubTools.PrioritySigns.PrioritySignsTool");
-                    if (pstType != null)
-                    {
-                        MethodInfo refPriM = pstType.GetMethod("RefreshCurrentPriorityNodeIds", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
-                        if (refPriM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.PrioritySignsTool_RefreshCurrentPriorityNodeIds_Prefix));
-                            harmony.Patch(refPriM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE PrioritySignsTool.RefreshCurrentPriorityNodeIds (safe Prefix)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PrioritySignsTool: " + ex);
-                }
-
-                // 22. JunctionRestrictionsTool (Safe RefreshCurrentRestrictedNodeIds)
-                try
-                {
-                    Type jrtType = tmpe.GetType("TrafficManager.UI.SubTools.JunctionRestrictionsTool");
-                    if (jrtType != null)
-                    {
-                        MethodInfo refJuncM = jrtType.GetMethod("RefreshCurrentRestrictedNodeIds", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-                        if (refJuncM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.JunctionRestrictionsTool_RefreshCurrentRestrictedNodeIds_Prefix));
-                            harmony.Patch(refJuncM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE JunctionRestrictionsTool.RefreshCurrentRestrictedNodeIds (safe Prefix)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching JunctionRestrictionsTool: " + ex);
-                }
+                // 21-22. PrioritySignsTool & JunctionRestrictionsTool: Left 100% native to TM:PE.
 
                 // 23. CustomPathFind (Awake capacity expansion, segment validation guards & deadlock defense)
                 try
@@ -2190,27 +2049,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ExtLane GetLaneInfo: " + ex);
                 }
 
-                // 26c. ExtBuildingManager.OnBeforeSimulationStep & SimulationStepPatch (Building simulation crash defense)
-                try
-                {
-                    Type ebmType = tmpe.GetType("TrafficManager.Manager.Impl.ExtBuildingManager");
-                    if (ebmType != null)
-                    {
-                        var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.ExtBuildingManager_OnBeforeSimulationStep_Prefix));
-                        MethodInfo obssM = ebmType.GetMethod("OnBeforeSimulationStep", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (obssM != null && pre != null)
-                        {
-                            harmony.Patch(obssM, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ExtBuildingManager.OnBeforeSimulationStep (Priority.First safe guard prefix)");
-                        }
-                    }
-
-                    // Note: CommonBuildingAI.SimulationStep is left 100% native to TM:PE to ensure unhindered building simulation and vehicle dispatching.
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ExtBuildingManager: " + ex);
-                }
+                // 26c. ExtBuildingManager & CommonBuildingAI: Left 100% native to TM:PE to ensure unhindered building simulation and vehicle dispatching.
 
                 // 27. UtilityManager: Left 100% native to TM:PE (no despawn interference).
 
@@ -2233,41 +2072,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetSegment.GetLeftAndRightLanes: " + ex);
                 }
 
-                // 30. LaneConnectionSubManager (Defend against NullReferenceException in AdaptiveRoads during SimulationStep)
-                try
-                {
-                    Type lcsmType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.LaneConnectionSubManager");
-                    if (lcsmType != null)
-                    {
-                        MethodInfo hncM = lcsmType.GetMethod("HasNodeConnections", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (hncM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.LaneConnectionSubManager_HasNodeConnections_Prefix));
-                            harmony.Patch(hncM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE LaneConnectionSubManager.HasNodeConnections");
-                        }
-
-                        MethodInfo hcM = lcsmType.GetMethod("HasConnections", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(bool) }, null);
-                        if (hcM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.LaneConnectionSubManager_HasConnections_Prefix));
-                            harmony.Patch(hcM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE LaneConnectionSubManager.HasConnections");
-                        }
-
-                        MethodInfo alcM = lcsmType.GetMethod("AreLanesConnected", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint), typeof(uint), typeof(ushort) }, null);
-                        if (alcM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.LaneConnectionSubManager_AreLanesConnected_Prefix));
-                            harmony.Patch(alcM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE LaneConnectionSubManager.AreLanesConnected");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LaneConnectionSubManager: " + ex);
-                }
+                // 30. LaneConnectionSubManager: Left 100% native to TM:PE.
 
                 // 30b. DefaultTool.RenderOverlayPatch (Defend against Tool error when RoadSelectionPanels.Root is null)
                 try
@@ -2293,7 +2098,7 @@ namespace MoreNetworkCapacityRenew
                 // NOTE (v4.3.34): MayChangeSegment is intentionally NOT patched to eliminate vehicle bezier rollback/rewind oscillation loops (Issue #1).
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] VehicleBehaviorManager left 100% native to TM:PE (preserves smooth lane changes, yields & stops)");
 
-                // 32. TM:PE SavedGameOptions & GlobalConfig persistence guards & ThreadingExtension simulation guard
+                // 32. TM:PE SavedGameOptions & GlobalConfig persistence guards
                 try
                 {
                     Type sgoType = tmpe.GetType("TrafficManager.State.SavedGameOptions");
@@ -2336,21 +2141,11 @@ namespace MoreNetworkCapacityRenew
                         EnsureAndGetGlobalConfig();
                     }
 
-                    Type threadExtType = tmpe.GetType("TrafficManager.Lifecycle.ThreadingExtension");
-                    if (threadExtType != null)
-                    {
-                        MethodInfo simFrameM = threadExtType.GetMethod("OnBeforeSimulationFrame", BindingFlags.Public | BindingFlags.Instance);
-                        if (simFrameM != null)
-                        {
-                            var pre = typeof(TMPEPatches).GetMethod(nameof(TMPEPatches.ThreadingExtension_OnBeforeSimulationFrame_Prefix));
-                            harmony.Patch(simFrameM, prefix: new HarmonyMethod(pre));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TM:PE ThreadingExtension.OnBeforeSimulationFrame (null-safe prefix)");
-                        }
-                    }
+                    // Note: TM:PE ThreadingExtension is left 100% native to TM:PE so timed traffic lights run smoothly.
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SavedGameOptions/GlobalConfig/ThreadingExtension: " + ex);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SavedGameOptions/GlobalConfig: " + ex);
                 }
 
             }
@@ -6672,6 +6467,9 @@ namespace MoreNetworkCapacityRenew
 
                 // Vehicle grid sanitization (breaks any circular vehicle loops)
                 SanitizeVehicleGrid();
+
+                // Clear any deadlocked/immortal stuck vehicles from save
+                CleanStuckVehicles();
                 
                 // Report missing asset stats
                 MissingAssetProtection.ReportFinalStats();
@@ -6891,6 +6689,139 @@ namespace MoreNetworkCapacityRenew
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeVehicleGrid error: " + ex);
             }
+        }
+
+        public static int CleanStuckVehicles()
+        {
+            int released = 0;
+            try
+            {
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return 0;
+
+                Vehicle[] buffer = vm.m_vehicles.m_buffer;
+                for (int i = 1; i < buffer.Length; i++)
+                {
+                    Vehicle.Flags flags = buffer[i].m_flags;
+                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingSpace | Vehicle.Flags.WaitingCargo | Vehicle.Flags.WaitingTarget | Vehicle.Flags.InsideBuilding | Vehicle.Flags.Landing | Vehicle.Flags.TakingOff)) != 0)
+                        continue;
+
+                    if (buffer[i].m_blockCounter >= 180 && buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.0001f)
+                    {
+                        try
+                        {
+                            vm.ReleaseVehicle((ushort)i);
+                            released++;
+                        }
+                        catch { }
+                    }
+                }
+                if (released > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] CleanStuckVehicles: Released {0} deadlocked/immortal vehicles from save.", released));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] CleanStuckVehicles error: " + ex);
+            }
+            return released;
+        }
+    }
+
+    // ============================================================================
+    // NON-INTRUSIVE ENGINE-LEVEL STUCK VEHICLE WATCHDOG (THREADING EXTENSION)
+    // ============================================================================
+    public class MNCVehicleWatchdogThreading : ThreadingExtensionBase
+    {
+        private int m_lastCheckedIndex = 0;
+        private const int VEHICLES_PER_FRAME = 256;
+
+        public override void OnAfterSimulationFrame()
+        {
+            base.OnAfterSimulationFrame();
+
+            try
+            {
+                if (SimulationManager.instance == null || SimulationManager.instance.SimulationPaused)
+                    return;
+
+                VehicleManager vm = Singleton<VehicleManager>.instance;
+                if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null)
+                    return;
+
+                Vehicle[] buffer = vm.m_vehicles.m_buffer;
+                int bufLen = buffer.Length;
+                if (bufLen <= 1) return;
+
+                int startIndex = m_lastCheckedIndex;
+                int endIndex = startIndex + VEHICLES_PER_FRAME;
+                if (endIndex > bufLen) endIndex = bufLen;
+
+                PathManager pm = Singleton<PathManager>.instance;
+                NetManager nm = Singleton<NetManager>.instance;
+                bool hasNet = (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null);
+                bool hasPath = (pm != null && pm.m_pathUnits != null && pm.m_pathUnits.m_buffer != null);
+
+                for (int i = startIndex; i < endIndex; i++)
+                {
+                    if (i == 0) continue;
+
+                    Vehicle.Flags flags = buffer[i].m_flags;
+
+                    // Only inspect active, spawned vehicles
+                    if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) != (Vehicle.Flags.Created | Vehicle.Flags.Spawned))
+                        continue;
+
+                    // Ignore vehicles in legitimate stationary/stopped states
+                    if ((flags & (Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading | Vehicle.Flags.WaitingPath | Vehicle.Flags.Stopped | Vehicle.Flags.WaitingSpace | Vehicle.Flags.WaitingCargo | Vehicle.Flags.WaitingTarget | Vehicle.Flags.InsideBuilding | Vehicle.Flags.Landing | Vehicle.Flags.TakingOff)) != 0)
+                        continue;
+
+                    // Condition 1: Severe Block Deadlock
+                    // Vanilla limit is 100/150. If m_blockCounter >= 180 and velocity < 0.0001f:
+                    // The vehicle has been motionless beyond all normal engine limits (immortal ghost vehicle / mutual yield deadlock).
+                    // Safely release it via the engine's official VehicleManager API:
+                    if (buffer[i].m_blockCounter >= 180 && buffer[i].GetLastFrameVelocity().sqrMagnitude < 0.0001f)
+                    {
+                        try
+                        {
+                            vm.ReleaseVehicle((ushort)i);
+                        }
+                        catch { }
+                        continue;
+                    }
+
+                    // Condition 2: Broken/demolished road segment in active path
+                    if (buffer[i].m_path != 0 && hasNet && hasPath && buffer[i].m_path < (uint)pm.m_pathUnits.m_buffer.Length)
+                    {
+                        int posIdx = (int)(buffer[i].m_pathPositionIndex >> 1);
+                        PathUnit.Position pPos;
+                        if (pm.m_pathUnits.m_buffer[buffer[i].m_path].GetPosition(posIdx, out pPos))
+                        {
+                            ushort segId = pPos.m_segment;
+                            if (segId != 0 && segId < nm.m_segments.m_buffer.Length)
+                            {
+                                if ((nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) == 0)
+                                {
+                                    // Active path references a destroyed road segment -> vehicle is stranded mid-road
+                                    try
+                                    {
+                                        vm.ReleaseVehicle((ushort)i);
+                                    }
+                                    catch { }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                m_lastCheckedIndex = (endIndex >= bufLen) ? 1 : endIndex;
+            }
+            catch { }
         }
     }
 

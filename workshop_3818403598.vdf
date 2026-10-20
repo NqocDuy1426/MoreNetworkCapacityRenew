@@ -106,6 +106,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.37 - Restored 100% native TM:PE pathfinding, junction restrictions, and building simulation without external Harmony prefixes. Fixed issue where clearing traffic / despawning all vehicles caused vehicles to remain stuck inside buildings and fail to spawn onto the road network. Preserved TM:PE native laneLocation_ and laneTarget_ buffers."
+	"changenote"		"v4.3.38 - Resolved vehicles stopping mid-road and persistent traffic gridlocks. Unhooked TM:PE SpeedLimitManager, Flags, and junction tool methods so TM:PE vehicle behavior, speed calculations, and lane arrows run 100% natively without external interference. Introduced a non-intrusive engine-level vehicle watchdog (MNCVehicleWatchdogThreading) and level-load sanitizer that cleanly releases vehicles stuck in mutual yield deadlocks or dead-end broken segments without any Harmony hooks into TM:PE algorithms."
 }
 

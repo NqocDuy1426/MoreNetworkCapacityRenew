@@ -6,29 +6,31 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.0.0 (Array Guardian & Critical Stability Architecture) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.39 (Complete 65K TM:PE Scope Expansion & Zero-Interference Simulation) ✨[/h1]
 [list]
-[*] [b]Array Guardian - Centralized Array & Buffer Management:[/b]
+[*] [b]Full 65K TM:PE Influence & Scope Expansion:[/b]
 [list]
-    [*] Early and atomic expansion of critical TM:PE arrays: [i]Flags.laneArrowFlags[/i] (524,288), [i]Flags.highwayLaneArrowFlags[/i] (524,288), and [i]Flags.laneAllowedVehicleTypesArray[/i] (65,536).
-    [*] Direct synchronization of TM:PE extension buffers ([i]NetLaneExtensions._laneBuffer[/i], [i]NetSegmentExtensions._segBuffer[/i], [i]NetNodeExtensions._nodeBuffer[/i]) to live NetManager 64K buffers, preventing stale pointer traps.
-    [*] Continuous background watchdog in simulation thread monitors and auto-repairs any array shrinkage dynamically.
+    [*] TM:PE's operational range is fully expanded across all 65,024 segments and 65,024 nodes (up from vanilla 36,864 / 32,768 limits).
+    [*] Dynamic IL transpilation safely updates 56+ critical constant boundaries and buffer allocations inside TM:PE without modifying its simulation logic.
+    [*] Full compatibility with all TM:PE tools and overlays: [i]Lane Connector, Priority Signs, Speed Limits, Junction Restrictions, Timed Traffic Lights, and Vehicle Restrictions[/i] across the entire 65K map.
+    [*] All routing recalculations ([i]RoutingManager[/i]), speed registrations ([i]SpeedLimitManager[/i]), and junction defaults ([i]JunctionRestrictionsManager[/i]) automatically span all 65K roads.
 [/list]
-[*] [b]Permanent Save Freeze Resolution:[/b]
+[*] [b]SegmentEnd Resolution & Vehicle Flow Fix:[/b]
 [list]
-    [*] Eliminated [i]IndexOutOfRangeException during LaneArrowManager.OnBeforeSaveData[/i] that caused the infinite save spinner lockup.
-    [*] Protected TM:PE [i]LaneArrowManager.OnBeforeSaveData[/i] with a bulletproof safe execution guard and integrated Pre-Save array expansion.
+    [*] Fixed split-array indexing in [i]SegmentEndManager.GetIndex[/i], [i]TurnOnRedManager[/i], and [i]TrafficMeasurementManager[/i] (offset 65,024). Eliminates vehicles stopping dead or freezing at high-ID junctions due to unmapped segment ends.
+    [*] Zero external vehicle deletion: 100% pure native traffic simulation. Fully respects user-configured TM:PE despawn preferences (including [i]Disable Despawning[/i]).
 [/list]
-[*] [b]Ghost Vehicles & Despawn Fix (Traffic Recovery System):[/b]
+[*] [b]Pure Native Multi-Threaded Pathfinding & Vehicle Dispatch:[/b]
 [list]
-    [*] Fixed frozen/ghost vehicles standing still with non-responsive AI caused by lane arrow array bounds violations during pathfinding.
-    [*] Harmony armor on [i]Flags.CanHaveLaneArrows[/i], [i]ApplyLaneArrowFlags[/i], [i]RemoveLaneArrowFlags[/i], [i]ResetLaneArrowFlags[/i], and [i]ValidateLaneCustomArrows[/i] to return safe defaults instead of crashing simulation threads.
-    [*] Automated periodic watchdog rescuer unblocks stalled vehicles (>60s) to restore and maintain natural city traffic density.
+    [*] TM:PE [i]CustomPathFind[/i] worker threads run 100% natively at 60+ FPS without external hook overhead or thread synchronization locks.
+    [*] Buildings continuously dispatch service and cargo vehicles without delay, even after mass traffic despawns.
 [/list]
-[*] [b]High Performance & Seamless Compatibility:[/b]
+[*] [b]Modern Mod Compatibility Suite:[/b]
 [list]
-    [*] Zero frame drops during expansion; negligible (< 2%) CPU overhead.
-    [*] Full verified compatibility with TM:PE 11.9.4.1 STABLE, More Vehicles Renew 2, Adaptive Roads, and 16+ network mods.
+    [*] [b]Transfer Manager Community Edition (TransferManagerCE):[/b] Dynamic BitArray 65K path-distance expansion.
+    [*] [b]Rebalanced Industries Revisited 1.0.3:[/b] 100% harmonious warehouse & cargo operations.
+    [*] [b]Adaptive Roads (ADR):[/b] Dual-stream buffer deserialization armor (prevents savegame load EOF crashes).
+    [*] [b]More Vehicles & More PathUnits x2:[/b] Synchronized 65,536 vehicle buffer and 524,288 path units.
 [/list]
 [/list]
 

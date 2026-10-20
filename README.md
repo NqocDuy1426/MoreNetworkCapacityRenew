@@ -24,15 +24,23 @@ Unlike previous experimental or unmaintained releases that suffered from severe 
 
 ---
 
-### 🚨 What's New in v2.2 (Speed Limit Deadstop Fix & Performance Boost)
-- **Highway & Straight Road Deadstop Fix (Speed Limit Zero Bug):** Resolved the issue where vehicles abruptly braked or stopped dead on straight highway and avenue sections when TM:PE speed limits were active. Pre-initialized all 524,288 TM:PE lane speed limit cache slots with road default speeds (preventing unpopulated high-ID lanes from defaulting to 0 km/h) and established an active runtime fallback shield so vehicles never receive a 0 speed limit.
-- **Major FPS & Simulation Performance Optimization:**
-  - **Eliminated render group rebuild bottlenecks:** Removed redundant renderer update calls from simulation ticks that were invalidating render groups and causing micro-stutter / FPS drops.
-  - **Simulation frame gating:** Network simulation for expanded nodes/segments now strictly runs once per simulation frame index, preventing duplicate processing across sub-steps.
-  - **Zero-redundancy color updates:** Color updates now only process expanded elements (36,864+ segments and 32,768+ nodes) instead of re-scanning all 65K elements repeatedly.
-  - **TM:PE Traffic Light CPU optimization:** Traffic light simulation steps now skip uncreated nodes immediately, cutting CPU cycles by ~95%.
-- **Memory & Garbage Collection Optimizer (`MemoryOptimizer`):** Resolves the critical `"Fatal error in gc: Too many heap sections"` (Unity 5.6 Mono GC breakpoint 0x80000003) crash. Automatically mitigates heap fragmentation when loading large cities with heavy asset counts and Procedural Objects (PO Mod).
-- **Reload & Exit-to-Menu Crash Fix:** Eliminated crashes and freezes when exiting to the main menu or reloading a city. Unsafe finalizer synchronization has been replaced with safe lifecycle teardown.
+### 🚨 What's New in v4.3.39 (Complete 65K TM:PE Scope Expansion & Zero-Interference Simulation)
+- **Full 65K TM:PE Influence & Scope Expansion:**
+  - TM:PE's operational range is fully expanded across all 65,024 segments and 65,024 nodes (up from vanilla 36,864 / 32,768 limits).
+  - Dynamic IL transpilation safely updates 56+ critical constant boundaries and buffer allocations inside TM:PE without modifying or interfering with its native traffic simulation logic.
+  - Complete support across all TM:PE tools & overlays: Lane Connector, Priority Signs, Speed Limits, Junction Restrictions, Timed Traffic Lights, and Vehicle Restrictions across the entire 65K network.
+  - Full automatic recalculation across all 65K segments for `RoutingManager`, `SpeedLimitManager`, and `JunctionRestrictionsManager`.
+- **SegmentEnd Resolution & Vehicle Flow Fix:**
+  - Fixed split-array indexing in `SegmentEndManager.GetIndex`, `TurnOnRedManager`, and `TrafficMeasurementManager` (offset 65,024). Eliminates vehicles stopping dead or freezing at high-ID junctions due to missing segment end lookups.
+  - Zero external vehicle deletion/watchdogs: 100% pure native traffic simulation that strictly respects user-configured TM:PE despawn preferences (including *Disable Despawning*).
+- **Pure Native Multi-Threaded Pathfinding & Vehicle Dispatch:**
+  - TM:PE `CustomPathFind` worker threads run 100% natively at 60+ FPS without external hook overhead or thread synchronization locks.
+  - Buildings continuously dispatch service and cargo vehicles without delay, even after mass traffic despawns.
+- **Modern Mod Compatibility Suite:**
+  - **Transfer Manager Community Edition (TransferManagerCE):** Dynamic BitArray 65K path-distance expansion.
+  - **Rebalanced Industries Revisited 1.0.3:** Harmonious warehouse and cargo transport calculations.
+  - **Adaptive Roads (ADR):** Dual-stream buffer deserialization armor (prevents savegame load EOF crashes).
+  - **More Vehicles & More PathUnits x2:** Synchronized 65,536 vehicle buffer and 524,288 path units.
 
 ---
 
@@ -117,15 +125,23 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 
 ---
 
-### 🚨 Điểm mới trong bản cập nhật v2.2 (Sửa lỗi Dừng xe trên Cao tốc & Tăng vọt Hiệu năng)
-- **Khắc phục triệt để lỗi xe dừng khựng trên cao tốc & đường thẳng (Lỗi Vận tốc = 0 TM:PE):** Sửa lỗi xe ô tô tự động phanh gấp hoặc dừng chết trên các đoạn đường thẳng tắp/đại lộ khi bật tính năng Speed Limit của TM:PE. Tự động khởi tạo giá trị vận tốc mặc định cho toàn bộ 524,288 làn đường trong bộ nhớ cache của TM:PE (tránh việc các làn ID cao bị gán nhầm tốc độ 0 km/h) kết hợp cơ chế bảo vệ dự phòng theo thời gian thực (fallback shield) để xe không bao giờ nhận vận tốc 0.
-- **Tối ưu hóa Hiệu năng & Khắc phục triệt để Tụt FPS:**
-  - **Loại bỏ hiện tượng nghẽn mesh render:** Gỡ bỏ các lệnh cập nhật renderer không cần thiết trong vòng lặp mô phỏng mỗi tick – nguyên nhân chính gây giật lag và buộc card đồ họa phải tính toán lại render mesh liên tục.
-  - **Đồng bộ chu kỳ mô phỏng (Frame Gating):** Quy trình mô phỏng các node & segment mở rộng chỉ chạy chính xác 1 lần mỗi khung hình (frame index), loại bỏ hoàn toàn các chu kỳ mô phỏng trùng lặp qua từng substep.
-  - **Tối ưu làm mới màu sắc (Zero-redundancy Color Update):** Lệnh cập nhật màu sắc chỉ quét các phần tử mở rộng (36,864+ segment và 32,768+ node) thay vì quét trùng lặp toàn bộ 65K phần tử như trước.
-  - **Tối ưu hóa CPU cho Đèn giao thông TM:PE:** Bỏ qua ngay lập tức các nút chưa khởi tạo (uncreated nodes), giảm tới ~95% tài nguyên CPU tiêu thụ trong các bước tính toán đèn giao thông.
-- **Tối ưu hóa Bộ nhớ & Bộ thu gom rác (`MemoryOptimizer`):** Khắc phục triệt để lỗi sập game `"Fatal error in gc: Too many heap sections"` (Unity 5.6 Mono GC breakpoint 0x80000003) khi tải thành phố lớn có nhiều tài nguyên (Assets) hoặc dùng mod Procedural Objects (PO).
-- **Khắc phục lỗi văng game khi Thoát ra Menu / Tải lại Save:** Loại bỏ hoàn toàn lỗi crash khi quay lại menu chính hoặc nạp lại bản lưu, đảm bảo giải phóng bộ nhớ an toàn.
+### 🚨 Điểm mới trong bản cập nhật v4.3.39 (Mở rộng Toàn diện Phạm vi TM:PE lên 65K & Mô phỏng Giao thông Chuẩn xác)
+- **Mở rộng Toàn diện Phạm vi Ảnh hưởng của TM:PE lên 65,024 Segments & Nodes:**
+  - Mở rộng toàn bộ tầm phủ sóng của TM:PE từ giới hạn gốc (36,864 segments và 32,768 nodes) lên chuẩn 65,024 segments và 65,024 nodes trên toàn bộ bản đồ thành phố.
+  - Cơ chế Dynamic IL Transpiler tự động cập nhật hơn 56 điểm giới hạn cứng và phân bổ bộ nhớ nội bộ của TM:PE mà tuyệt đối không can thiệp hay làm biến dạng thuật toán mô phỏng tự nhiên của TM:PE.
+  - Hỗ trợ đầy đủ toàn bộ thanh công cụ TM:PE: Nối làn (Lane Connector), Biển ưu tiên (Priority Signs), Tốc độ (Speed Limits), Luật nút giao (Junction Restrictions), Đèn đếm giây (Timed Traffic Lights) và Cấm phương tiện (Vehicle Restrictions) trên mọi con đường mở rộng.
+  - Tự động đồng bộ và tính toán lại luồng giao thông 65K trong `RoutingManager`, `SpeedLimitManager` và `JunctionRestrictionsManager`.
+- **Khắc phục Triệt để Lỗi Xe Dừng Khựng Giữa Đường / Tại Nút Giao:**
+  - Sửa lỗi định vị địa chỉ mảng đôi `SegmentEndManager.GetIndex`, `TurnOnRedManager` và `TrafficMeasurementManager` (offset chuẩn 65,024). Khắc phục tình trạng TM:PE trả về `null` điểm cuối nút giao khiến xe không biết rẽ và đứng chôn chân giữa đường.
+  - Không xoá xe cưỡng chế: Trả lại 100% quyền điều tiết và despawn cho game gốc cùng cài đặt của người dùng trong TM:PE (tôn trọng tuyệt đối tuỳ chọn *Disable Despawning*).
+- **Tìm đường Đa luồng Native 100% & Xuất xe Tự nhiên:**
+  - Luồng tìm đường `CustomPathFind` của TM:PE chạy 100% native tốc độ cao 60+ FPS, không bị khóa luồng hay chậm trễ.
+  - Toà nhà liên tục sản sinh và xuất xe dịch vụ, xe rác, cứu hoả, chở hàng mượt mà, không bị kẹt trong toà nhà sau khi dọn giao thông.
+- **Tương thích Toàn diện Hệ sinh thái Mod Hiện đại:**
+  - **Transfer Manager Community Edition (TransferManagerCE):** Mở rộng mảng BitArray 65K cho thuật toán tìm đường Dijkstra.
+  - **Rebalanced Industries Revisited 1.0.3:** Vận hành trơn tru các kho hàng công nghiệp và chuỗi cung ứng.
+  - **Adaptive Roads (ADR):** Giáp bảo vệ đọc file save đa luồng, chống lỗi văng game EOF khi tải thành phố.
+  - **More Vehicles & More PathUnits x2:** Đồng bộ 65,536 phương tiện và 524,288 path units.
 
 ---
 

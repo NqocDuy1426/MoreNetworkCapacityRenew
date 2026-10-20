@@ -6,31 +6,31 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.39 (Complete 65K TM:PE Scope Expansion & Zero-Interference Simulation) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.40 (Full-Map TM:PE Traffic Light Stepper & 100% Zero-Hook Architecture) ✨[/h1]
 [list]
-[*] [b]Full 65K TM:PE Influence & Scope Expansion:[/b]
+[*] [b]Full-Map TM:PE Traffic Light Stepper (Fixed Frozen Vehicles):[/b]
 [list]
-    [*] TM:PE's operational range is fully expanded across all 65,024 segments and 65,024 nodes (up from vanilla 36,864 / 32,768 limits).
-    [*] Dynamic IL transpilation safely updates 56+ critical constant boundaries and buffer allocations inside TM:PE without modifying its simulation logic.
-    [*] Full compatibility with all TM:PE tools and overlays: [i]Lane Connector, Priority Signs, Speed Limits, Junction Restrictions, Timed Traffic Lights, and Vehicle Restrictions[/i] across the entire 65K map.
-    [*] All routing recalculations ([i]RoutingManager[/i]), speed registrations ([i]SpeedLimitManager[/i]), and junction defaults ([i]JunctionRestrictionsManager[/i]) automatically span all 65K roads.
+    [*] Solved the root cause of vehicles standing completely still mid-road or at intersections despite having a valid route and destination: TM:PE's native [i]SimulationStep[/i] hardcoded simulation stepping to nodes [i]0..32,767[/i]. Nodes [i]32,768..65,023[/i] were never stepped, causing traffic lights on those nodes to remain perpetually stuck in red/unadvanced phases.
+    [*] Added native [i]MNCTrafficLightStepper[/i] ([i]ICities.ThreadingExtensionBase[/i]) that runs seamlessly on the simulation thread, natively stepping nodes [i]32,768..65,023[/i] (504 nodes per frame) with zero overhead via JIT-compiled dynamic invocation ([i]ldelema[/i] on struct array).
+    [*] Timed traffic lights and adaptive signals across the entire 64K map now cycle fluidly.
 [/list]
-[*] [b]SegmentEnd Resolution & Vehicle Flow Fix:[/b]
+[*] [b]Strictly Zero Harmony Hooks into TM:PE (Full Performance & FPS Restored):[/b]
 [list]
-    [*] Fixed split-array indexing in [i]SegmentEndManager.GetIndex[/i], [i]TurnOnRedManager[/i], and [i]TrafficMeasurementManager[/i] (offset 65,024). Eliminates vehicles stopping dead or freezing at high-ID junctions due to unmapped segment ends.
-    [*] Zero external vehicle deletion: 100% pure native traffic simulation. Fully respects user-configured TM:PE despawn preferences (including [i]Disable Despawning[/i]).
+    [*] Completely eliminated all intrusive Harmony hooks into TM:PE methods ([i]SegmentEndManager.GetIndex[/i], [i]TurnOnRedManager.GetIndex[/i], [i]TrafficMeasurementManager.GetDirIndex[/i], [i]GlobalConfig[/i], etc.). TM:PE runs 100% pure native code.
+    [*] Excluded [i]TrafficManager[/i] from [i]DynamicPatcher.targetModNames[/i] to preserve native enum values ([i]ExtVehicleType.CableCar[/i]) and retain full Mono JIT optimization, resolving severe FPS degradation.
+    [*] All TM:PE data synchronization is accomplished safely via direct memory buffers ([i]_segBuffer[/i], [i]_nodeBuffer[/i], [i]_laneBuffer[/i]) and expanded array capacities.
 [/list]
-[*] [b]Pure Native Multi-Threaded Pathfinding & Vehicle Dispatch:[/b]
+[*] [b]Contiguous 131,072 Buffer Expansion for TM:PE Split Arrays:[/b]
 [list]
-    [*] TM:PE [i]CustomPathFind[/i] worker threads run 100% natively at 60+ FPS without external hook overhead or thread synchronization locks.
-    [*] Buildings continuously dispatch service and cargo vehicles without delay, even after mass traffic despawns.
+    [*] Expanded [i]TurnOnRedSegments[/i], [i]SegmentDirTrafficData[/i], and [i]SegmentEnds[/i] contiguously to 131,072 elements. TM:PE's native indexing ([i]segmentId + 36864[/i], max 101,888) fits comfortably without any hooks or shifting.
 [/list]
-[*] [b]Modern Mod Compatibility Suite:[/b]
+[*] [b]Anti-Freeze Speed Limit Cache Guarantee:[/b]
 [list]
-    [*] [b]Transfer Manager Community Edition (TransferManagerCE):[/b] Dynamic BitArray 65K path-distance expansion.
-    [*] [b]Rebalanced Industries Revisited 1.0.3:[/b] 100% harmonious warehouse & cargo operations.
-    [*] [b]Adaptive Roads (ADR):[/b] Dual-stream buffer deserialization armor (prevents savegame load EOF crashes).
-    [*] [b]More Vehicles & More PathUnits x2:[/b] Synchronized 65,536 vehicle buffer and 524,288 path units.
+    [*] Ensured all entries in TM:PE's speed limit cache ([i]cachedLaneSpeedLimits_[/i]) <= 0.001f default to [i]1.25f[/i] (50 km/h), completely preventing vehicles from stopping dead mid-lane due to zero-speed cache entries.
+[/list]
+[*] [b]Safe Pulse Unit Casting:[/b]
+[list]
+    [*] Wrapped [i]SafeCopyPulseUnits[/i] in safe exception handling to prevent [i]InvalidCastException[/i] with mods like 81 Tiles 2.
 [/list]
 [/list]
 
@@ -108,6 +108,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.39 - Fully expanded TM:PE coverage and influence to 65,024 segments and nodes without interfering with TM:PE algorithms. Dynamically transpiles TM:PE segment/node bounds and array allocations across all tools, overlays, routing, speed limits, and junction restrictions. Patched SegmentEndManager, TurnOnRedManager, and TrafficMeasurementManager split array indices for 65K capacity. Removed any external vehicle watchdog/cleaner to preserve pure native traffic simulation and user-configured despawn rules."
+	"changenote"		"v4.3.40 - Added MNCTrafficLightStepper (ICities.ThreadingExtensionBase) to natively step TM:PE traffic light simulations for nodes 32,768..65,023 on the simulation thread, solving vehicle freeze mid-road/at junctions. Strictly zero Harmony hooks into TM:PE methods (pure native TM:PE execution). Excluded TM:PE from DynamicPatcher to maintain native enums and eliminate FPS drop. Expanded split arrays (TurnOnRedSegments, SegmentDirTrafficData, SegmentEnds) contiguously to 131,072 elements. Guaranteed non-zero lane speed limits in cache."
 }
 

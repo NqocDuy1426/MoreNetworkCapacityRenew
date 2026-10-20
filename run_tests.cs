@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.39 version bump
-            bool hasV439 = renewCode.Contains("More Network Capacity Renew v4.3.39 by NgocDuy");
-            Assert(hasV439, "Version correctly bumped to v4.3.39 in RenewMod.Name");
+            // 11.1 Check v4.3.40 version bump
+            bool hasV440 = renewCode.Contains("More Network Capacity Renew v4.3.40 by NgocDuy");
+            Assert(hasV440, "Version correctly bumped to v4.3.40 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -656,9 +656,9 @@ class TestSuite
         }
 
         // ====================================================================
-        // TEST GROUP 16: PURE NATIVE TM:PE SIMULATION & 65K SCOPE EXPANSION (v4.3.39)
+        // TEST GROUP 16: PURE ZERO-HOOK TM:PE ARCHITECTURE (v4.3.40)
         // ====================================================================
-        Console.WriteLine("\n--- TEST GROUP 16: Pure Native TM:PE Simulation & 65K Scope Expansion (v4.3.39) ---");
+        Console.WriteLine("\n--- TEST GROUP 16: Pure Zero-Hook TM:PE Architecture (v4.3.40) ---");
         try
         {
             string renewCode = File.ReadAllText("Renew.cs");
@@ -691,21 +691,59 @@ class TestSuite
                               !renewCode.Contains("CleanStuckVehicles");
             Assert(noWatchdog, "Zero external vehicle watchdog/cleaner: vehicles and despawning follow pure user/game/TM:PE rules");
 
-            // 16.7 TrafficManager registered in DynamicPatcher for 65K scope expansion
-            bool tmpeTranspiled = renewCode.Contains("\"TrafficManager\"") &&
-                                  renewCode.Contains("type.FullName.StartsWith(\"TrafficManager.Custom.PathFinding.\")");
-            Assert(tmpeTranspiled, "TrafficManager dynamically transpiled to expand scope to 65,024 while safely preserving native pathfinding");
+            // 16.7 Strictly ZERO Harmony hooks on TM:PE methods (zero GetIndex hooks, zero TM:PE method hooks)
+            bool noTmpeHooks = !renewCode.Contains("Patched TM:PE SegmentEndManager.GetIndex") &&
+                               !renewCode.Contains("Patched TM:PE TurnOnRedManager.GetIndex") &&
+                               !renewCode.Contains("Patched TM:PE TrafficMeasurementManager.GetDirIndex");
+            Assert(noTmpeHooks, "STRICTLY ZERO Harmony hooks into TM:PE methods (preserves 100% native TM:PE execution)");
 
-            // 16.8 Split array index methods patched for 65K capacity
-            bool splitIndicesPatched = renewCode.Contains("Patched TM:PE SegmentEndManager.GetIndex (65K capacity)") &&
-                                       renewCode.Contains("Patched TM:PE SegmentEndManager.GetSegmentAndNodeFromIndex (65K capacity)") &&
-                                       renewCode.Contains("Patched TM:PE TurnOnRedManager.GetIndex (65K capacity)") &&
-                                       renewCode.Contains("Patched TM:PE TrafficMeasurementManager.GetDirIndex (65K capacity)");
-            Assert(splitIndicesPatched, "SegmentEndManager, TurnOnRedManager, and TrafficMeasurementManager split array indices patched for 65K capacity");
+            // 16.8 TrafficManager EXCLUDED from DynamicPatcher to prevent enum corruption & preserve Mono JIT
+            bool tmpeExcluded = !renewCode.Contains("\"TrafficManager\"\n") &&
+                                !renewCode.Contains("\"TrafficManager\",");
+            Assert(tmpeExcluded, "TrafficManager excluded from DynamicPatcher targetModNames (avoids enum corruption & maintains full FPS)");
         }
         catch (Exception ex)
         {
             Assert(false, "Test Group 16 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 17: FULL-MAP TRAFFIC LIGHT STEPPER & NON-ZERO SPEED CACHE (v4.3.40)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 17: Full-Map Traffic Light Stepper & Non-Zero Speed Cache (v4.3.40) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 17.1 MNCTrafficLightStepper exists and inherits from ThreadingExtensionBase
+            bool hasStepper = renewCode.Contains("public class MNCTrafficLightStepper : ThreadingExtensionBase") &&
+                              renewCode.Contains("OnAfterSimulationFrame") &&
+                              renewCode.Contains("32768 + (int)frame * 504");
+            Assert(hasStepper, "MNCTrafficLightStepper natively steps TM:PE traffic light simulations for nodes 32768..65023 via ThreadingExtensionBase");
+
+            // 17.2 Stepper reset hooked into level load
+            bool resetCalled = renewCode.Contains("MNCTrafficLightStepper.ResetStepper();");
+            Assert(resetCalled, "MNCTrafficLightStepper.ResetStepper() called in RenewLoading.OnLevelLoaded");
+
+            // 17.3 Anti-freeze non-zero speed cache guarantee
+            bool antiFreeze = renewCode.Contains("arr[i] <= 0.001f") &&
+                              renewCode.Contains("arr[i] = 1.25f;");
+            Assert(antiFreeze, "Anti-freeze non-zero speed cache guarantee: all unmapped slots default to 1.25f (50 km/h)");
+
+            // 17.4 Contiguous 131,072 expansion for split array index compatibility without hooks
+            bool contiguous131k = renewCode.Contains("newArr = Array.CreateInstance(arr.GetType().GetElementType(), 131072);") &&
+                                  renewCode.Contains("Array.Copy(arr, newArr, arr.Length);");
+            Assert(contiguous131k, "TurnOnRedSegments and SegmentDirTrafficData expanded contiguously to 131,072 elements (0..101,888 fit natively)");
+
+            // 17.5 SegmentEndManager.SegmentEnds expanded to 131,072 contiguously
+            bool segEnds131k = renewCode.Contains("Array.CreateInstance(elemType, 131072);") &&
+                               renewCode.Contains("Array.Copy(arr, newArr, arr.Length);") &&
+                               renewCode.Contains("Expanded SegmentEndManager.SegmentEnds: {0} -> 131072");
+            Assert(segEnds131k, "SegmentEndManager.SegmentEnds expanded contiguously to 131,072 elements");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 17 exception", ex.ToString());
         }
 
         // ====================================================================

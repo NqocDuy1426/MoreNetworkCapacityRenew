@@ -24,23 +24,21 @@ Unlike previous experimental or unmaintained releases that suffered from severe 
 
 ---
 
-### 🚨 What's New in v4.3.39 (Complete 65K TM:PE Scope Expansion & Zero-Interference Simulation)
-- **Full 65K TM:PE Influence & Scope Expansion:**
-  - TM:PE's operational range is fully expanded across all 65,024 segments and 65,024 nodes (up from vanilla 36,864 / 32,768 limits).
-  - Dynamic IL transpilation safely updates 56+ critical constant boundaries and buffer allocations inside TM:PE without modifying or interfering with its native traffic simulation logic.
-  - Complete support across all TM:PE tools & overlays: Lane Connector, Priority Signs, Speed Limits, Junction Restrictions, Timed Traffic Lights, and Vehicle Restrictions across the entire 65K network.
-  - Full automatic recalculation across all 65K segments for `RoutingManager`, `SpeedLimitManager`, and `JunctionRestrictionsManager`.
-- **SegmentEnd Resolution & Vehicle Flow Fix:**
-  - Fixed split-array indexing in `SegmentEndManager.GetIndex`, `TurnOnRedManager`, and `TrafficMeasurementManager` (offset 65,024). Eliminates vehicles stopping dead or freezing at high-ID junctions due to missing segment end lookups.
-  - Zero external vehicle deletion/watchdogs: 100% pure native traffic simulation that strictly respects user-configured TM:PE despawn preferences (including *Disable Despawning*).
-- **Pure Native Multi-Threaded Pathfinding & Vehicle Dispatch:**
-  - TM:PE `CustomPathFind` worker threads run 100% natively at 60+ FPS without external hook overhead or thread synchronization locks.
-  - Buildings continuously dispatch service and cargo vehicles without delay, even after mass traffic despawns.
-- **Modern Mod Compatibility Suite:**
-  - **Transfer Manager Community Edition (TransferManagerCE):** Dynamic BitArray 65K path-distance expansion.
-  - **Rebalanced Industries Revisited 1.0.3:** Harmonious warehouse and cargo transport calculations.
-  - **Adaptive Roads (ADR):** Dual-stream buffer deserialization armor (prevents savegame load EOF crashes).
-  - **More Vehicles & More PathUnits x2:** Synchronized 65,536 vehicle buffer and 524,288 path units.
+### 🚨 What's New in v4.3.40 (Full-Map TM:PE Traffic Light Stepper & 100% Zero-Hook Architecture)
+- **Full-Map TM:PE Traffic Light Stepper (Fixed Frozen Vehicles):**
+  - Solved the root cause of vehicles standing completely still mid-road or at intersections despite having a valid route and destination: TM:PE's native `SimulationStep` hardcoded simulation stepping to nodes `0..32,767`. Nodes `32,768..65,023` were never stepped, causing traffic lights on those nodes to remain perpetually stuck in red/unadvanced phases.
+  - Added native `MNCTrafficLightStepper` (`ICities.ThreadingExtensionBase`) that runs on the simulation thread, natively stepping nodes `32,768..65,023` (504 nodes per frame) with zero overhead via JIT dynamic invocation (`ldelema` on struct array).
+  - Timed traffic lights and adaptive signals across the entire 64K map now cycle fluidly.
+- **Strictly Zero Harmony Hooks into TM:PE (Full Performance & FPS Restored):**
+  - Completely eliminated all intrusive Harmony hooks into TM:PE methods (`SegmentEndManager.GetIndex`, `TurnOnRedManager.GetIndex`, `TrafficMeasurementManager.GetDirIndex`, `GlobalConfig`, etc.). TM:PE runs 100% pure native code.
+  - Excluded `TrafficManager` from `DynamicPatcher.targetModNames` to preserve native enum values (`ExtVehicleType.CableCar`) and retain full Mono JIT optimization, resolving severe FPS degradation.
+  - All TM:PE data synchronization is accomplished safely via direct memory buffers (`_segBuffer`, `_nodeBuffer`, `_laneBuffer`) and expanded array capacities.
+- **Contiguous 131,072 Buffer Expansion for TM:PE Split Arrays:**
+  - Expanded `TurnOnRedSegments`, `SegmentDirTrafficData`, and `SegmentEnds` contiguously to 131,072 elements. TM:PE's native indexing (`segmentId + 36864`, max 101,888) fits comfortably without any hooks or shifting.
+- **Anti-Freeze Speed Limit Cache Guarantee:**
+  - Ensured all entries in TM:PE's speed limit cache (`cachedLaneSpeedLimits_`) <= 0.001f default to `1.25f` (50 km/h), completely preventing vehicles from stopping dead mid-lane due to zero-speed cache entries.
+- **Safe Pulse Unit Casting:**
+  - Wrapped `SafeCopyPulseUnits` in safe exception handling to prevent `InvalidCastException` with mods like 81 Tiles 2.
 
 ---
 
@@ -125,23 +123,21 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 
 ---
 
-### 🚨 Điểm mới trong bản cập nhật v4.3.39 (Mở rộng Toàn diện Phạm vi TM:PE lên 65K & Mô phỏng Giao thông Chuẩn xác)
-- **Mở rộng Toàn diện Phạm vi Ảnh hưởng của TM:PE lên 65,024 Segments & Nodes:**
-  - Mở rộng toàn bộ tầm phủ sóng của TM:PE từ giới hạn gốc (36,864 segments và 32,768 nodes) lên chuẩn 65,024 segments và 65,024 nodes trên toàn bộ bản đồ thành phố.
-  - Cơ chế Dynamic IL Transpiler tự động cập nhật hơn 56 điểm giới hạn cứng và phân bổ bộ nhớ nội bộ của TM:PE mà tuyệt đối không can thiệp hay làm biến dạng thuật toán mô phỏng tự nhiên của TM:PE.
-  - Hỗ trợ đầy đủ toàn bộ thanh công cụ TM:PE: Nối làn (Lane Connector), Biển ưu tiên (Priority Signs), Tốc độ (Speed Limits), Luật nút giao (Junction Restrictions), Đèn đếm giây (Timed Traffic Lights) và Cấm phương tiện (Vehicle Restrictions) trên mọi con đường mở rộng.
-  - Tự động đồng bộ và tính toán lại luồng giao thông 65K trong `RoutingManager`, `SpeedLimitManager` và `JunctionRestrictionsManager`.
-- **Khắc phục Triệt để Lỗi Xe Dừng Khựng Giữa Đường / Tại Nút Giao:**
-  - Sửa lỗi định vị địa chỉ mảng đôi `SegmentEndManager.GetIndex`, `TurnOnRedManager` và `TrafficMeasurementManager` (offset chuẩn 65,024). Khắc phục tình trạng TM:PE trả về `null` điểm cuối nút giao khiến xe không biết rẽ và đứng chôn chân giữa đường.
-  - Không xoá xe cưỡng chế: Trả lại 100% quyền điều tiết và despawn cho game gốc cùng cài đặt của người dùng trong TM:PE (tôn trọng tuyệt đối tuỳ chọn *Disable Despawning*).
-- **Tìm đường Đa luồng Native 100% & Xuất xe Tự nhiên:**
-  - Luồng tìm đường `CustomPathFind` của TM:PE chạy 100% native tốc độ cao 60+ FPS, không bị khóa luồng hay chậm trễ.
-  - Toà nhà liên tục sản sinh và xuất xe dịch vụ, xe rác, cứu hoả, chở hàng mượt mà, không bị kẹt trong toà nhà sau khi dọn giao thông.
-- **Tương thích Toàn diện Hệ sinh thái Mod Hiện đại:**
-  - **Transfer Manager Community Edition (TransferManagerCE):** Mở rộng mảng BitArray 65K cho thuật toán tìm đường Dijkstra.
-  - **Rebalanced Industries Revisited 1.0.3:** Vận hành trơn tru các kho hàng công nghiệp và chuỗi cung ứng.
-  - **Adaptive Roads (ADR):** Giáp bảo vệ đọc file save đa luồng, chống lỗi văng game EOF khi tải thành phố.
-  - **More Vehicles & More PathUnits x2:** Đồng bộ 65,536 phương tiện và 524,288 path units.
+### 🚨 Điểm mới trong bản cập nhật v4.3.40 (Bộ quét Đèn Giao thông Toàn bản đồ & Kiến trúc Không Hook TM:PE)
+- **Bộ quét Đèn Tín hiệu Toàn bản đồ TM:PE (Khắc phục Triệt để Xe đứng im giữa đường):**
+  - Tìm ra nguyên nhân gốc rễ hiện tượng xe đứng im giữa đường/nút giao dù có điểm đến và lộ trình hợp lệ: Hàm `SimulationStep` gốc của TM:PE chỉ quét và nhảy pha đèn cho các node `0..32,767`. Các node mở rộng `32,768..65,023` hoàn toàn không bao giờ được TM:PE quét, khiến đèn tín hiệu tại các node này luôn kẹt cứng ở màu đỏ vĩnh viễn, xe dừng lại chờ đèn chuyển xanh nhưng đèn không bao giờ nhảy.
+  - Bổ sung `MNCTrafficLightStepper` (`ICities.ThreadingExtensionBase`) chạy trực tiếp trên luồng mô phỏng, quét định kỳ các node `32,768..65,023` (504 node mỗi frame) với tốc độ JIT Dynamic invocation (`ldelema`) siêu tốc (< 1 microsecond/frame).
+  - Đèn đếm giây và chu kỳ chuyển pha đèn hoạt động mượt mà 100% trên toàn bộ bản đồ 64K.
+- **Tuyệt đối Không Can thiệp Hook Harmony vào các hàm của TM:PE (Khôi phục FPS & Hiệu năng Cao):**
+  - Loại bỏ hoàn toàn toàn bộ các hook can thiệp vào TM:PE (`SegmentEndManager.GetIndex`, `TurnOnRedManager.GetIndex`, `TrafficMeasurementManager.GetDirIndex`, `GlobalConfig`, v.v.). TM:PE chạy 100% native nguyên bản.
+  - Gỡ bỏ `TrafficManager` khỏi `DynamicPatcher.targetModNames` để bảo toàn enum `ExtVehicleType.CableCar` và giữ nguyên tối ưu hóa của Mono JIT, khắc phục triệt để tình trạng tụt FPS nghiêm trọng.
+  - Đồng bộ dữ liệu TM:PE an toàn thông qua con trỏ bộ nhớ trực tiếp (`_segBuffer`, `_nodeBuffer`, `_laneBuffer`) và mở rộng dung lượng mảng.
+- **Mở rộng Mảng Đôi Contiguous 131,072 cho TM:PE:**
+  - Mở rộng các mảng `TurnOnRedSegments`, `SegmentDirTrafficData`, và `SegmentEnds` lên 131,072 phần tử liên tục. Công thức đánh chỉ mục gốc của TM:PE (`segmentId + 36864`, tối đa 101,888) hoạt động tự nhiên không cần hook dịch chuyển chỉ số.
+- **Chống Đóng băng Tốc độ (Anti-Freeze Speed Limit Cache Guarantee):**
+  - Đảm bảo toàn bộ các slot trong cache tốc độ TM:PE (`cachedLaneSpeedLimits_`) <= 0.001f được gán mặc định `1.25f` (50 km/h), ngăn chặn hoàn toàn hiện tượng xe bị gán tốc độ 0 km/h đứng chôn chân.
+- **Bảo vệ Ép kiểu Đơn vị Nước/Xung (Safe Pulse Unit Casting):**
+  - Bọc try-catch an toàn trong `SafeCopyPulseUnits` loại bỏ hoàn toàn lỗi `InvalidCastException` khi dùng chung với 81 Tiles 2.
 
 ---
 

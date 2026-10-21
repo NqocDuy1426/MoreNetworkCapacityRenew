@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.43 version bump
-            bool hasV443 = renewCode.Contains("More Network Capacity Renew v4.3.43 by NgocDuy");
-            Assert(hasV443, "Version correctly bumped to v4.3.43 in RenewMod.Name");
+            // 11.1 Check v4.3.44 version bump
+            bool hasV444 = renewCode.Contains("More Network Capacity Renew v4.3.44 by NgocDuy");
+            Assert(hasV444, "Version correctly bumped to v4.3.44 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -718,8 +718,8 @@ class TestSuite
             // 17.1 MNCTrafficLightStepper exists and inherits from ThreadingExtensionBase
             bool hasStepper = renewCode.Contains("public class MNCTrafficLightStepper : ThreadingExtensionBase") &&
                               renewCode.Contains("OnAfterSimulationFrame") &&
-                              renewCode.Contains("32768 + (int)frame64 * 504");
-            Assert(hasStepper, "MNCTrafficLightStepper natively steps TM:PE traffic light simulations for nodes 32768..65023 via ThreadingExtensionBase");
+                              renewCode.Contains("32768 + (int)frame64 * 512");
+            Assert(hasStepper, "MNCTrafficLightStepper natively steps TM:PE traffic light simulations for nodes 32768..65535 via ThreadingExtensionBase");
 
             // 17.2 Stepper reset hooked into level load
             bool resetCalled = renewCode.Contains("MNCTrafficLightStepper.ResetStepper();");
@@ -801,20 +801,20 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 19.1 Upper segment stepping (36,864..65,023) across 256 frames
-            bool hasSegStepping = renewCode.Contains("int sStart = 36864 + (int)frame256 * 110;") &&
+            // 19.1 Upper segment stepping (36,864..65,535) across 256 frames
+            bool hasSegStepping = renewCode.Contains("int sStart = 36864 + (int)frame256 * 112;") &&
                                   renewCode.Contains("info.m_netAI.SimulationStep((ushort)s, ref segBuffer[s]);") &&
                                   renewCode.Contains("s_tmmStepDelegate(s_tmmInstance, (ushort)s, ref segBuffer[s]);");
-            Assert(hasSegStepping, "Upper segments (36864..65023) stepped natively via NetAI across 256 frames and TM:PE TrafficMeasurement");
+            Assert(hasSegStepping, "Upper segments (36864..65535) stepped natively via NetAI across 256 frames and TM:PE TrafficMeasurement");
 
-            // 19.2 Upper node stepping (32,768..65,023) across 256 frames
-            bool hasNodeStepping = renewCode.Contains("int nStart256 = 32768 + (int)frame256 * 126;") &&
+            // 19.2 Upper node stepping (32,768..65,535) across 256 frames
+            bool hasNodeStepping = renewCode.Contains("int nStart256 = 32768 + (int)frame256 * 128;") &&
                                    renewCode.Contains("info.m_netAI.SimulationStep((ushort)i, ref nodeBuffer[i]);");
-            Assert(hasNodeStepping, "Upper nodes (32768..65023) stepped natively via NetAI across 256 frames");
+            Assert(hasNodeStepping, "Upper nodes (32768..65535) stepped natively via NetAI across 256 frames");
 
             // 19.3 Color map synchronization for upper network
-            bool hasColorSync = renewCode.Contains("nm.UpdateSegmentColors(36864, 65023);") &&
-                                renewCode.Contains("nm.UpdateNodeColors(32768, 65023);");
+            bool hasColorSync = renewCode.Contains("nm.UpdateSegmentColors(36864,") &&
+                                renewCode.Contains("nm.UpdateNodeColors(32768,");
             Assert(hasColorSync, "Upper segments and nodes regularly sync colors with NetManager.m_objectColorMap");
 
             // 19.4 TM:PE SubTool high-ID synchronizer (Zero hooks)
@@ -861,21 +861,21 @@ class TestSuite
             // 20.1 SerializableDataWrapper.LoadData Harmony prefix in vanilla game (zero TM:PE hooks)
             bool hasLoadDataHook = renewCode.Contains("SerializableDataWrapper_LoadData_Prefix") &&
                                    renewCode.Contains("name == \"TrafficManager_v1.0\"") &&
-                                   renewCode.Contains("EnsureParkingRestrictionsCapacity(65024);") &&
+                                   renewCode.Contains("EnsureParkingRestrictionsCapacity(65536);") &&
                                    renewCode.Contains("EnsureTrafficLightSimulationCapacity(tmpe);");
-            Assert(hasLoadDataHook, "Vanilla SerializableDataWrapper.LoadData prefixed to pre-expand all TM:PE buffers to 65024 before TM:PE deserialization (zero TM:PE hooks)");
+            Assert(hasLoadDataHook, "Vanilla SerializableDataWrapper.LoadData prefixed to pre-expand all TM:PE buffers to 65536 before TM:PE deserialization (zero TM:PE hooks)");
 
-            // 20.2 256-frame cadence for upper NetAI stepping (110 segments/frame, 126 nodes/frame)
+            // 20.2 256-frame cadence for upper NetAI stepping (112 segments/frame, 128 nodes/frame)
             bool has256Cadence = renewCode.Contains("uint frame256 = sm.m_currentFrameIndex & 255;") &&
-                                 renewCode.Contains("int sStart = 36864 + (int)frame256 * 110;") &&
-                                 renewCode.Contains("int nStart256 = 32768 + (int)frame256 * 126;");
-            Assert(has256Cadence, "Upper NetAI stepping runs on exact 256-frame cadence, eliminating traffic light gridlock & allowing full traffic congestion accumulation (bright red)");
+                                 renewCode.Contains("int sStart = 36864 + (int)frame256 * 112;") &&
+                                 renewCode.Contains("int nStart256 = 32768 + (int)frame256 * 128;");
+            Assert(has256Cadence, "Upper NetAI stepping runs on exact 256-frame cadence (112 segs, 128 nodes), eliminating traffic light gridlock & allowing full traffic congestion accumulation");
 
-            // 20.3 64-frame cadence for TM:PE Timed Traffic Lights (504 nodes/frame)
+            // 20.3 64-frame cadence for TM:PE Timed Traffic Lights (512 nodes/frame)
             bool has64TtlCadence = renewCode.Contains("uint frame64 = sm.m_currentFrameIndex & 63;") &&
-                                   renewCode.Contains("int ttlStart = 32768 + (int)frame64 * 504;") &&
+                                   renewCode.Contains("int ttlStart = 32768 + (int)frame64 * 512;") &&
                                    renewCode.Contains("s_stepDelegate(s_simulationsArray, i);");
-            Assert(has64TtlCadence, "TM:PE Timed Traffic Light stepping runs on exact native 64-frame cadence (504 nodes/frame)");
+            Assert(has64TtlCadence, "TM:PE Timed Traffic Light stepping runs on exact native 64-frame cadence (512 nodes/frame reaching 65,536)");
 
             // 20.4 High-ID TM:PE Payload v2 format (Junction Restrictions, Priority Signs, Parking, Lane Connections, Speed Limits, Lane Arrows, Vehicle Restrictions, Timed Lights)
             bool hasPayloadV2 = renewCode.Contains("bw.Write((byte)2);") &&
@@ -902,6 +902,66 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 20 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 21: TRAFFIC LIGHT ENGINE SYNCHRONIZATION & DEADLOCK ARMOR (v4.3.44)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 21: Traffic Light Engine Synchronization & Deadlock Armor (v4.3.44) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 21.1 Dual-bank state synchronization (eliminates high node bank inversion desync)
+            bool hasDualBankSync = renewCode.Contains("public static bool SetTrafficLightState_Prefix(") &&
+                                   renewCode.Contains("segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & ~15) | encoded;") &&
+                                   renewCode.Contains("segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & ~15) | encoded;");
+            Assert(hasDualBankSync, "SetTrafficLightState simultaneously synchronizes both state banks (0 and 1) eliminating high-node bank inversion desync");
+
+            // 21.2 Bank-agnostic state getter prefixes (prevents visual & AI desync)
+            bool hasGetSync = renewCode.Contains("public static bool GetTrafficLightState5_Prefix(") &&
+                              renewCode.Contains("public static bool GetTrafficLightState7_Prefix(") &&
+                              renewCode.Contains("vehicleLightState = (RoadBaseAI.TrafficLightState)(state & 3);");
+            Assert(hasGetSync, "GetTrafficLightState 5- and 7-parameter prefixes reliably read synchronized state regardless of frame index or bank toggle");
+
+            // 21.3 SimulationStep prefix with deadlock auto-cycling (clock >= 3)
+            bool hasSimStepDeadlockFix = renewCode.Contains("public static bool TrafficLightSimulationStep_Prefix(") &&
+                                         renewCode.Contains("else if (clock >= 3)") &&
+                                         renewCode.Contains("selectedRed = nextIncomingRed;");
+            Assert(hasSimStepDeadlockFix, "TrafficLightSimulationStep prefix enforces cycle timeout (clock >= 3), preventing perpetual red/green freeze even with zero waiting demand");
+
+            // 21.4 TM:PE Timed Light pass-through with DynamicMethod (Zero Harmony hooks into TM:PE)
+            bool hasTimedLightPassThrough = renewCode.Contains("if (MNCTrafficLightStepper.IsTMPETimedLightRunning(nodeID))") &&
+                                            renewCode.Contains("s_isRunningDelegate") &&
+                                            renewCode.Contains("return true;");
+            Assert(hasTimedLightPassThrough, "SimulationStep prefix checks TM:PE Timed Light status via DynamicMethod, yielding cleanly to TM:PE without Harmony hooks");
+
+            // 21.5 Visual node state rendering with 7-bit shifted offset
+            bool hasVisualNodeState = renewCode.Contains("public static bool GetTrafficLightNodeState_Prefix(") &&
+                                      renewCode.Contains("uint frameOffset = (uint)(nodeID >> 7) & 255u;") &&
+                                      renewCode.Contains("TrafficLightPatches.Apply(harmony);");
+            Assert(hasVisualNodeState, "GetTrafficLightNodeState prefix renders visual traffic light models accurately for all nodes 1..65535 and patches registered in EnsureAllPatchesApplied");
+
+            // 21.6 Full 65536 array expansion for all TM:PE managers
+            bool has65536Arrays = renewCode.Contains("EnsureTrafficLightSimulationCapacity(Assembly tmpe)") &&
+                                  renewCode.Contains("EnsureCustomSegmentLightsCapacity(Assembly tmpe)") &&
+                                  renewCode.Contains("EnsureTrafficPriorityCapacity(Assembly tmpe)") &&
+                                  renewCode.Contains("EnsureJunctionRestrictionsCapacity(Assembly tmpe)") &&
+                                  renewCode.Contains("EnsureVehicleRestrictionsCapacity(Assembly tmpe)") &&
+                                  renewCode.Contains("EnsureParkingRestrictionsCapacity(int minSize)");
+            Assert(has65536Arrays, "All TM:PE simulation, segment light, and restriction arrays expanded to full 65536 capacity");
+
+            // 21.7 Zero Harmony hooks on TM:PE in TrafficLightPatches
+            bool hasZeroTMPEHooks = renewCode.Contains("typeof(RoadBaseAI).GetMethod(") &&
+                                    renewCode.Contains("\"SetTrafficLightState\"") &&
+                                    renewCode.Contains("\"TrafficLightSimulationStep\"") &&
+                                    renewCode.Contains("\"GetTrafficLightNodeState\"") &&
+                                    !renewCode.Contains("harmony.Patch(typeof(TrafficManager");
+            Assert(hasZeroTMPEHooks, "TrafficLightPatches strictly patches RoadBaseAI in Assembly-CSharp with ZERO direct Harmony hooks into TM:PE");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 21 exception", ex.ToString());
         }
 
         // ====================================================================

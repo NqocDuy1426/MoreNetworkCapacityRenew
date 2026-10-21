@@ -6,39 +6,27 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.43 (TM:PE Crash Immunization, Full Feature Save/Load & 256-Frame NetAI Stepper) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.44 (Traffic Light State Synchronization & Deadlock Prevention for Nodes 1..65K) ✨[/h1]
 [list]
-[*] [b]TM:PE Save/Load Deserialization Crash Immunization (Zero Hooks into TM:PE):[/b]
+[*] [b]Fixed Traffic Light State & Cycle Freeze (Vanilla & TM:PE Default Lights):[/b]
 [list]
-    [*] Fixed the critical issue where TM:PE threw [i]IndexOutOfRangeException[/i] in [i]ParkingRestrictionsManager.LoadData[/i] when loading segments ≥ 36,864, triggering the TM:PE fatal error popup and causing ALL TM:PE settings across the city to be dropped.
-    [*] Pre-expands [i]ParkingRestrictionsManager.parkingAllowed[/i] and all TM:PE simulation arrays to 65,024 via vanilla [i]SerializableDataWrapper.LoadData[/i] hook (strictly zero Harmony hooks into TM:PE methods).
+    [*] Fixed the persistent issue where traffic lights (both default vanilla and TM:PE default lights) never changed state, froze on green/red, or ignored cycles on nodes 1..65,535.
+    [*] [b]Dual-Bank State Synchronization:[/b] Writes simultaneously to both [i]m_trafficLightState0[/i] and [i]m_trafficLightState1[/i], completely resolving the high-node bank inversion desync where game/visual renderers read the opposite bank (nodeId >= 32,768).
+    [*] [b]Cycle Timeout & Deadlock Prevention:[/b] Enforces automatic phase cycling ([i]clock >= 3[/i]) so that lights cycle smoothly even when zero vehicles or pedestrians are queued on opposing red roads.
+    [*] [b]Visual 3D Light Rendering:[/b] Accurately computes visual signal states using 7-bit shifted frame offsets for all 65,536 nodes.
 [/list]
-[*] [b]Comprehensive TM:PE Feature Preservation Across Savegames (Binary Payload v2):[/b]
+[*] [b]Strictly ZERO Direct Harmony Hooks into TM:PE Maintained:[/b]
 [list]
-    [*] [b]Timed Traffic Lights:[/b] Inspects all nodes [i]0..65,023[/i], saving all step timers, min/max times, and segment lights for low-ID + high-ID, high-ID + high-ID, and single nodes. Fixed [i]CustomSegmentLight[/i] instantiation via parameterless constructor.
-    [*] [b]All Other TM:PE Tools Saved & Restored:[/b] Lane Connections, Custom Lane Speed Limits, Lane Arrows, Vehicle Restrictions, Junction Restrictions (U-Turn, Enter Blocked Junction, Pedestrian Crossing, Straight Lane Changing), Priority Signs, and Parking Restrictions.
+    [*] All traffic light fixes strictly patch vanilla [i]RoadBaseAI[/i]. TM:PE Timed Traffic Light state is checked via lightweight [i]DynamicMethod[/i], cleanly yielding to TM:PE's simulation when active without any Harmony hook overhead.
 [/list]
-[*] [b]Fixed Default Traffic Lights Gridlock & Traffic Congestion Colors (256-Frame Stepper):[/b]
+[*] [b]Expanded All TM:PE Simulation Arrays to 65,536:[/b]
 [list]
-    [*] Corrected upper NetAI simulation stepping cadence to the exact vanilla 256-frame cycle ([i]frame = sm.m_currentFrameIndex & 255[/i]):
-        - [b]Upper Nodes (32,768..65,023):[/b] Stepped at 126 nodes/frame. Default vanilla traffic lights now cycle at normal, realistic intervals, eliminating traffic light gridlock.
-        - [b]Upper Segments (36,864..65,023):[/b] Stepped at 110 segments/frame. [i]m_trafficBuffer[/i] accumulates vehicles across the full 256 frames, allowing congested roads to reach high density and display vibrant RED in the traffic overlay!
-    [*] TM:PE Timed Traffic Lights step at native 64-frame cadence (504 nodes/frame).
+    [*] Expanded [i]TrafficLightSimulations[/i], [i]customSegments_[/i], [i]PrioritySegments[/i], [i]JunctionRestrictions[/i], and [i]ParkingRestrictions[/i] to full 65,536 capacity.
+    [*] Upper node stepping cadence calibrated to exact 128 nodes/frame (256 frames) and 512 TTL nodes/frame (64 frames) across full 65K range.
 [/list]
-        - [b]Toggle Traffic Lights, Speed Limits, & Parking Restrictions:[/b] Cached view overlays extended to 65K elements for seamless visual editing.
-[/list]
-[*] [b]High-ID TM:PE Savegame Serialization (SerializableDataExtensionBase):[/b]
+[*] [b]Retains All v4.3.43 & v4.3.41 Protections:[/b]
 [list]
-    [*] TM:PE's own serializable data provider iterates nodes 0..32,767 when writing to savegames.
-    [*] Implemented [i]MNCSerializableData[/i] using Cities: Skylines official [i]SerializableDataExtensionBase[/i] to cleanly serialize and restore custom junction restrictions, priority signs, and timed traffic lights for high-ID nodes (32,768..65,023) across save/load cycles with strictly zero hooks.
-[/list]
-[*] [b]100% Zero-Hook TM:PE Architecture Maintained:[/b]
-[list]
-    [*] Strictly [b]ZERO[/b] Harmony hooks into TM:PE methods. All synchronization and serialization are performed via managed threading extensions, official serializable data extensions, and variable expansion to guarantee pure native performance, zero desync, and zero crashes.
-[/list]
-[*] [b]Retains Universal Economy & Public Transport Protection (from v4.3.41):[/b]
-[list]
-    [*] Non-negative shields on [i]EconomyManager[/i], [i]SanitizeEconomy[/i] save repair, and [i]SanitizeTransportLines[/i] remain fully active to guard city funds.
+    [*] TM:PE Save/Load deserialization crash immunization, comprehensive binary Payload v2 save/restore, and economy non-negative guards remain fully active.
 [/list]
 [/list]
 
@@ -116,6 +104,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.43 - TM:PE Crash Immunization, Full Feature Save/Load & 256-Frame NetAI Stepper: Fixed TM:PE IndexOutOfRangeException on loading segments >= 36864 by pre-expanding parkingAllowed and simulation arrays to 65024 via vanilla SerializableDataWrapper.LoadData (zero TM:PE hooks); preserved all TM:PE settings across savegames with binary Payload v2 (Timed Traffic Lights across all node ID combinations, Lane Connections, Speed Limits, Lane Arrows, Vehicle Restrictions, Junction Restrictions, Priority Signs, Parking Restrictions); fixed CustomSegmentLight reflection constructor; restored NetAI node and segment stepping to 256-frame cadence to eliminate vanilla traffic light gridlock and allow full traffic congestion color accumulation (bright red)."
+	"changenote"		"v4.3.44 - Traffic Light State Synchronization & Deadlock Armor for Nodes 1..65K: Fixed traffic lights state and cycle freeze on both vanilla and TM:PE default lights; implemented dual-bank state synchronization (writing to both m_trafficLightState0 and m_trafficLightState1 simultaneously) to eliminate bank inversion desync on high nodes (nodeId >= 32,768); added automatic cycle timeout (clock >= 3) to prevent traffic light freeze even with zero waiting vehicles; accurately aligned 3D visual light rendering with 7-bit shifted frame offset; expanded all TM:PE simulation arrays to 65,536; all implemented with strictly ZERO direct Harmony hooks into TM:PE."
 }
 

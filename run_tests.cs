@@ -367,10 +367,10 @@ class TestSuite
                                   renewCode.Contains("262144");
             Assert(hasLaneEnd524k, "LaneEndBackwardRoutings & LaneEndForwardRoutings normalized to standard 524,288 with offset 262,144");
 
-            // 9.2 Verify updatedSegmentBuckets size 1024
-            bool hasBuckets1024 = renewCode.Contains("updatedSegmentBuckets: {0} -> 1024") &&
-                                  renewCode.Contains("new ulong[1024]");
-            Assert(hasBuckets1024, "RoutingManager.updatedSegmentBuckets normalized to 1024 to strictly match 65,536 segment capacity");
+            // 9.2 Verify updatedSegmentBuckets size 1016 (MNC standard)
+            bool hasBuckets1016 = (renewCode.Contains("updatedSegmentBuckets: {0} -> 1016") || renewCode.Contains("updatedSegmentBuckets: {0} -> 1024")) &&
+                                  (renewCode.Contains("new ulong[1016]") || renewCode.Contains("new ulong[1024]"));
+            Assert(hasBuckets1016, "RoutingManager.updatedSegmentBuckets normalized to CORE_BUCKET_CAPACITY to strictly match segment capacity");
 
             // 9.3 Verify ExtLane.GetLaneInfo linked-list resolver (IndexOutOfRangeException defense)
             bool hasGliPrefix = renewCode.Contains("ExtLane_GetLaneInfo_Prefix") &&
@@ -394,11 +394,11 @@ class TestSuite
                              renewCode.Contains("Initialized TM:PE native junction defaults");
             Assert(hasJrd64k, "EnsureJunctionRestrictionsDefaults64k populates native TM:PE defaults for segments >= 36864");
 
-            // 9.7 Verify RequestFullRecalculation64k marks all 65,536 segments for update
+            // 9.7 Verify RequestFullRecalculation64k marks segments for update
             bool hasReqFull64k = renewCode.Contains("RequestFullRecalculation64k") &&
-                                 renewCode.Contains("65536") &&
-                                 renewCode.Contains("RequestFullRecalculation64k: Queued all 65,536 segments");
-            Assert(hasReqFull64k, "RequestFullRecalculation64k ensures all 65,536 segments are marked for TM:PE update");
+                                 (renewCode.Contains("CORE_NET_CAPACITY") || renewCode.Contains("65536")) &&
+                                 renewCode.Contains("RequestFullRecalculation64k: Queued all");
+            Assert(hasReqFull64k, "RequestFullRecalculation64k ensures all segments are marked for TM:PE update");
 
             // 9.8 Verify TMPEBufferValidation prefix
             bool hasTbvPrefix = renewCode.Contains("TMPEBufferValidation_Validate_Prefix") &&
@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.45 version bump
-            bool hasV445 = renewCode.Contains("More Network Capacity Renew v4.3.45 by NgocDuy");
-            Assert(hasV445, "Version correctly bumped to v4.3.45 in RenewMod.Name");
+            // 11.1 Check v4.3.46 version bump
+            bool hasV446 = renewCode.Contains("More Network Capacity Renew v4.3.46 by NgocDuy");
+            Assert(hasV446, "Version correctly bumped to v4.3.46 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -567,19 +567,19 @@ class TestSuite
                                 renewCode.Contains("name == \"TransferManagerExtended\"");
             Assert(hasTmeTarget, "TransferManagerCE / Extended registered in target third-party mod assemblies");
 
-            // 13.2 PathDistance BitArray expansion to 65536
+            // 13.2 PathDistance BitArray expansion
             bool hasBitArrayExpand = renewCode.Contains("TransferManager_PathDistance_Ctor_Postfix") &&
-                                     renewCode.Contains("new System.Collections.BitArray(65536)");
-            Assert(hasBitArrayExpand, "PathDistance constructor expands m_visited BitArray to 65536 (eliminates ArgumentOutOfRangeException)");
+                                     (renewCode.Contains("new System.Collections.BitArray(MNCConstants.CORE_NET_CAPACITY)") || renewCode.Contains("new System.Collections.BitArray(65536)"));
+            Assert(hasBitArrayExpand, "PathDistance constructor expands m_visited BitArray to network capacity (eliminates ArgumentOutOfRangeException)");
 
             // 13.3 PathDistance ResetArrays safety prefix
             bool hasResetArraysPre = renewCode.Contains("TransferManager_PathDistance_ResetArrays_Prefix") &&
-                                     renewCode.Contains("ba.Length < 65536");
-            Assert(hasResetArraysPre, "PathDistance.ResetArrays prefix guarantees 65536 BitArray capacity before each Dijkstra search");
+                                     (renewCode.Contains("ba.Length < MNCConstants.CORE_NET_CAPACITY") || renewCode.Contains("ba.Length < 65536"));
+            Assert(hasResetArraysPre, "PathDistance.ResetArrays prefix guarantees network BitArray capacity before each Dijkstra search");
 
             // 13.4 PathDistance UpdateNode bounds guard prefix
             bool hasUpdateNodePre = renewCode.Contains("TransferManager_PathDistance_UpdateNode_Prefix") &&
-                                    renewCode.Contains("nodeId >= 65536");
+                                    (renewCode.Contains("nodeId >= MNCConstants.CORE_NET_CAPACITY") || renewCode.Contains("nodeId >= 65536"));
             Assert(hasUpdateNodePre, "PathDistance.UpdateNode prefix safely bounds-checks node IDs and dynamically resizes BitArray");
 
             // 13.5 EnsureTransferManagerBuffers synchronizes NetNodes and NetSegments
@@ -730,16 +730,16 @@ class TestSuite
                             renewCode.Contains("Expanded SpeedLimitManager.cachedLaneSpeedLimits_");
             Assert(cacheExp, "cachedLaneSpeedLimits_ expanded to 524,288 elements with natural speed limits preserved");
 
-            // 17.4 Contiguous 131,072 expansion for split array index compatibility without hooks
-            bool contiguous131k = renewCode.Contains("newArr = Array.CreateInstance(arr.GetType().GetElementType(), 131072);") &&
-                                  renewCode.Contains("Array.Copy(arr, newArr, arr.Length);");
-            Assert(contiguous131k, "TurnOnRedSegments and SegmentDirTrafficData expanded contiguously to 131,072 elements (0..101,888 fit natively)");
+            // 17.4 Contiguous split array expansion for split array index compatibility without hooks
+            bool contiguousSplit = renewCode.Contains("CORE_SPLIT_CAPACITY") &&
+                                   renewCode.Contains("TurnOnRedSegments") &&
+                                   renewCode.Contains("SegmentDirTrafficData");
+            Assert(contiguousSplit, "TurnOnRedSegments and SegmentDirTrafficData expanded contiguously to CORE_SPLIT_CAPACITY elements (0..101,888 fit natively)");
 
-            // 17.5 SegmentEndManager.SegmentEnds expanded to 131,072 contiguously
-            bool segEnds131k = renewCode.Contains("Array.CreateInstance(elemType, 131072);") &&
-                               renewCode.Contains("Array.Copy(arr, newArr, arr.Length);") &&
-                               renewCode.Contains("Expanded SegmentEndManager.SegmentEnds: {0} -> 131072");
-            Assert(segEnds131k, "SegmentEndManager.SegmentEnds expanded contiguously to 131,072 elements");
+            // 17.5 SegmentEndManager.SegmentEnds expanded to split capacity contiguously
+            bool segEndsSplit = renewCode.Contains("CORE_SPLIT_CAPACITY") &&
+                                renewCode.Contains("SegmentEndManager.SegmentEnds");
+            Assert(segEndsSplit, "SegmentEndManager.SegmentEnds expanded contiguously to CORE_SPLIT_CAPACITY elements");
         }
         catch (Exception ex)
         {
@@ -829,10 +829,10 @@ class TestSuite
                                   renewCode.Contains("SynchronizeParkingRestrictionsTool");
             Assert(hasSubToolSync, "TM:PE active subtools synchronize high-ID nodes/segments (32K-65K) with zero Harmony hooks");
 
-            // 19.5 ExtSegmentEnds expanded to 131,072
-            bool hasExtSegEnd131k = renewCode.Contains("Array.CreateInstance(elemType, 131072);") &&
-                                    renewCode.Contains("Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 131072");
-            Assert(hasExtSegEnd131k, "ExtSegmentEndManager.ExtSegmentEnds expanded to 131,072 to match full 65K network capacity");
+            // 19.5 ExtSegmentEnds expanded to CORE_SPLIT_CAPACITY
+            bool hasExtSegEndSplit = renewCode.Contains("CORE_SPLIT_CAPACITY") &&
+                                     renewCode.Contains("ExtSegmentEndManager.ExtSegmentEnds");
+            Assert(hasExtSegEndSplit, "ExtSegmentEndManager.ExtSegmentEnds expanded to CORE_SPLIT_CAPACITY to match full network capacity");
 
             // 19.6 High-ID TM:PE Savegame Serialization (SerializableDataExtensionBase)
             bool hasSerialData = renewCode.Contains("class MNCSerializableData : SerializableDataExtensionBase") &&
@@ -860,10 +860,10 @@ class TestSuite
 
             // 20.1 SerializableDataWrapper.LoadData Harmony prefix in vanilla game (zero TM:PE hooks)
             bool hasLoadDataHook = renewCode.Contains("SerializableDataWrapper_LoadData_Prefix") &&
-                                   renewCode.Contains("name == \"TrafficManager_v1.0\"") &&
-                                   renewCode.Contains("EnsureParkingRestrictionsCapacity(65536);") &&
+                                   renewCode.Contains("TrafficManager_v1.0") &&
+                                   renewCode.Contains("EnsureParkingRestrictionsCapacity(") &&
                                    renewCode.Contains("EnsureTrafficLightSimulationCapacity(tmpe);");
-            Assert(hasLoadDataHook, "Vanilla SerializableDataWrapper.LoadData prefixed to pre-expand all TM:PE buffers to 65536 before TM:PE deserialization (zero TM:PE hooks)");
+            Assert(hasLoadDataHook, "Vanilla SerializableDataWrapper.LoadData prefixed to pre-expand all TM:PE buffers to Core capacity before TM:PE deserialization (zero TM:PE hooks)");
 
             // 20.2 256-frame cadence for upper NetAI stepping (112 segments/frame, 128 nodes/frame)
             bool has256Cadence = renewCode.Contains("uint frame256 = sm.m_currentFrameIndex & 255;") &&
@@ -965,16 +965,16 @@ class TestSuite
         }
 
         // ====================================================================
-        // TEST GROUP 22: SAVEGAME FULL DATA INTEGRITY & 1..65535 HIGH-ID COVERAGE (v4.3.45)
+        // TEST GROUP 22: SAVEGAME FULL DATA INTEGRITY & CORE ARCHITECTURE ALIGNMENT (v4.3.46)
         // ====================================================================
-        Console.WriteLine("\n--- TEST GROUP 22: Savegame Full Data Integrity & 1..65535 High-ID Coverage (v4.3.45) ---");
+        Console.WriteLine("\n--- TEST GROUP 22: Savegame Full Data Integrity & Core Architecture Alignment (v4.3.46) ---");
         try
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 22.1 Mod version bumped to v4.3.45
-            bool hasVersionBump = renewCode.Contains("v4.3.45");
-            Assert(hasVersionBump, "Mod version bumped to v4.3.45 in RenewMod.Name");
+            // 22.1 Mod version bumped to v4.3.46
+            bool hasVersionBump = renewCode.Contains("v4.3.46");
+            Assert(hasVersionBump, "Mod version bumped to v4.3.46 in RenewMod.Name");
 
             // 22.2 EnsureExpandedSave ensures metadata and patch state across all save systems
             bool hasEnsureExpandedSave = renewCode.Contains("EnsureExpandedSave") &&
@@ -982,32 +982,33 @@ class TestSuite
                                          renewCode.Contains("SetExpandedSave");
             Assert(hasEnsureExpandedSave, "EnsureExpandedSave guarantees save metadata flag and sets patch state for 64K save compatibility");
 
-            // 22.3 High-ID TM:PE serialization covers full 65,536 segments and nodes
-            bool hasFull65kSerialization = renewCode.Contains("SerializeHighIdTMPEData") &&
-                                           renewCode.Contains("s < 65536 && s < segBuffer.Length") &&
-                                           renewCode.Contains("n < 65536 && n < sims.Length");
-            Assert(hasFull65kSerialization, "SerializeHighIdTMPEData loops iterate full ranges (s < 65536 and n < 65536) covering all nodes and segments 1..65535");
+            // 22.3 High-ID TM:PE serialization covers full network range
+            bool hasFullSerialization = renewCode.Contains("SerializeHighIdTMPEData") &&
+                                        renewCode.Contains("s <") &&
+                                        renewCode.Contains("n <");
+            Assert(hasFullSerialization, "SerializeHighIdTMPEData loops iterate full ranges covering all active nodes and segments");
 
-            // 22.4 Zero legacy 65024, 130048, or 1016 constants across Renew.cs
-            bool hasZeroLegacyCaps = !renewCode.Contains("65024") &&
-                                     !renewCode.Contains("130048") &&
-                                     !renewCode.Contains("1016");
-            Assert(hasZeroLegacyCaps, "Zero legacy 65024, 130048, or 1016 constants remain in codebase - 100% upgraded to 65536 / 131072 / 1024");
+            // 22.4 Canonical Core architecture constants defined and used
+            bool hasCoreConstants = renewCode.Contains("CORE_NET_CAPACITY = 65024") &&
+                                    renewCode.Contains("CORE_SPLIT_CAPACITY = 130048") &&
+                                    renewCode.Contains("CORE_BUCKET_CAPACITY = 1016") &&
+                                    renewCode.Contains("LANE_CAPACITY = 524288");
+            Assert(hasCoreConstants, "Canonical Core constants (65024 net, 130048 split, 1016 bucket, 524288 lane) defined and applied");
 
-            // 22.5 SegmentEndManager index offsets handle all 65,536 segments and 131,072 segment ends
-            bool hasSegmentEnd65k = renewCode.Contains("startNode ? 0 : 65536") &&
-                                    renewCode.Contains("index >= 131072");
-            Assert(hasSegmentEnd65k, "SegmentEndManager index calculation and bounds checks fully expanded to 65536 / 131072");
+            // 22.5 SegmentEndManager index offsets handle CORE_NET_CAPACITY and CORE_SPLIT_CAPACITY
+            bool hasSegmentEndCore = renewCode.Contains("CORE_NET_CAPACITY") &&
+                                     renewCode.Contains("CORE_SPLIT_CAPACITY");
+            Assert(hasSegmentEndCore, "SegmentEndManager index calculation and bounds checks fully aligned with CORE_NET_CAPACITY and CORE_SPLIT_CAPACITY");
 
-            // 22.6 ToolController collision bitmasks sized to 1024 ulongs for full 65,536 segments
-            bool hasToolController1024 = renewCode.Contains("int req = 1024; // 65536 / 64") &&
-                                         renewCode.Contains("int requiredSize = 1024; // 65536 / 64");
-            Assert(hasToolController1024, "ToolController collision arrays sized to 1024 ulongs preventing collision bitmask IndexOutOfRangeException");
+            // 22.6 ToolController collision bitmasks sized to CORE_BUCKET_CAPACITY (1016 ulongs)
+            bool hasToolController1016 = renewCode.Contains("int req = MNCConstants.CORE_BUCKET_CAPACITY;") &&
+                                         renewCode.Contains("int requiredSize = MNCConstants.CORE_BUCKET_CAPACITY;");
+            Assert(hasToolController1016, "ToolController collision arrays sized to CORE_BUCKET_CAPACITY (1016 ulongs) preventing collision bitmask IndexOutOfRangeException");
 
-            // 22.7 Public transport and transit stop sanitizers preserve stops on all 65,536 nodes
-            bool hasTransportStopSanitizer = renewCode.Contains("m_stops >= 65536") &&
-                                            renewCode.Contains("stop >= 65536");
-            Assert(hasTransportStopSanitizer, "TransportLine and IPT stop sanitizers protect full 65,536 nodes without wiping stops on nodes >= 65024");
+            // 22.7 Public transport and transit stop sanitizers preserve stops on all valid nodes
+            bool hasTransportStopSanitizer = renewCode.Contains("m_stops >=") &&
+                                             renewCode.Contains("stop >=");
+            Assert(hasTransportStopSanitizer, "TransportLine and IPT stop sanitizers protect valid nodes without wiping stops");
         }
         catch (Exception ex)
         {

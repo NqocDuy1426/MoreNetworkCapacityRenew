@@ -25,9 +25,14 @@
         - [b]Junction Restrictions & Vehicle Restrictions:[/b] U-turn, enter blocked junction, pedestrian crossing, and vehicle restriction icons properly display on high-ID nodes and segments.
         - [b]Toggle Traffic Lights, Speed Limits, & Parking Restrictions:[/b] Cached view overlays extended to 65K elements for seamless visual editing.
 [/list]
+[*] [b]High-ID TM:PE Savegame Serialization (SerializableDataExtensionBase):[/b]
+[list]
+    [*] TM:PE's own serializable data provider iterates nodes 0..32,767 when writing to savegames.
+    [*] Implemented [i]MNCSerializableData[/i] using Cities: Skylines official [i]SerializableDataExtensionBase[/i] to cleanly serialize and restore custom junction restrictions, priority signs, and timed traffic lights for high-ID nodes (32,768..65,023) across save/load cycles with strictly zero hooks.
+[/list]
 [*] [b]100% Zero-Hook TM:PE Architecture Maintained:[/b]
 [list]
-    [*] Strictly [b]ZERO[/b] Harmony hooks into TM:PE methods. All synchronization is performed via managed threading extensions and variable expansion to guarantee pure native performance, zero desync, and zero crashes.
+    [*] Strictly [b]ZERO[/b] Harmony hooks into TM:PE methods. All synchronization and serialization are performed via managed threading extensions, official serializable data extensions, and variable expansion to guarantee pure native performance, zero desync, and zero crashes.
 [/list]
 [*] [b]Retains Universal Economy & Public Transport Protection (from v4.3.41):[/b]
 [list]
@@ -109,6 +114,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.42 - Full-Map Traffic Stepper & TM:PE High-ID SubTool Sync: Stepped segments 36,864..65,023 and nodes 32,768..65,023 natively in ThreadingExtensionBase to fix traffic congestion colors and average traffic flow percentage; added periodic color texture syncing with NetManager.m_objectColorMap; synchronized TM:PE subtools (Lane Connector, Timed Traffic Lights, Priority Signs, Junction Restrictions, Vehicle Restrictions, Speed Limits, Parking Restrictions) to recognize and display icons on high-ID nodes/segments (32K-65K) with strictly zero Harmony hooks; expanded ExtSegmentEndManager.ExtSegmentEnds to 131,072."
+	"changenote"		"v4.3.42 - Full-Map Traffic Stepper & TM:PE High-ID SubTool Sync: Stepped segments 36,864..65,023 and nodes 32,768..65,023 natively in ThreadingExtensionBase to fix traffic congestion colors and average traffic flow percentage; added periodic color texture syncing with NetManager.m_objectColorMap; synchronized TM:PE subtools (Lane Connector, Timed Traffic Lights, Priority Signs, Junction Restrictions, Vehicle Restrictions, Speed Limits, Parking Restrictions) to recognize and display icons on high-ID nodes/segments (32K-65K) with strictly zero Harmony hooks; added MNCSerializableData to save/restore high-ID TM:PE custom settings across savegames; expanded ExtSegmentEndManager.ExtSegmentEnds to 131,072."
 }
 

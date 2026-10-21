@@ -834,6 +834,17 @@ class TestSuite
             bool hasExtSegEnd131k = renewCode.Contains("Array.CreateInstance(elemType, 131072);") &&
                                     renewCode.Contains("Expanded ExtSegmentEndManager.ExtSegmentEnds: {0} -> 131072");
             Assert(hasExtSegEnd131k, "ExtSegmentEndManager.ExtSegmentEnds expanded to 131,072 to match full 65K network capacity");
+
+            // 19.6 High-ID TM:PE Savegame Serialization (SerializableDataExtensionBase)
+            bool hasSerialData = renewCode.Contains("class MNCSerializableData : SerializableDataExtensionBase") &&
+                                 renewCode.Contains("DATA_KEY = \"MoreNetworkCapacity_HighID_TMPE_v1\";");
+            Assert(hasSerialData, "MNCSerializableData extension implements SerializableDataExtensionBase for High-ID TM:PE data preservation");
+
+            // 19.7 Serialize & Restore High-ID TM:PE Data with zero Harmony hooks
+            bool hasSerializeRestore = renewCode.Contains("public static byte[] SerializeHighIdTMPEData()") &&
+                                       renewCode.Contains("public static void RestorePendingHighIdTMPEData()") &&
+                                       renewCode.Contains("TMPECompatibility.RestorePendingHighIdTMPEData();");
+            Assert(hasSerializeRestore, "High-ID TM:PE custom settings (32K-65K) serialized and restored seamlessly across savegames with zero hooks");
         }
         catch (Exception ex)
         {

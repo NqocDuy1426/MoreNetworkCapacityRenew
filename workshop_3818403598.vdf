@@ -6,23 +6,25 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.42 (Full-Map Traffic Stepper & TM:PE High-ID SubTool Sync) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.43 (TM:PE Crash Immunization, Full Feature Save/Load & 256-Frame NetAI Stepper) ✨[/h1]
 [list]
-[*] [b]Full-Map Network Simulation Stepper (Fixed Traffic Colors & Traffic Flow Percentage):[/b]
+[*] [b]TM:PE Save/Load Deserialization Crash Immunization (Zero Hooks into TM:PE):[/b]
 [list]
-    [*] Vanilla Cities: Skylines hardcoded its frame stepping loops to stop at segment 36,863 and node 32,767. Segments and nodes above these limits were never stepped by the engine, leaving traffic density at 0 (frozen green/neutral color) and breaking average traffic flow statistics.
-    [*] Implemented full network simulation stepping via [i]ThreadingExtensionBase[/i] on simulation thread:
-        - Segments [i]36,864..65,023[/i] are stepped across 64 frames (440 segments/frame), executing [i]NetAI.SimulationStep[/i] to convert [i]m_trafficBuffer[/i] into real-time [i]m_trafficDensity[/i], reset buffers, calculate noise, road condition wear, and trigger TM:PE [i]TrafficMeasurementManager[/i].
-        - Nodes [i]32,768..65,023[/i] are stepped across 64 frames (504 nodes/frame), stepping vanilla signals, pedestrian crossings, node problems, and TM:PE [i]TrafficLightSimulation[/i].
-    [*] Added periodic [i]NetManager.UpdateSegmentColors(36864, 65023)[/i] and [i]UpdateNodeColors(32768, 65023)[/i] to ensure the traffic congestion overlay and info view textures update smoothly across the entire map.
+    [*] Fixed the critical issue where TM:PE threw [i]IndexOutOfRangeException[/i] in [i]ParkingRestrictionsManager.LoadData[/i] when loading segments ≥ 36,864, triggering the TM:PE fatal error popup and causing ALL TM:PE settings across the city to be dropped.
+    [*] Pre-expands [i]ParkingRestrictionsManager.parkingAllowed[/i] and all TM:PE simulation arrays to 65,024 via vanilla [i]SerializableDataWrapper.LoadData[/i] hook (strictly zero Harmony hooks into TM:PE methods).
 [/list]
-[*] [b]TM:PE High-ID SubTool Synchronizer (Zero Harmony Hooks):[/b]
+[*] [b]Comprehensive TM:PE Feature Preservation Across Savegames (Binary Payload v2):[/b]
 [list]
-    [*] TM:PE subtools previously had hardcoded search loops ending at node 32,767 and segment 36,863, preventing markers and configurations from displaying on high-ID nodes.
-    [*] Implemented native synchronization in [i]TMPECompatibility.SynchronizeActiveTool[/i] that populates marker sets and visible caches for high-ID elements:
-        - [b]Lane Connector:[/b] High-ID nodes with custom lane connections now display connection pins and retain full lane routing.
-        - [b]Timed Traffic Lights & Priority Signs:[/b] High-ID intersections properly show timed light icons, step timers, and priority sign overlays.
-        - [b]Junction Restrictions & Vehicle Restrictions:[/b] U-turn, enter blocked junction, pedestrian crossing, and vehicle restriction icons properly display on high-ID nodes and segments.
+    [*] [b]Timed Traffic Lights:[/b] Inspects all nodes [i]0..65,023[/i], saving all step timers, min/max times, and segment lights for low-ID + high-ID, high-ID + high-ID, and single nodes. Fixed [i]CustomSegmentLight[/i] instantiation via parameterless constructor.
+    [*] [b]All Other TM:PE Tools Saved & Restored:[/b] Lane Connections, Custom Lane Speed Limits, Lane Arrows, Vehicle Restrictions, Junction Restrictions (U-Turn, Enter Blocked Junction, Pedestrian Crossing, Straight Lane Changing), Priority Signs, and Parking Restrictions.
+[/list]
+[*] [b]Fixed Default Traffic Lights Gridlock & Traffic Congestion Colors (256-Frame Stepper):[/b]
+[list]
+    [*] Corrected upper NetAI simulation stepping cadence to the exact vanilla 256-frame cycle ([i]frame = sm.m_currentFrameIndex & 255[/i]):
+        - [b]Upper Nodes (32,768..65,023):[/b] Stepped at 126 nodes/frame. Default vanilla traffic lights now cycle at normal, realistic intervals, eliminating traffic light gridlock.
+        - [b]Upper Segments (36,864..65,023):[/b] Stepped at 110 segments/frame. [i]m_trafficBuffer[/i] accumulates vehicles across the full 256 frames, allowing congested roads to reach high density and display vibrant RED in the traffic overlay!
+    [*] TM:PE Timed Traffic Lights step at native 64-frame cadence (504 nodes/frame).
+[/list]
         - [b]Toggle Traffic Lights, Speed Limits, & Parking Restrictions:[/b] Cached view overlays extended to 65K elements for seamless visual editing.
 [/list]
 [*] [b]High-ID TM:PE Savegame Serialization (SerializableDataExtensionBase):[/b]
@@ -114,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.42 - Full-Map Traffic Stepper & TM:PE High-ID SubTool Sync: Stepped segments 36,864..65,023 and nodes 32,768..65,023 natively in ThreadingExtensionBase to fix traffic congestion colors and average traffic flow percentage; added periodic color texture syncing with NetManager.m_objectColorMap; synchronized TM:PE subtools (Lane Connector, Timed Traffic Lights, Priority Signs, Junction Restrictions, Vehicle Restrictions, Speed Limits, Parking Restrictions) to recognize and display icons on high-ID nodes/segments (32K-65K) with strictly zero Harmony hooks; added MNCSerializableData to save/restore high-ID TM:PE custom settings across savegames; expanded ExtSegmentEndManager.ExtSegmentEnds to 131,072."
+	"changenote"		"v4.3.43 - TM:PE Crash Immunization, Full Feature Save/Load & 256-Frame NetAI Stepper: Fixed TM:PE IndexOutOfRangeException on loading segments >= 36864 by pre-expanding parkingAllowed and simulation arrays to 65024 via vanilla SerializableDataWrapper.LoadData (zero TM:PE hooks); preserved all TM:PE settings across savegames with binary Payload v2 (Timed Traffic Lights across all node ID combinations, Lane Connections, Speed Limits, Lane Arrows, Vehicle Restrictions, Junction Restrictions, Priority Signs, Parking Restrictions); fixed CustomSegmentLight reflection constructor; restored NetAI node and segment stepping to 256-frame cadence to eliminate vanilla traffic light gridlock and allow full traffic congestion color accumulation (bright red)."
 }
 

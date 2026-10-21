@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Reflection.Emit;
 using ColossalFramework.Plugins;
 using UnityEngine;
+using System.Runtime.Serialization.Formatters.Binary;
 
 namespace MoreNetworkCapacityRenew
 {
@@ -1066,7 +1067,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.42 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.43 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1581,6 +1582,25 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TMPEBufferValidation.Validate: " + ex);
+            }
+
+            try
+            {
+                Type sdwType = typeof(SimulationManager).Assembly.GetType("SerializableDataWrapper");
+                if (sdwType != null)
+                {
+                    MethodInfo loadDataM = sdwType.GetMethod("LoadData", new Type[] { typeof(string) });
+                    if (loadDataM != null)
+                    {
+                        var pre = typeof(TMPECompatibility).GetMethod(nameof(TMPECompatibility.SerializableDataWrapper_LoadData_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(loadDataM, prefix: new HarmonyMethod(pre));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched SerializableDataWrapper.LoadData (pre-TMPE buffer expansion hook)");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching SerializableDataWrapper.LoadData: " + ex);
             }
 
             Assembly tmpe = GetTMPEAssembly();
@@ -3667,6 +3687,29 @@ namespace MoreNetworkCapacityRenew
             s_pendingHighIdTMPEData = data;
         }
 
+        public static void SerializableDataWrapper_LoadData_Prefix(string name)
+        {
+            if (name == "TrafficManager_v1.0" || name == "TrafficManager_VersionInfo_v1.0")
+            {
+                try
+                {
+                    Assembly tmpe = GetTMPEAssembly();
+                    if (tmpe != null)
+                    {
+                        EnsureParkingRestrictionsCapacity(65024);
+                        EnsureTrafficLightSimulationCapacity(tmpe);
+                        EnsureTurnOnRedCapacity(tmpe);
+                        EnsureSegmentEndManagersCapacity(tmpe);
+                        SynchronizeTMPEBuffersAndArrays("Pre-TMPE-Load");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SerializableDataWrapper_LoadData_Prefix error: " + ex);
+                }
+            }
+        }
+
         public static byte[] SerializeHighIdTMPEData()
         {
             try
@@ -3678,9 +3721,11 @@ namespace MoreNetworkCapacityRenew
                 using (BinaryWriter bw = new BinaryWriter(ms))
                 {
                     bw.Write((uint)0x4D4E4354); // Magic: 'MNCT'
-                    bw.Write((byte)1);          // Version 1
+                    bw.Write((byte)2);          // Version 2: Complete Payload
 
+                    // ================================================================
                     // 1. Junction Restrictions (Segments 36,864 .. 65,023)
+                    // ================================================================
                     Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
                     object jrm = jrmType != null ? GetManagerInstance(jrmType) : null;
                     List<byte[]> jrRecords = new List<byte[]>();
@@ -3700,9 +3745,11 @@ namespace MoreNetworkCapacityRenew
                         if (segBuffer != null && mGetUturn != null)
                         {
                             object[] args = new object[2];
-                            for (int s = 36864; s < 65024 && s < segBuffer.Length; s++)
+                            for (int s = 1; s < 65024 && s < segBuffer.Length; s++)
                             {
                                 if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
+                                bool isExpanded = (s >= 36864 || segBuffer[s].m_startNode >= 32768 || segBuffer[s].m_endNode >= 32768);
+                                if (!isExpanded) continue;
 
                                 for (int end = 0; end < 2; end++)
                                 {
@@ -3744,7 +3791,9 @@ namespace MoreNetworkCapacityRenew
                         bw.Write(jrRecords[i]);
                     }
 
-                    // 2. Priority Signs (Segments 36,864 .. 65,023)
+                    // ================================================================
+                    // 2. Priority Signs (Segments touching expanded network)
+                    // ================================================================
                     Type tpmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficPriorityManager");
                     object tpm = tpmType != null ? GetManagerInstance(tpmType) : null;
                     List<byte[]> psRecords = new List<byte[]>();
@@ -3758,9 +3807,11 @@ namespace MoreNetworkCapacityRenew
                         if (segBuffer != null && mGetSign != null)
                         {
                             object[] args = new object[2];
-                            for (int s = 36864; s < 65024 && s < segBuffer.Length; s++)
+                            for (int s = 1; s < 65024 && s < segBuffer.Length; s++)
                             {
                                 if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
+                                bool isExpanded = (s >= 36864 || segBuffer[s].m_startNode >= 32768 || segBuffer[s].m_endNode >= 32768);
+                                if (!isExpanded) continue;
 
                                 for (int end = 0; end < 2; end++)
                                 {
@@ -3792,7 +3843,245 @@ namespace MoreNetworkCapacityRenew
                         bw.Write(psRecords[i]);
                     }
 
-                    // 3. Timed Traffic Lights (Nodes 32,768 .. 65,023)
+                    // ================================================================
+                    // 3. Parking Restrictions (Segments touching expanded network)
+                    // ================================================================
+                    Type prmType = tmpe.GetType("TrafficManager.Manager.Impl.ParkingRestrictionsManager");
+                    object prm = prmType != null ? GetManagerInstance(prmType) : null;
+                    List<byte[]> prRecords = new List<byte[]>();
+
+                    if (prm != null)
+                    {
+                        MethodInfo mIsParking = prmType.GetMethod("IsParkingAllowed", new Type[] { typeof(uint), typeof(NetInfo.Direction) })
+                                             ?? prmType.GetMethod("IsParkingAllowed", new Type[] { typeof(ushort), typeof(NetInfo.Direction) });
+
+                        var nm = Singleton<NetManager>.instance;
+                        NetSegment[] segBuffer = (nm != null && nm.m_segments != null) ? nm.m_segments.m_buffer : null;
+
+                        if (segBuffer != null && mIsParking != null)
+                        {
+                            object[] pArgsFwd = new object[] { 0u, NetInfo.Direction.Forward };
+                            object[] pArgsBwd = new object[] { 0u, NetInfo.Direction.Backward };
+                            bool useUshort = mIsParking.GetParameters()[0].ParameterType == typeof(ushort);
+
+                            for (int s = 1; s < 65024 && s < segBuffer.Length; s++)
+                            {
+                                if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
+                                bool isExpanded = (s >= 36864 || segBuffer[s].m_startNode >= 32768 || segBuffer[s].m_endNode >= 32768);
+                                if (!isExpanded) continue;
+
+                                if (useUshort)
+                                {
+                                    pArgsFwd[0] = (ushort)s;
+                                    pArgsBwd[0] = (ushort)s;
+                                }
+                                else
+                                {
+                                    pArgsFwd[0] = (uint)s;
+                                    pArgsBwd[0] = (uint)s;
+                                }
+
+                                bool fwdAllowed = true;
+                                bool bwdAllowed = true;
+                                try { fwdAllowed = (bool)mIsParking.Invoke(prm, pArgsFwd); } catch { }
+                                try { bwdAllowed = (bool)mIsParking.Invoke(prm, pArgsBwd); } catch { }
+
+                                if (!fwdAllowed || !bwdAllowed)
+                                {
+                                    using (MemoryStream rMs = new MemoryStream())
+                                    using (BinaryWriter rBw = new BinaryWriter(rMs))
+                                    {
+                                        rBw.Write((ushort)s);
+                                        rBw.Write(fwdAllowed);
+                                        rBw.Write(bwdAllowed);
+                                        prRecords.Add(rMs.ToArray());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    bw.Write((int)prRecords.Count);
+                    for (int i = 0; i < prRecords.Count; i++)
+                    {
+                        bw.Write(prRecords[i]);
+                    }
+
+                    // ================================================================
+                    // 4. Lane Connections (Upper Lanes >= 262,144)
+                    // ================================================================
+                    Type lcmType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.LaneConnectionManager");
+                    object lcm = lcmType != null ? GetManagerInstance(lcmType) : null;
+                    List<byte[]> lcRecords = new List<byte[]>();
+
+                    if (lcm != null)
+                    {
+                        MethodInfo mSaveConn = lcmType.GetMethod("SaveData");
+                        if (mSaveConn != null)
+                        {
+                            object[] connArgs = new object[] { false };
+                            IList connList = mSaveConn.Invoke(lcm, connArgs) as IList;
+                            if (connList != null)
+                            {
+                                foreach (var conn in connList)
+                                {
+                                    if (conn == null) continue;
+                                    Type cType = conn.GetType();
+                                    uint src = Convert.ToUInt32(cType.GetField("sourceLaneId").GetValue(conn));
+                                    uint dst = Convert.ToUInt32(cType.GetField("targetLaneId").GetValue(conn));
+                                    bool sn = Convert.ToBoolean(cType.GetField("sourceStartNode").GetValue(conn));
+                                    byte grp = Convert.ToByte(cType.GetField("group").GetValue(conn));
+
+                                    if (src >= 262144 || dst >= 262144)
+                                    {
+                                        using (MemoryStream rMs = new MemoryStream())
+                                        using (BinaryWriter rBw = new BinaryWriter(rMs))
+                                        {
+                                            rBw.Write(src);
+                                            rBw.Write(dst);
+                                            rBw.Write(sn);
+                                            rBw.Write(grp);
+                                            lcRecords.Add(rMs.ToArray());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    bw.Write((int)lcRecords.Count);
+                    for (int i = 0; i < lcRecords.Count; i++)
+                    {
+                        bw.Write(lcRecords[i]);
+                    }
+
+                    // ================================================================
+                    // 5. Lane Speed Limits (Upper Lanes >= 262,144)
+                    // ================================================================
+                    Type slmType = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                    object slm = slmType != null ? GetManagerInstance(slmType) : null;
+                    List<byte[]> slRecords = new List<byte[]>();
+
+                    if (slm != null)
+                    {
+                        MethodInfo mGetSpeeds = slmType.GetMethod("GetAllLaneSpeedLimits", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (mGetSpeeds != null)
+                        {
+                            IDictionary speedDict = mGetSpeeds.Invoke(slm, null) as IDictionary;
+                            if (speedDict != null)
+                            {
+                                foreach (DictionaryEntry de in speedDict)
+                                {
+                                    uint lId = Convert.ToUInt32(de.Key);
+                                    float spd = Convert.ToSingle(de.Value);
+                                    if (lId >= 262144 && spd > 0f)
+                                    {
+                                        using (MemoryStream rMs = new MemoryStream())
+                                        using (BinaryWriter rBw = new BinaryWriter(rMs))
+                                        {
+                                            rBw.Write(lId);
+                                            rBw.Write(spd);
+                                            slRecords.Add(rMs.ToArray());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    bw.Write((int)slRecords.Count);
+                    for (int i = 0; i < slRecords.Count; i++)
+                    {
+                        bw.Write(slRecords[i]);
+                    }
+
+                    // ================================================================
+                    // 6. Lane Arrows (Upper Lanes >= 262,144)
+                    // ================================================================
+                    Type flagsType = tmpe.GetType("TrafficManager.State.Flags");
+                    List<byte[]> laRecords = new List<byte[]>();
+
+                    if (flagsType != null)
+                    {
+                        MethodInfo mGetArrows = flagsType.GetMethod("GetLaneArrowFlags", new Type[] { typeof(uint) });
+                        if (mGetArrows != null)
+                        {
+                            object[] aArgs = new object[1];
+                            for (uint l = 262144; l < 524288; l++)
+                            {
+                                aArgs[0] = l;
+                                object arrObj = mGetArrows.Invoke(null, aArgs);
+                                if (arrObj != null)
+                                {
+                                    uint arrVal = Convert.ToUInt32(arrObj);
+                                    if (arrVal != 0)
+                                    {
+                                        using (MemoryStream rMs = new MemoryStream())
+                                        using (BinaryWriter rBw = new BinaryWriter(rMs))
+                                        {
+                                            rBw.Write(l);
+                                            rBw.Write(arrVal);
+                                            laRecords.Add(rMs.ToArray());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    bw.Write((int)laRecords.Count);
+                    for (int i = 0; i < laRecords.Count; i++)
+                    {
+                        bw.Write(laRecords[i]);
+                    }
+
+                    // ================================================================
+                    // 7. Vehicle Restrictions (Upper Lanes >= 262,144)
+                    // ================================================================
+                    List<byte[]> vrRecords = new List<byte[]>();
+
+                    if (flagsType != null)
+                    {
+                        MethodInfo mGetVeh = flagsType.GetMethod("GetAllLaneAllowedVehicleTypes", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                        if (mGetVeh != null)
+                        {
+                            IEnumerable vehEnum = mGetVeh.Invoke(null, null) as IEnumerable;
+                            if (vehEnum != null)
+                            {
+                                foreach (var item in vehEnum)
+                                {
+                                    if (item == null) continue;
+                                    PropertyInfo pKey = item.GetType().GetProperty("Key");
+                                    PropertyInfo pVal = item.GetType().GetProperty("Value");
+                                    if (pKey != null && pVal != null)
+                                    {
+                                        uint lId = Convert.ToUInt32(pKey.GetValue(item, null));
+                                        uint vTypes = Convert.ToUInt32(pVal.GetValue(item, null));
+                                        if (lId >= 262144)
+                                        {
+                                            using (MemoryStream rMs = new MemoryStream())
+                                            using (BinaryWriter rBw = new BinaryWriter(rMs))
+                                            {
+                                                rBw.Write(lId);
+                                                rBw.Write(vTypes);
+                                                vrRecords.Add(rMs.ToArray());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    bw.Write((int)vrRecords.Count);
+                    for (int i = 0; i < vrRecords.Count; i++)
+                    {
+                        bw.Write(vrRecords[i]);
+                    }
+
+                    // ================================================================
+                    // 8. Timed Traffic Lights (Nodes 0 .. 65,023 with mixed/high groups)
+                    // ================================================================
                     Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
                     object tlsm = tlsmType != null ? GetManagerInstance(tlsmType) : null;
                     byte[] ttlBytes = null;
@@ -3819,7 +4108,7 @@ namespace MoreNetworkCapacityRenew
                             FieldInfo fTimedLight = tlsType != null ? tlsType.GetField("timedLight", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance) : null;
 
                             object[] hasArgs = new object[1];
-                            for (int n = 32768; n < 65024 && n < sims.Length; n++)
+                            for (int n = 0; n < 65024 && n < sims.Length; n++)
                             {
                                 hasArgs[0] = (ushort)n;
                                 bool has = (bool)mHasTimed.Invoke(tlsm, hasArgs);
@@ -3831,8 +4120,12 @@ namespace MoreNetworkCapacityRenew
                                 object timedLight = fTimedLight != null ? fTimedLight.GetValue(sim) : null;
                                 if (timedLight == null) continue;
 
-                                object ttlObj = Activator.CreateInstance(ttlCfgType);
-                                ttlCfgType.GetField("nodeId").SetValue(ttlObj, (ushort)n);
+                                ushort masterNodeId = Convert.ToUInt16(timedLight.GetType().GetProperty("NodeId").GetValue(timedLight, null));
+                                if (masterNodeId != (ushort)n)
+                                {
+                                    // Not the master node of this group, skip to avoid duplicate serialization
+                                    continue;
+                                }
 
                                 PropertyInfo pGroup = timedLight.GetType().GetProperty("NodeGroup");
                                 IEnumerable groupEnum = pGroup != null ? pGroup.GetValue(timedLight, null) as IEnumerable : null;
@@ -3842,6 +4135,9 @@ namespace MoreNetworkCapacityRenew
                                     foreach (var gId in groupEnum) groupList.Add(Convert.ToUInt16(gId));
                                 }
                                 if (groupList.Count == 0) groupList.Add((ushort)n);
+
+                                object ttlObj = Activator.CreateInstance(ttlCfgType);
+                                ttlCfgType.GetField("nodeId").SetValue(ttlObj, (ushort)masterNodeId);
                                 ttlCfgType.GetField("nodeGroup").SetValue(ttlObj, groupList);
 
                                 MethodInfo mIsStarted = timedLight.GetType().GetMethod("IsStarted", Type.EmptyTypes);
@@ -3889,15 +4185,18 @@ namespace MoreNetworkCapacityRenew
                                             ushort cslSegId = Convert.ToUInt16(csl.GetType().GetProperty("SegmentId").GetValue(csl, null));
 
                                             object cslObj = Activator.CreateInstance(cslCfgType);
-                                            cslCfgType.GetField("nodeId").SetValue(cslObj, cslNodeId);
-                                            cslCfgType.GetField("segmentId").SetValue(cslObj, cslSegId);
+                                            cslCfgType.GetField("nodeId").SetValue(cslObj, (ushort)cslNodeId);
+                                            cslCfgType.GetField("segmentId").SetValue(cslObj, (ushort)cslSegId);
                                             cslCfgType.GetField("manualPedestrianMode").SetValue(cslObj, Convert.ToBoolean(csl.GetType().GetProperty("ManualPedestrianMode").GetValue(csl, null)));
 
                                             object pedState = csl.GetType().GetProperty("PedestrianLightState").GetValue(csl, null);
                                             cslCfgType.GetField("pedestrianLightState").SetValue(cslObj, pedState);
 
-                                            IDictionary lightDict = (IDictionary)Activator.CreateInstance(cslCfgType.GetField("customLights").FieldType);
+                                            FieldInfo fCustomLights = cslCfgType.GetField("customLights");
+                                            IDictionary lightDict = (IDictionary)Activator.CreateInstance(fCustomLights.FieldType);
                                             cslCfgType.GetField("customLights").SetValue(cslObj, lightDict);
+
+                                            Type extVehType = fCustomLights.FieldType.GetGenericArguments()[0];
 
                                             PropertyInfo pLights = csl.GetType().GetProperty("CustomLights");
                                             IEnumerable lightsEnum = pLights != null ? pLights.GetValue(csl, null) as IEnumerable : null;
@@ -3914,14 +4213,23 @@ namespace MoreNetworkCapacityRenew
                                                     object mainLight = light.GetType().GetProperty("LightMain").GetValue(light, null);
                                                     object rightLight = light.GetType().GetProperty("LightRight").GetValue(light, null);
 
-                                                    ConstructorInfo cslCtor = cslLightCfgType.GetConstructors()[0];
-                                                    object lightObj = cslCtor.Invoke(new object[] { cslNodeId, cslSegId, mode, leftLight, mainLight, rightLight });
+                                                    object lightObj = Activator.CreateInstance(cslLightCfgType);
+                                                    cslLightCfgType.GetField("nodeId").SetValue(lightObj, (ushort)cslNodeId);
+                                                    cslLightCfgType.GetField("segmentId").SetValue(lightObj, (ushort)cslSegId);
+                                                    cslLightCfgType.GetField("currentMode").SetValue(lightObj, mode);
+                                                    cslLightCfgType.GetField("leftLight").SetValue(lightObj, leftLight);
+                                                    cslLightCfgType.GetField("mainLight").SetValue(lightObj, mainLight);
+                                                    cslLightCfgType.GetField("rightLight").SetValue(lightObj, rightLight);
 
-                                                    lightDict.Add(key, lightObj);
+                                                    object keyObj = Enum.ToObject(extVehType, Convert.ToInt32(key));
+                                                    lightDict.Add(keyObj, lightObj);
                                                 }
                                             }
 
-                                            cslDict.Add(cslSegId, cslObj);
+                                            if (!cslDict.Contains(cslSegId))
+                                            {
+                                                cslDict.Add(cslSegId, cslObj);
+                                            }
                                         }
                                     }
 
@@ -3935,7 +4243,7 @@ namespace MoreNetworkCapacityRenew
                             {
                                 using (MemoryStream ttlStream = new MemoryStream())
                                 {
-                                    System.Runtime.Serialization.Formatters.Binary.BinaryFormatter bf = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter();
+                                    BinaryFormatter bf = new BinaryFormatter();
                                     bf.Serialize(ttlStream, ttlList);
                                     ttlBytes = ttlStream.ToArray();
                                 }
@@ -3953,7 +4261,9 @@ namespace MoreNetworkCapacityRenew
                         bw.Write((int)0);
                     }
 
-                    if (jrRecords.Count == 0 && psRecords.Count == 0 && (ttlBytes == null || ttlBytes.Length == 0))
+                    if (jrRecords.Count == 0 && psRecords.Count == 0 && prRecords.Count == 0 &&
+                        lcRecords.Count == 0 && slRecords.Count == 0 && laRecords.Count == 0 &&
+                        vrRecords.Count == 0 && (ttlBytes == null || ttlBytes.Length == 0))
                     {
                         return null;
                     }
@@ -3985,103 +4295,391 @@ namespace MoreNetworkCapacityRenew
                     if (magic != 0x4D4E4354) return;
                     byte ver = br.ReadByte();
 
-                    // 1. Restore Junction Restrictions
-                    int jrCount = br.ReadInt32();
-                    Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
-                    object jrm = jrmType != null ? GetManagerInstance(jrmType) : null;
-                    Assembly commons = GetTMPECommonsAssembly();
-                    Type tbType = commons != null ? commons.GetType("CSUtil.Commons.TernaryBool") : null;
-
-                    MethodInfo mSetUturn = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetUturnAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
-                    MethodInfo mSetBlocked = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetEnteringBlockedJunctionAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
-                    MethodInfo mSetPed = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetPedestrianCrossingAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
-                    MethodInfo mSetStraight = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetLaneChangingAllowedWhenGoingStraight", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
-                    MethodInfo mSetNear = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetNearTurnOnRedAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
-                    MethodInfo mSetFar = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetFarTurnOnRedAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
-
-                    object[] setArgs = new object[3];
-                    for (int i = 0; i < jrCount; i++)
+                    if (ver == 1)
                     {
-                        ushort segId = br.ReadUInt16();
-                        bool startNode = br.ReadBoolean();
-                        byte uturn = br.ReadByte();
-                        byte blocked = br.ReadByte();
-                        byte ped = br.ReadByte();
-                        byte straight = br.ReadByte();
-                        byte near = br.ReadByte();
-                        byte far = br.ReadByte();
+                        // 1. Restore Junction Restrictions (Legacy v1)
+                        int jrCount = br.ReadInt32();
+                        Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
+                        object jrm = jrmType != null ? GetManagerInstance(jrmType) : null;
+                        Assembly commons = GetTMPECommonsAssembly();
+                        Type tbType = commons != null ? commons.GetType("CSUtil.Commons.TernaryBool") : null;
 
-                        if (jrm != null && tbType != null)
+                        MethodInfo mSetUturn = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetUturnAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetBlocked = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetEnteringBlockedJunctionAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetPed = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetPedestrianCrossingAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetStraight = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetLaneChangingAllowedWhenGoingStraight", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetNear = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetNearTurnOnRedAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetFar = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetFarTurnOnRedAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+
+                        object[] setArgs = new object[3];
+                        for (int i = 0; i < jrCount; i++)
                         {
-                            setArgs[0] = segId;
-                            setArgs[1] = startNode;
+                            ushort segId = br.ReadUInt16();
+                            bool startNode = br.ReadBoolean();
+                            byte uturn = br.ReadByte();
+                            byte blocked = br.ReadByte();
+                            byte ped = br.ReadByte();
+                            byte straight = br.ReadByte();
+                            byte near = br.ReadByte();
+                            byte far = br.ReadByte();
 
-                            if (uturn != 0 && mSetUturn != null) { setArgs[2] = Enum.ToObject(tbType, uturn); mSetUturn.Invoke(jrm, setArgs); }
-                            if (blocked != 0 && mSetBlocked != null) { setArgs[2] = Enum.ToObject(tbType, blocked); mSetBlocked.Invoke(jrm, setArgs); }
-                            if (ped != 0 && mSetPed != null) { setArgs[2] = Enum.ToObject(tbType, ped); mSetPed.Invoke(jrm, setArgs); }
-                            if (straight != 0 && mSetStraight != null) { setArgs[2] = Enum.ToObject(tbType, straight); mSetStraight.Invoke(jrm, setArgs); }
-                            if (near != 0 && mSetNear != null) { setArgs[2] = Enum.ToObject(tbType, near); mSetNear.Invoke(jrm, setArgs); }
-                            if (far != 0 && mSetFar != null) { setArgs[2] = Enum.ToObject(tbType, far); mSetFar.Invoke(jrm, setArgs); }
-                        }
-                    }
-
-                    // 2. Restore Priority Signs
-                    int psCount = br.ReadInt32();
-                    Type tpmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficPriorityManager");
-                    object tpm = tpmType != null ? GetManagerInstance(tpmType) : null;
-                    Assembly apiAsm = GetTMPEAPIAssembly();
-                    Type ptType = apiAsm != null ? apiAsm.GetType("TrafficManager.API.Traffic.Enums.PriorityType") : null;
-
-                    MethodInfo mSetSign = (tpmType != null && ptType != null) ? tpmType.GetMethod("SetPrioritySign", new Type[] { typeof(ushort), typeof(bool), ptType }) : null;
-                    object[] psArgs = new object[3];
-                    for (int i = 0; i < psCount; i++)
-                    {
-                        ushort segId = br.ReadUInt16();
-                        bool startNode = br.ReadBoolean();
-                        byte sign = br.ReadByte();
-
-                        if (tpm != null && ptType != null && mSetSign != null)
-                        {
-                            psArgs[0] = segId;
-                            psArgs[1] = startNode;
-                            psArgs[2] = Enum.ToObject(ptType, sign);
-                            try { mSetSign.Invoke(tpm, psArgs); } catch { }
-                        }
-                    }
-
-                    // 3. Restore Timed Traffic Lights
-                    int ttlLen = br.ReadInt32();
-                    int ttlCount = 0;
-                    if (ttlLen > 0)
-                    {
-                        byte[] ttlBytes = br.ReadBytes(ttlLen);
-                        Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
-                        object tlsm = tlsmType != null ? GetManagerInstance(tlsmType) : null;
-
-                        if (tlsm != null)
-                        {
-                            Type ttlCfgType = tmpe.GetType("TrafficManager.Configuration+TimedTrafficLights");
-                            Type listType = typeof(List<>).MakeGenericType(ttlCfgType);
-                            MethodInfo mLoad = tlsmType.GetMethod("LoadData", new Type[] { listType });
-
-                            if (mLoad != null)
+                            if (jrm != null && tbType != null)
                             {
-                                using (MemoryStream ttlStream = new MemoryStream(ttlBytes))
+                                setArgs[0] = segId;
+                                setArgs[1] = startNode;
+
+                                if (uturn != 0 && mSetUturn != null) { setArgs[2] = Enum.ToObject(tbType, uturn); mSetUturn.Invoke(jrm, setArgs); }
+                                if (blocked != 0 && mSetBlocked != null) { setArgs[2] = Enum.ToObject(tbType, blocked); mSetBlocked.Invoke(jrm, setArgs); }
+                                if (ped != 0 && mSetPed != null) { setArgs[2] = Enum.ToObject(tbType, ped); mSetPed.Invoke(jrm, setArgs); }
+                                if (straight != 0 && mSetStraight != null) { setArgs[2] = Enum.ToObject(tbType, straight); mSetStraight.Invoke(jrm, setArgs); }
+                                if (near != 0 && mSetNear != null) { setArgs[2] = Enum.ToObject(tbType, near); mSetNear.Invoke(jrm, setArgs); }
+                                if (far != 0 && mSetFar != null) { setArgs[2] = Enum.ToObject(tbType, far); mSetFar.Invoke(jrm, setArgs); }
+                            }
+                        }
+
+                        // 2. Restore Priority Signs (Legacy v1)
+                        int psCount = br.ReadInt32();
+                        Type tpmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficPriorityManager");
+                        object tpm = tpmType != null ? GetManagerInstance(tpmType) : null;
+                        Assembly apiAsm = GetTMPEAPIAssembly();
+                        Type ptType = apiAsm != null ? apiAsm.GetType("TrafficManager.API.Traffic.Enums.PriorityType") : null;
+
+                        MethodInfo mSetSign = (tpmType != null && ptType != null) ? tpmType.GetMethod("SetPrioritySign", new Type[] { typeof(ushort), typeof(bool), ptType }) : null;
+                        object[] psArgs = new object[3];
+                        for (int i = 0; i < psCount; i++)
+                        {
+                            ushort segId = br.ReadUInt16();
+                            bool startNode = br.ReadBoolean();
+                            byte sign = br.ReadByte();
+
+                            if (tpm != null && ptType != null && mSetSign != null)
+                            {
+                                psArgs[0] = segId;
+                                psArgs[1] = startNode;
+                                psArgs[2] = Enum.ToObject(ptType, sign);
+                                try { mSetSign.Invoke(tpm, psArgs); } catch { }
+                            }
+                        }
+
+                        // 3. Restore Timed Traffic Lights (Legacy v1)
+                        int ttlLen = br.ReadInt32();
+                        int ttlCount = 0;
+                        if (ttlLen > 0)
+                        {
+                            byte[] ttlBytes = br.ReadBytes(ttlLen);
+                            Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                            object tlsm = tlsmType != null ? GetManagerInstance(tlsmType) : null;
+
+                            if (tlsm != null)
+                            {
+                                Type ttlCfgType = tmpe.GetType("TrafficManager.Configuration+TimedTrafficLights");
+                                Type listType = typeof(List<>).MakeGenericType(ttlCfgType);
+                                MethodInfo mLoad = tlsmType.GetMethod("LoadData", new Type[] { listType });
+
+                                if (mLoad != null)
                                 {
-                                    System.Runtime.Serialization.Formatters.Binary.BinaryFormatter bf = new System.Runtime.Serialization.Formatters.Binary.BinaryFormatter();
-                                    IList ttlList = (IList)bf.Deserialize(ttlStream);
-                                    if (ttlList != null)
+                                    using (MemoryStream ttlStream = new MemoryStream(ttlBytes))
                                     {
-                                        ttlCount = ttlList.Count;
-                                        mLoad.Invoke(tlsm, new object[] { ttlList });
+                                        BinaryFormatter bf = new BinaryFormatter();
+                                        IList ttlList = (IList)bf.Deserialize(ttlStream);
+                                        if (ttlList != null)
+                                        {
+                                            ttlCount = ttlList.Count;
+                                            mLoad.Invoke(tlsm, new object[] { ttlList });
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully restored High-ID TM:PE data: {0} Junction Restrictions, {1} Priority Signs, {2} Timed Traffic Lights.",
-                        jrCount, psCount, ttlCount));
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully restored High-ID TM:PE Payload v1: {0} Junction Restrictions, {1} Priority Signs, {2} Timed Traffic Lights.",
+                            jrCount, psCount, ttlCount));
+                    }
+                    else if (ver == 2)
+                    {
+                        // 1. Restore Junction Restrictions
+                        int jrCount = br.ReadInt32();
+                        Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
+                        object jrm = jrmType != null ? GetManagerInstance(jrmType) : null;
+                        Assembly commons = GetTMPECommonsAssembly();
+                        Type tbType = commons != null ? commons.GetType("CSUtil.Commons.TernaryBool") : null;
+
+                        MethodInfo mSetUturn = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetUturnAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetBlocked = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetEnteringBlockedJunctionAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetPed = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetPedestrianCrossingAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetStraight = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetLaneChangingAllowedWhenGoingStraight", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetNear = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetNearTurnOnRedAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+                        MethodInfo mSetFar = (jrmType != null && tbType != null) ? jrmType.GetMethod("SetFarTurnOnRedAllowed", new Type[] { typeof(ushort), typeof(bool), tbType }) : null;
+
+                        object[] setArgs = new object[3];
+                        for (int i = 0; i < jrCount; i++)
+                        {
+                            ushort segId = br.ReadUInt16();
+                            bool startNode = br.ReadBoolean();
+                            byte uturn = br.ReadByte();
+                            byte blocked = br.ReadByte();
+                            byte ped = br.ReadByte();
+                            byte straight = br.ReadByte();
+                            byte near = br.ReadByte();
+                            byte far = br.ReadByte();
+
+                            if (jrm != null && tbType != null)
+                            {
+                                setArgs[0] = segId;
+                                setArgs[1] = startNode;
+
+                                if (uturn != 0 && mSetUturn != null) { setArgs[2] = Enum.ToObject(tbType, uturn); mSetUturn.Invoke(jrm, setArgs); }
+                                if (blocked != 0 && mSetBlocked != null) { setArgs[2] = Enum.ToObject(tbType, blocked); mSetBlocked.Invoke(jrm, setArgs); }
+                                if (ped != 0 && mSetPed != null) { setArgs[2] = Enum.ToObject(tbType, ped); mSetPed.Invoke(jrm, setArgs); }
+                                if (straight != 0 && mSetStraight != null) { setArgs[2] = Enum.ToObject(tbType, straight); mSetStraight.Invoke(jrm, setArgs); }
+                                if (near != 0 && mSetNear != null) { setArgs[2] = Enum.ToObject(tbType, near); mSetNear.Invoke(jrm, setArgs); }
+                                if (far != 0 && mSetFar != null) { setArgs[2] = Enum.ToObject(tbType, far); mSetFar.Invoke(jrm, setArgs); }
+                            }
+                        }
+
+                        // 2. Restore Priority Signs
+                        int psCount = br.ReadInt32();
+                        Type tpmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficPriorityManager");
+                        object tpm = tpmType != null ? GetManagerInstance(tpmType) : null;
+                        Assembly apiAsm = GetTMPEAPIAssembly();
+                        Type ptType = apiAsm != null ? apiAsm.GetType("TrafficManager.API.Traffic.Enums.PriorityType") : null;
+
+                        MethodInfo mSetSign = (tpmType != null && ptType != null) ? tpmType.GetMethod("SetPrioritySign", new Type[] { typeof(ushort), typeof(bool), ptType }) : null;
+                        object[] psArgs = new object[3];
+                        for (int i = 0; i < psCount; i++)
+                        {
+                            ushort segId = br.ReadUInt16();
+                            bool startNode = br.ReadBoolean();
+                            byte sign = br.ReadByte();
+
+                            if (tpm != null && ptType != null && mSetSign != null)
+                            {
+                                psArgs[0] = segId;
+                                psArgs[1] = startNode;
+                                psArgs[2] = Enum.ToObject(ptType, sign);
+                                try { mSetSign.Invoke(tpm, psArgs); } catch { }
+                            }
+                        }
+
+                        // 3. Restore Parking Restrictions
+                        int prCount = br.ReadInt32();
+                        Type prmType = tmpe.GetType("TrafficManager.Manager.Impl.ParkingRestrictionsManager");
+                        object prm = prmType != null ? GetManagerInstance(prmType) : null;
+                        MethodInfo mSetParking = prmType != null ? (prmType.GetMethod("SetParkingAllowed", new Type[] { typeof(uint), typeof(NetInfo.Direction), typeof(bool) })
+                                                                 ?? prmType.GetMethod("SetParkingAllowed", new Type[] { typeof(ushort), typeof(NetInfo.Direction), typeof(bool) })) : null;
+                        bool useUshortParking = mSetParking != null && mSetParking.GetParameters()[0].ParameterType == typeof(ushort);
+                        object[] prArgsFwd = new object[3];
+                        object[] prArgsBwd = new object[3];
+                        prArgsFwd[1] = NetInfo.Direction.Forward;
+                        prArgsBwd[1] = NetInfo.Direction.Backward;
+
+                        for (int i = 0; i < prCount; i++)
+                        {
+                            ushort segId = br.ReadUInt16();
+                            bool fwd = br.ReadBoolean();
+                            bool bwd = br.ReadBoolean();
+
+                            if (prm != null && mSetParking != null)
+                            {
+                                object sObj = useUshortParking ? (object)segId : (object)(uint)segId;
+                                prArgsFwd[0] = sObj;
+                                prArgsFwd[2] = fwd;
+                                prArgsBwd[0] = sObj;
+                                prArgsBwd[2] = bwd;
+                                try { mSetParking.Invoke(prm, prArgsFwd); } catch { }
+                                try { mSetParking.Invoke(prm, prArgsBwd); } catch { }
+                            }
+                        }
+
+                        // 4. Restore Lane Connections
+                        int lcCount = br.ReadInt32();
+                        Type lcmType = tmpe.GetType("TrafficManager.Manager.Impl.LaneConnection.LaneConnectionManager");
+                        object lcm = lcmType != null ? GetManagerInstance(lcmType) : null;
+                        Type groupType = apiAsm != null ? apiAsm.GetType("TrafficManager.API.Traffic.Enums.LaneEndTransitionGroup") : null;
+                        MethodInfo mAddConn = (lcmType != null && groupType != null) ? lcmType.GetMethod("AddLaneConnection", new Type[] { typeof(uint), typeof(uint), typeof(bool), groupType }) : null;
+                        object[] lcArgs = new object[4];
+
+                        for (int i = 0; i < lcCount; i++)
+                        {
+                            uint src = br.ReadUInt32();
+                            uint dst = br.ReadUInt32();
+                            bool sn = br.ReadBoolean();
+                            byte grp = br.ReadByte();
+
+                            if (lcm != null && mAddConn != null && groupType != null)
+                            {
+                                lcArgs[0] = src;
+                                lcArgs[1] = dst;
+                                lcArgs[2] = sn;
+                                lcArgs[3] = Enum.ToObject(groupType, grp);
+                                try { mAddConn.Invoke(lcm, lcArgs); } catch { }
+                            }
+                        }
+
+                        // 5. Restore Lane Speed Limits
+                        int slCount = br.ReadInt32();
+                        Type slmType = tmpe.GetType("TrafficManager.Manager.Impl.SpeedLimitManager");
+                        object slm = slmType != null ? GetManagerInstance(slmType) : null;
+                        Type laneSpeedLimitType = tmpe.GetType("TrafficManager.Configuration+LaneSpeedLimit");
+                        Type speedValType = apiAsm != null ? apiAsm.GetType("TrafficManager.API.Traffic.Data.SpeedValue") : null;
+                        MethodInfo mSlLoad = null;
+                        IList slList = null;
+                        if (slm != null && laneSpeedLimitType != null && speedValType != null)
+                        {
+                            Type slListType = typeof(List<>).MakeGenericType(laneSpeedLimitType);
+                            slList = (IList)Activator.CreateInstance(slListType);
+                            mSlLoad = slmType.GetMethod("LoadData", new Type[] { slListType });
+                        }
+
+                        for (int i = 0; i < slCount; i++)
+                        {
+                            uint lId = br.ReadUInt32();
+                            float spd = br.ReadSingle();
+
+                            if (slList != null && speedValType != null && laneSpeedLimitType != null)
+                            {
+                                try
+                                {
+                                    object speedValObj = Activator.CreateInstance(speedValType, new object[] { spd });
+                                    object slObj = Activator.CreateInstance(laneSpeedLimitType, new object[] { lId, speedValObj });
+                                    slList.Add(slObj);
+                                }
+                                catch { }
+                            }
+                        }
+
+                        if (slm != null && mSlLoad != null && slList != null && slList.Count > 0)
+                        {
+                            try { mSlLoad.Invoke(slm, new object[] { slList }); } catch { }
+                        }
+
+                        // 6. Restore Lane Arrows
+                        int laCount = br.ReadInt32();
+                        Type flagsType = tmpe.GetType("TrafficManager.State.Flags");
+                        Type laneArrowsType = tmpe.GetType("TrafficManager.Traffic.Enums.LaneArrows")
+                                           ?? tmpe.GetType("TrafficManager.API.Traffic.Enums.LaneArrows");
+                        MethodInfo mSetArrows = (flagsType != null && laneArrowsType != null) ? flagsType.GetMethod("SetLaneArrowFlags", new Type[] { typeof(uint), laneArrowsType, typeof(bool) }) : null;
+                        object[] laArgs = new object[3];
+                        laArgs[2] = true;
+
+                        for (int i = 0; i < laCount; i++)
+                        {
+                            uint lId = br.ReadUInt32();
+                            uint arrows = br.ReadUInt32();
+
+                            if (mSetArrows != null && laneArrowsType != null)
+                            {
+                                laArgs[0] = lId;
+                                laArgs[1] = Enum.ToObject(laneArrowsType, arrows);
+                                try { mSetArrows.Invoke(null, laArgs); } catch { }
+                            }
+                        }
+
+                        // 7. Restore Vehicle Restrictions
+                        int vrCount = br.ReadInt32();
+                        Type extVehType = tmpe.GetType("TrafficManager.Traffic.ExtVehicleType")
+                                       ?? tmpe.GetType("TrafficManager.API.Traffic.Enums.ExtVehicleType");
+                        MethodInfo mSetVeh = (flagsType != null && extVehType != null) ? flagsType.GetMethod("SetLaneAllowedVehicleTypes", new Type[] { typeof(uint), extVehType }) : null;
+                        object[] vrArgs = new object[2];
+
+                        for (int i = 0; i < vrCount; i++)
+                        {
+                            uint lId = br.ReadUInt32();
+                            uint vTypes = br.ReadUInt32();
+
+                            if (mSetVeh != null && extVehType != null)
+                            {
+                                vrArgs[0] = lId;
+                                vrArgs[1] = Enum.ToObject(extVehType, vTypes);
+                                try { mSetVeh.Invoke(null, vrArgs); } catch { }
+                            }
+                        }
+
+                        // 8. Restore Timed Traffic Lights
+                        int ttlLen = br.ReadInt32();
+                        int ttlCount = 0;
+                        if (ttlLen > 0)
+                        {
+                            byte[] ttlBytes = br.ReadBytes(ttlLen);
+                            Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                            object tlsm = tlsmType != null ? GetManagerInstance(tlsmType) : null;
+
+                            if (tlsm != null)
+                            {
+                                Type ttlCfgType = tmpe.GetType("TrafficManager.Configuration+TimedTrafficLights");
+                                Type listType = typeof(List<>).MakeGenericType(ttlCfgType);
+                                MethodInfo mLoad = tlsmType.GetMethod("LoadData", new Type[] { listType });
+
+                                if (mLoad != null)
+                                {
+                                    using (MemoryStream ttlStream = new MemoryStream(ttlBytes))
+                                    {
+                                        BinaryFormatter bf = new BinaryFormatter();
+                                        IList ttlList = (IList)bf.Deserialize(ttlStream);
+                                        if (ttlList != null && ttlList.Count > 0)
+                                        {
+                                            FieldInfo fSims = tlsmType.GetField("<TrafficLightSimulations>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                                                           ?? tlsmType.GetField("TrafficLightSimulations", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                                            Array sims = fSims != null ? fSims.GetValue(tlsm) as Array : null;
+
+                                            if (sims != null)
+                                            {
+                                                Type tlsType = tmpe.GetType("TrafficManager.TrafficLight.Impl.TrafficLightSimulation");
+                                                FieldInfo fType = tlsType != null ? tlsType.GetField("type", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance) : null;
+                                                FieldInfo fTimedLight = tlsType != null ? tlsType.GetField("timedLight", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance) : null;
+
+                                                foreach (var item in ttlList)
+                                                {
+                                                    uint nId = Convert.ToUInt32(ttlCfgType.GetField("nodeId").GetValue(item));
+                                                    List<ushort> nGroup = ttlCfgType.GetField("nodeGroup") != null ? ttlCfgType.GetField("nodeGroup").GetValue(item) as List<ushort> : null;
+                                                    List<ushort> allNodesToClean = new List<ushort>();
+                                                    allNodesToClean.Add((ushort)nId);
+                                                    if (nGroup != null)
+                                                    {
+                                                        foreach (ushort gn in nGroup)
+                                                        {
+                                                            if (!allNodesToClean.Contains(gn)) allNodesToClean.Add(gn);
+                                                        }
+                                                    }
+
+                                                    foreach (ushort cleanNodeId in allNodesToClean)
+                                                    {
+                                                        if (cleanNodeId < sims.Length)
+                                                        {
+                                                            object sim = sims.GetValue((int)cleanNodeId);
+                                                            if (sim != null)
+                                                            {
+                                                                if (fTimedLight != null)
+                                                                {
+                                                                    object tl = fTimedLight.GetValue(sim);
+                                                                    if (tl != null)
+                                                                    {
+                                                                        MethodInfo mDestroy = tl.GetType().GetMethod("Destroy", Type.EmptyTypes);
+                                                                        if (mDestroy != null) mDestroy.Invoke(tl, null);
+                                                                        fTimedLight.SetValue(sim, null);
+                                                                    }
+                                                                }
+                                                                if (fType != null)
+                                                                {
+                                                                    fType.SetValue(sim, Enum.ToObject(fType.FieldType, 0));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            mLoad.Invoke(tlsm, new object[] { ttlList });
+                                            ttlCount = ttlList.Count;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully restored High-ID TM:PE Payload v2: {0} Junction Restrictions, {1} Priority Signs, {2} Parking Restrictions, {3} Lane Connections, {4} Speed Limits, {5} Lane Arrows, {6} Vehicle Restrictions, {7} Timed Traffic Lights.",
+                            jrCount, psCount, prCount, lcCount, slCount, laCount, vrCount, ttlCount));
+                    }
                 }
             }
             catch (Exception ex)
@@ -7170,20 +7768,21 @@ namespace MoreNetworkCapacityRenew
             NetNode[] nodeBuffer = nm.m_nodes != null ? nm.m_nodes.m_buffer : null;
             NetSegment[] segBuffer = nm.m_segments != null ? nm.m_segments.m_buffer : null;
 
-            uint frame = sm.m_currentFrameIndex & 63;
+            uint frame256 = sm.m_currentFrameIndex & 255;
+            uint frame64 = sm.m_currentFrameIndex & 63;
 
-            // 1. Upper Node Stepping (32,768 .. 65,023) across 64 frames (504 nodes per frame)
+            // 1. Vanilla NetAI Upper Node Stepping (32,768 .. 65,023) across 256 frames (126 nodes per frame)
+            // Matches vanilla NetManager 256-frame cadence: cycles vanilla traffic lights and pedestrian signals at normal speed.
             if (nodeBuffer != null)
             {
-                int nStart = 32768 + (int)frame * 504;
-                int nEnd = Math.Min(nStart + 504, nodeBuffer.Length);
+                int nStart256 = 32768 + (int)frame256 * 126;
+                int nEnd256 = Math.Min(nStart256 + 126, nodeBuffer.Length);
 
-                for (int i = nStart; i < nEnd; i++)
+                for (int i = nStart256; i < nEnd256; i++)
                 {
                     if ((nodeBuffer[i].m_flags & NetNode.Flags.Created) == 0)
                         continue;
 
-                    // Step vanilla NetAI: cycles vanilla traffic lights, pedestrian signals, and node problems
                     try
                     {
                         NetInfo info = nodeBuffer[i].Info;
@@ -7193,24 +7792,33 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
                     catch { }
-
-                    // Step TM:PE Timed Traffic Lights
-                    if (s_stepDelegate != null && s_simulationsArray != null && i < s_simulationsArray.Length)
-                    {
-                        try
-                        {
-                            s_stepDelegate(s_simulationsArray, i);
-                        }
-                        catch { }
-                    }
                 }
             }
 
-            // 2. Upper Segment Stepping (36,864 .. 65,023) across 64 frames (440 segments per frame)
+            // 2. TM:PE Timed Traffic Lights Stepping (32,768 .. 65,023) across 64 frames (504 nodes per frame)
+            // Matches TM:PE's native 64-frame simulation cadence.
+            if (s_stepDelegate != null && s_simulationsArray != null)
+            {
+                int ttlStart = 32768 + (int)frame64 * 504;
+                int ttlEnd = Math.Min(ttlStart + 504, s_simulationsArray.Length);
+
+                for (int i = ttlStart; i < ttlEnd; i++)
+                {
+                    try
+                    {
+                        s_stepDelegate(s_simulationsArray, i);
+                    }
+                    catch { }
+                }
+            }
+
+            // 3. Upper Segment Stepping (36,864 .. 65,023) across 256 frames (110 segments per frame)
+            // Matches vanilla NetManager 256-frame cadence: m_trafficBuffer accumulates vehicles for the full 256 frames,
+            // correctly reporting accurate congestion density (up to 100% bright red) and updating noise/wear.
             if (segBuffer != null)
             {
-                int sStart = 36864 + (int)frame * 440;
-                int sEnd = Math.Min(sStart + 440, segBuffer.Length);
+                int sStart = 36864 + (int)frame256 * 110;
+                int sEnd = Math.Min(sStart + 110, segBuffer.Length);
 
                 for (int s = sStart; s < sEnd; s++)
                 {
@@ -7236,9 +7844,9 @@ namespace MoreNetworkCapacityRenew
                 }
             }
 
-            // 3. Color Map Synchronization for Upper Network
+            // 4. Color Map Synchronization for Upper Network
             // Every 64 frames (approx once per sec), refresh upper colors if an Info Mode is active
-            if (frame == 0)
+            if (frame64 == 0)
             {
                 try
                 {

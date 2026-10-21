@@ -147,7 +147,7 @@ namespace MoreNetworkCapacityRenew
                 // Register TM:PE Flags arrays (critical for IndexOutOfRangeException fix)
                 RegisterArray("TrafficManager.State.Flags", "laneArrowFlags", 524288);
                 RegisterArray("TrafficManager.State.Flags", "highwayLaneArrowFlags", 524288);
-                RegisterArray("TrafficManager.State.Flags", "laneAllowedVehicleTypesArray", 65024);
+                RegisterArray("TrafficManager.State.Flags", "laneAllowedVehicleTypesArray", 65536);
                 
                 // Register TM:PE live extension buffers (must match live NetManager arrays)
                 RegisterArray("TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", 262144);
@@ -237,7 +237,7 @@ namespace MoreNetworkCapacityRenew
                 bool success = true;
                 success &= ExpandStaticArray(flagsType, "laneArrowFlags", 524288);
                 success &= ExpandStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                success &= ExpandStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
+                success &= ExpandStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
                 
                 // 2. Synchronize live game buffers to TM:PE extension buffers
                 NetManager nm = Singleton<NetManager>.instance;
@@ -376,7 +376,7 @@ namespace MoreNetworkCapacityRenew
                 bool valid = true;
                 valid &= ValidateStaticArray(flagsType, "laneArrowFlags", 524288);
                 valid &= ValidateStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                valid &= ValidateStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
+                valid &= ValidateStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
                 
                 return valid;
             }
@@ -463,7 +463,7 @@ namespace MoreNetworkCapacityRenew
                 if (_cachedFieldTypes != null)
                 {
                     Array arr = _cachedFieldTypes.GetValue(null) as Array;
-                    if (arr != null && arr.Length < 65024)
+                    if (arr != null && arr.Length < 65536)
                     {
                         ShrinkageEvents++;
                         return true;
@@ -909,8 +909,8 @@ namespace MoreNetworkCapacityRenew
                 // Check highwayLaneArrowFlags (524,288 lanes)
                 needsRepair |= !ValidateArraySize(cachedFlagsType, "highwayLaneArrowFlags", 524288);
                 
-                // Check laneAllowedVehicleTypesArray (65,024 segments)
-                needsRepair |= !ValidateArraySize(cachedFlagsType, "laneAllowedVehicleTypesArray", 65024);
+                // Check laneAllowedVehicleTypesArray (65,536 segments)
+                needsRepair |= !ValidateArraySize(cachedFlagsType, "laneAllowedVehicleTypesArray", 65536);
                 
                 return needsRepair;
             }
@@ -1067,7 +1067,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.44 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.45 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -1374,7 +1374,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public static class InstanceManagerCompatibility
     {
-        private const int EXPANDED_SIZE = 65024;
+        private const int EXPANDED_SIZE = 65536;
         
         public static void EnsureCompatibility()
         {
@@ -1689,7 +1689,7 @@ namespace MoreNetworkCapacityRenew
                 {
                     ResizeStaticArray(flagsType, "laneArrowFlags", 524288);
                     ResizeStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
-                    ResizeStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65024);
+                    ResizeStaticArray(flagsType, "laneAllowedVehicleTypesArray", 65536);
                 }
 
                 // 3. ParkingRestrictionsManager
@@ -1924,7 +1924,7 @@ namespace MoreNetworkCapacityRenew
         }
 
         public static float[] s_cachedLaneSpeedLimits = null;
-        public static int s_laneTrafficDataLength = 65024;
+        public static int s_laneTrafficDataLength = 65536;
 
         public static void EnsureExtNodeManagerCapacity(Assembly tmpe)
         {
@@ -1943,7 +1943,7 @@ namespace MoreNetworkCapacityRenew
                 if (arr == null) return;
 
                 Type elemType = arr.GetType().GetElementType();
-                int targetLen = 65024;
+                int targetLen = 65536;
                 Array targetArr = arr;
 
                 if (arr.Length < targetLen)
@@ -2014,7 +2014,7 @@ namespace MoreNetworkCapacityRenew
                 if (arr == null) return;
 
                 Type elemType = arr.GetType().GetElementType();
-                int targetLen = 65024;
+                int targetLen = 65536;
                 Array targetArr = arr;
 
                 if (arr.Length < targetLen)
@@ -2126,23 +2126,23 @@ namespace MoreNetworkCapacityRenew
                 if (inst == null) return;
 
                 FieldInfo fSeg = gmType.GetField("updatedSegmentBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fSeg != null && fSeg.GetValue(inst) is ulong[] segBuckets && segBuckets.Length != 1016)
+                if (fSeg != null && fSeg.GetValue(inst) is ulong[] segBuckets && segBuckets.Length < 1024)
                 {
-                    ulong[] newBuckets = new ulong[1016];
-                    int copyLen = Math.Min(segBuckets.Length, 1016);
+                    ulong[] newBuckets = new ulong[1024];
+                    int copyLen = Math.Min(segBuckets.Length, 1024);
                     Array.Copy(segBuckets, newBuckets, copyLen);
                     fSeg.SetValue(inst, newBuckets);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized GeometryManager.updatedSegmentBuckets: {0} -> 1016", segBuckets.Length));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized GeometryManager.updatedSegmentBuckets: {0} -> 1024", segBuckets.Length));
                 }
 
                 FieldInfo fNode = gmType.GetField("updatedNodeBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fNode != null && fNode.GetValue(inst) is ulong[] nodeBuckets && nodeBuckets.Length != 1016)
+                if (fNode != null && fNode.GetValue(inst) is ulong[] nodeBuckets && nodeBuckets.Length < 1024)
                 {
-                    ulong[] newBuckets = new ulong[1016];
-                    int copyLen = Math.Min(nodeBuckets.Length, 1016);
+                    ulong[] newBuckets = new ulong[1024];
+                    int copyLen = Math.Min(nodeBuckets.Length, 1024);
                     Array.Copy(nodeBuckets, newBuckets, copyLen);
                     fNode.SetValue(inst, newBuckets);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized GeometryManager.updatedNodeBuckets: {0} -> 1016", nodeBuckets.Length));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized GeometryManager.updatedNodeBuckets: {0} -> 1024", nodeBuckets.Length));
                 }
             }
             catch (Exception ex)
@@ -2160,26 +2160,26 @@ namespace MoreNetworkCapacityRenew
                 object inst = GetManagerInstance(rmType);
                 if (inst == null) return;
 
-                // 1. updatedSegmentBuckets (size 576 -> 1016, strictly matches 65,024 segments: 1016 * 64 = 65,024)
+                // 1. updatedSegmentBuckets (size 576 -> 1024, strictly matches 65,536 segments: 1024 * 64 = 65,536)
                 FieldInfo fBuckets = rmType.GetField("updatedSegmentBuckets", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fBuckets != null && fBuckets.GetValue(inst) is ulong[] buckets && buckets.Length != 1016)
+                if (fBuckets != null && fBuckets.GetValue(inst) is ulong[] buckets && buckets.Length < 1024)
                 {
-                    ulong[] newBuckets = new ulong[1016];
-                    int copyLen = Math.Min(buckets.Length, 1016);
+                    ulong[] newBuckets = new ulong[1024];
+                    int copyLen = Math.Min(buckets.Length, 1024);
                     Array.Copy(buckets, newBuckets, copyLen);
                     fBuckets.SetValue(inst, newBuckets);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.updatedSegmentBuckets: {0} -> 1016", buckets.Length));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.updatedSegmentBuckets: {0} -> 1024", buckets.Length));
                 }
 
-                // 2. SegmentRoutings (size 36864 -> 65024)
+                // 2. SegmentRoutings (size 36864 -> 65536)
                 FieldInfo fSegRoutings = rmType.GetField("<SegmentRoutings>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                                       ?? rmType.GetField("SegmentRoutings", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fSegRoutings != null && fSegRoutings.GetValue(inst) is Array segRoutings && segRoutings.Length < 65024)
+                if (fSegRoutings != null && fSegRoutings.GetValue(inst) is Array segRoutings && segRoutings.Length < 65536)
                 {
-                    Array newSegRoutings = Array.CreateInstance(segRoutings.GetType().GetElementType(), 65024);
+                    Array newSegRoutings = Array.CreateInstance(segRoutings.GetType().GetElementType(), 65536);
                     Array.Copy(segRoutings, newSegRoutings, segRoutings.Length);
                     fSegRoutings.SetValue(inst, newSegRoutings);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.SegmentRoutings: {0} -> 65024", segRoutings.Length));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized RoutingManager.SegmentRoutings: {0} -> 65536", segRoutings.Length));
                 }
 
                 // 3. LaneEndBackwardRoutings & LaneEndForwardRoutings:
@@ -2577,7 +2577,7 @@ namespace MoreNetworkCapacityRenew
                 if (updateDefaultsM != null && extSegs != null)
                 {
                     int jrmCount = 0;
-                    uint maxSeg = (uint)Math.Min(extSegs.Length, 65024);
+                    uint maxSeg = (uint)Math.Min(extSegs.Length, 65536);
                     for (uint segId = 36864u; segId < maxSeg; segId++)
                     {
                         if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 &&
@@ -2658,7 +2658,7 @@ namespace MoreNetworkCapacityRenew
                                 object transItem = transitions.GetValue(t);
                                 if (transItem == null) continue;
                                 ushort segId = Convert.ToUInt16(fSegId.GetValue(transItem));
-                                if (segId > 0 && segId < 65024 &&
+                                if (segId > 0 && segId < 65536 &&
                                     (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 &&
                                     nm.m_segments.m_buffer[segId].Info != null)
                                 {
@@ -2683,7 +2683,7 @@ namespace MoreNetworkCapacityRenew
                                         object transItem = transitions.GetValue(t);
                                         if (transItem == null) continue;
                                         ushort segId = Convert.ToUInt16(fSegId.GetValue(transItem));
-                                        if (segId > 0 && segId < 65024 &&
+                                        if (segId > 0 && segId < 65536 &&
                                             (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 &&
                                             nm.m_segments.m_buffer[segId].Info != null)
                                         {
@@ -2727,12 +2727,12 @@ namespace MoreNetworkCapacityRenew
                 {
                     object lockObj = fLock.GetValue(inst);
                     ulong[] buckets = fBuckets.GetValue(inst) as ulong[];
-                    if (lockObj != null && buckets != null && buckets.Length >= 1016)
+                    if (lockObj != null && buckets != null && buckets.Length >= 1024)
                     {
                         lock (lockObj)
                         {
                             NetManager nm = Singleton<NetManager>.instance;
-                            for (uint segId = 1; segId < 65024; segId++)
+                            for (uint segId = 1; segId < 65536; segId++)
                             {
                                 if (nm != null && nm.m_segments != null && (nm.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0)
                                 {
@@ -2741,7 +2741,7 @@ namespace MoreNetworkCapacityRenew
                             }
                             fUpdated.SetValue(inst, true);
                         }
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RequestFullRecalculation64k: Queued all 65,024 segments for TM:PE recalculation.");
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] RequestFullRecalculation64k: Queued all 65,536 segments for TM:PE recalculation.");
                     }
                 }
             }
@@ -2790,13 +2790,13 @@ namespace MoreNetworkCapacityRenew
                                ?? tmmType.GetField("LaneTrafficData", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (fLane != null && fLane.GetValue(inst) is Array arrLane)
                 {
-                    if (arrLane.Length < 65024)
+                    if (arrLane.Length < 65536)
                     {
-                        Array newArr = Array.CreateInstance(arrLane.GetType().GetElementType(), 65024);
+                        Array newArr = Array.CreateInstance(arrLane.GetType().GetElementType(), 65536);
                         Array.Copy(arrLane, newArr, arrLane.Length);
                         fLane.SetValue(inst, newArr);
-                        s_laneTrafficDataLength = 65024;
-                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized TrafficMeasurementManager.LaneTrafficData: {0} -> 65024", arrLane.Length));
+                        s_laneTrafficDataLength = 65536;
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized TrafficMeasurementManager.LaneTrafficData: {0} -> 65536", arrLane.Length));
                     }
                     else
                     {
@@ -3077,7 +3077,7 @@ namespace MoreNetworkCapacityRenew
                                 bool hasNet = (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null);
 
                                 int countFixed = 0;
-                                for (uint segId = 0; segId < 65024u; segId++)
+                                for (uint segId = 0; segId < 65536u; segId++)
                                 {
                                     int idxStart = (int)(segId * 2);
                                     int idxEnd = idxStart + 1;
@@ -3337,7 +3337,7 @@ namespace MoreNetworkCapacityRenew
                 NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
 
                 object[] args = new object[1];
-                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                for (int nodeId = 32768; nodeId < 65536 && nodeId < nodeBuffer.Length; nodeId++)
                 {
                     if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
                     args[0] = (ushort)nodeId;
@@ -3372,7 +3372,7 @@ namespace MoreNetworkCapacityRenew
                 NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
 
                 object[] args = new object[1];
-                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                for (int nodeId = 32768; nodeId < 65536 && nodeId < nodeBuffer.Length; nodeId++)
                 {
                     if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
                     args[0] = (ushort)nodeId;
@@ -3407,7 +3407,7 @@ namespace MoreNetworkCapacityRenew
                 NetNode[] nodeBuffer = nm.m_nodes.m_buffer;
 
                 object[] args = new object[1];
-                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                for (int nodeId = 32768; nodeId < 65536 && nodeId < nodeBuffer.Length; nodeId++)
                 {
                     if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
                     args[0] = (ushort)nodeId;
@@ -3442,7 +3442,7 @@ namespace MoreNetworkCapacityRenew
                 NetSegment[] segBuffer = nm.m_segments.m_buffer;
 
                 object[] args = new object[1];
-                for (int segId = 36864; segId < 65024 && segId < segBuffer.Length; segId++)
+                for (int segId = 36864; segId < 65536 && segId < segBuffer.Length; segId++)
                 {
                     if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
                     args[0] = (ushort)segId;
@@ -3496,7 +3496,7 @@ namespace MoreNetworkCapacityRenew
                 object[] gleArgs = new object[3];
                 object[] addArgs = new object[1];
 
-                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                for (int nodeId = 32768; nodeId < 65536 && nodeId < nodeBuffer.Length; nodeId++)
                 {
                     if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
                     hasConnArgs[0] = (ushort)nodeId;
@@ -3552,7 +3552,7 @@ namespace MoreNetworkCapacityRenew
                 if (camPos == Vector3.zero) return;
 
                 object[] addArgs = new object[1];
-                for (int nodeId = 32768; nodeId < 65024 && nodeId < nodeBuffer.Length; nodeId++)
+                for (int nodeId = 32768; nodeId < 65536 && nodeId < nodeBuffer.Length; nodeId++)
                 {
                     if ((nodeBuffer[nodeId].m_flags & NetNode.Flags.Created) == 0) continue;
                     if (nodeBuffer[nodeId].Info != null && nodeBuffer[nodeId].Info.m_netAI is RoadBaseAI)
@@ -3603,7 +3603,7 @@ namespace MoreNetworkCapacityRenew
                 FieldInfo fCenter = cachedSegType.GetField("center_");
                 object[] addArgs = new object[1];
 
-                for (int segId = 36864; segId < 65024 && segId < segBuffer.Length; segId++)
+                for (int segId = 36864; segId < 65536 && segId < segBuffer.Length; segId++)
                 {
                     if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
                     if (segBuffer[segId].Info != null && segBuffer[segId].Info.m_netAI is RoadBaseAI)
@@ -3645,7 +3645,7 @@ namespace MoreNetworkCapacityRenew
                 if (camPos == Vector3.zero) return;
 
                 object[] addArgs = new object[1];
-                for (int segId = 36864; segId < 65024 && segId < segBuffer.Length; segId++)
+                for (int segId = 36864; segId < 65536 && segId < segBuffer.Length; segId++)
                 {
                     if ((segBuffer[segId].m_flags & NetSegment.Flags.Created) == 0) continue;
                     if (segBuffer[segId].Info != null && segBuffer[segId].Info.m_netAI is RoadBaseAI)
@@ -3710,10 +3710,56 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static void EnsureExpandedSave()
+        {
+            try
+            {
+                var sm = Singleton<SimulationManager>.instance;
+                if (sm != null && sm.m_metaData != null)
+                {
+                    lock (sm.m_metaData)
+                    {
+                        if (sm.m_metaData.m_modOverride == null)
+                        {
+                            sm.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                        }
+                        sm.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                    }
+                }
+
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "MoreNetworkCapacity" || asm.GetName().Name.StartsWith("MoreNetworkCapacity.Core"))
+                    {
+                        Type metaType = asm.GetType("MoreNetworkCapacity.Metadata");
+                        if (metaType != null)
+                        {
+                            MethodInfo mSet = metaType.GetMethod("SetExpandedSave", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                            if (mSet != null) mSet.Invoke(null, null);
+                        }
+                        Type patchStateType = asm.GetType("MoreNetworkCapacity.PatchState");
+                        if (patchStateType != null)
+                        {
+                            MethodInfo mMark = patchStateType.GetMethod("MarkSaveExpanded", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                            if (mMark != null) mMark.Invoke(null, null);
+                        }
+                    }
+                }
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureExpandedSave: Confirmed vanilla save mode is EXPANDED (all nodes/segments up to 65,536).");
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] EnsureExpandedSave error: " + ex);
+            }
+        }
+
         public static byte[] SerializeHighIdTMPEData()
         {
             try
             {
+                // Guarantee vanilla expanded save state is locked in whenever TM:PE data is saved
+                EnsureExpandedSave();
+
                 Assembly tmpe = GetTMPEAssembly();
                 if (tmpe == null) return null;
 
@@ -3724,7 +3770,7 @@ namespace MoreNetworkCapacityRenew
                     bw.Write((byte)2);          // Version 2: Complete Payload
 
                     // ================================================================
-                    // 1. Junction Restrictions (Segments 36,864 .. 65,023)
+                    // 1. Junction Restrictions (Segments 36,864 .. 65,535)
                     // ================================================================
                     Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
                     object jrm = jrmType != null ? GetManagerInstance(jrmType) : null;
@@ -3745,7 +3791,7 @@ namespace MoreNetworkCapacityRenew
                         if (segBuffer != null && mGetUturn != null)
                         {
                             object[] args = new object[2];
-                            for (int s = 1; s < 65024 && s < segBuffer.Length; s++)
+                            for (int s = 1; s < 65536 && s < segBuffer.Length; s++)
                             {
                                 if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
                                 bool isExpanded = (s >= 36864 || segBuffer[s].m_startNode >= 32768 || segBuffer[s].m_endNode >= 32768);
@@ -3807,7 +3853,7 @@ namespace MoreNetworkCapacityRenew
                         if (segBuffer != null && mGetSign != null)
                         {
                             object[] args = new object[2];
-                            for (int s = 1; s < 65024 && s < segBuffer.Length; s++)
+                            for (int s = 1; s < 65536 && s < segBuffer.Length; s++)
                             {
                                 if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
                                 bool isExpanded = (s >= 36864 || segBuffer[s].m_startNode >= 32768 || segBuffer[s].m_endNode >= 32768);
@@ -3864,7 +3910,7 @@ namespace MoreNetworkCapacityRenew
                             object[] pArgsBwd = new object[] { 0u, NetInfo.Direction.Backward };
                             bool useUshort = mIsParking.GetParameters()[0].ParameterType == typeof(ushort);
 
-                            for (int s = 1; s < 65024 && s < segBuffer.Length; s++)
+                            for (int s = 1; s < 65536 && s < segBuffer.Length; s++)
                             {
                                 if ((segBuffer[s].m_flags & NetSegment.Flags.Created) == 0) continue;
                                 bool isExpanded = (s >= 36864 || segBuffer[s].m_startNode >= 32768 || segBuffer[s].m_endNode >= 32768);
@@ -4108,7 +4154,7 @@ namespace MoreNetworkCapacityRenew
                             FieldInfo fTimedLight = tlsType != null ? tlsType.GetField("timedLight", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance) : null;
 
                             object[] hasArgs = new object[1];
-                            for (int n = 0; n < 65024 && n < sims.Length; n++)
+                            for (int n = 0; n < 65536 && n < sims.Length; n++)
                             {
                                 hasArgs[0] = (ushort)n;
                                 bool has = (bool)mHasTimed.Invoke(tlsm, hasArgs);
@@ -4706,10 +4752,10 @@ namespace MoreNetworkCapacityRenew
                     if (inst != null)
                     {
                         MethodInfo recalc = esemType.GetMethod("Recalculate", new Type[] { typeof(ushort) });
-                        if (recalc != null)
+                         if (recalc != null)
                         {
                             int recalcCount = 0;
-                            for (uint segId = 36864; segId < 65024; segId++)
+                            for (uint segId = 36864; segId < 65536; segId++)
                             {
                                 if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && NetManager.instance.m_segments.m_buffer[segId].Info != null)
                                 {
@@ -4732,7 +4778,7 @@ namespace MoreNetworkCapacityRenew
                         if (rmRecalc != null)
                         {
                             int rmCount = 0;
-                            for (uint segId = 36864; segId < 65024; segId++)
+                            for (uint segId = 36864; segId < 65536; segId++)
                             {
                                 if ((NetManager.instance.m_segments.m_buffer[segId].m_flags & NetSegment.Flags.Created) != 0 && NetManager.instance.m_segments.m_buffer[segId].Info != null)
                                 {
@@ -4786,26 +4832,26 @@ namespace MoreNetworkCapacityRenew
                             int splitOldCap = 0;
                             int splitNewCap = 0;
 
-                            // Only resize original node/segment arrays (32768, 36864) to 65024
-                            if ((arr.Length == 32768 || arr.Length == 36864 || arr.Length == 32767 || arr.Length == 36863) && arr.Length < 65024)
+                            // Only resize original node/segment arrays (32768, 36864) to 65536
+                            if ((arr.Length == 32768 || arr.Length == 36864 || arr.Length == 32767 || arr.Length == 36863) && arr.Length < 65536)
                             {
-                                newSize = 65024;
+                                newSize = 65536;
                             }
-                            // Only resize original SegmentEnd arrays (73728 = 36864 * 2) to 130048
-                            else if ((arr.Length == 73728 || arr.Length == 73727) && arr.Length < 130048)
+                            // Only resize original SegmentEnd arrays (73728 = 36864 * 2) to 131072
+                            else if ((arr.Length == 73728 || arr.Length == 73727) && arr.Length < 131072)
                             {
-                                newSize = 130048;
+                                newSize = 131072;
                                 if (t.Name != "ExtSegmentEndManager")
                                 {
                                     isSplit = true;
                                     splitOldCap = arr.Length / 2;
-                                    splitNewCap = 65024;
+                                    splitNewCap = 65536;
                                 }
                             }
-                            // Spatial / Geometry buckets (512, 576) to 1016 (65024 / 64)
-                            else if ((arr.Length == 512 || arr.Length == 576) && arr.Length < 1016)
+                            // Spatial / Geometry buckets (512, 576) to 1024 (65536 / 64)
+                            else if ((arr.Length == 512 || arr.Length == 576) && arr.Length < 1024)
                             {
-                                newSize = 1016;
+                                newSize = 1024;
                             }
                             // Lane arrays (262144) to 524288
                             else if ((arr.Length == 262144 || arr.Length == 262143) && arr.Length < 524288)
@@ -4907,13 +4953,13 @@ namespace MoreNetworkCapacityRenew
                                 Type cacheType = cacheObj.GetType();
                                 FieldInfo maxField = cacheType.GetField("maxSize_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                                 FieldInfo valuesField = cacheType.GetField("Values", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                                if (maxField != null) maxField.SetValue(cacheObj, 65024);
-                                if (valuesField != null && valuesField.GetValue(cacheObj) is Array valArr && valArr.Length < 65024)
+                                if (maxField != null) maxField.SetValue(cacheObj, 65536);
+                                if (valuesField != null && valuesField.GetValue(cacheObj) is Array valArr && valArr.Length < 65536)
                                 {
-                                    Array newValArr = Array.CreateInstance(valArr.GetType().GetElementType(), 65024);
+                                    Array newValArr = Array.CreateInstance(valArr.GetType().GetElementType(), 65536);
                                     Array.Copy(valArr, newValArr, valArr.Length);
                                     valuesField.SetValue(cacheObj, newValArr);
-                                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded GenericArrayCache in {0}.{1}: {2} -> 65024", t.Name, f.Name, valArr.Length));
+                                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded GenericArrayCache in {0}.{1}: {2} -> 65536", t.Name, f.Name, valArr.Length));
                                 }
                             }
                         }
@@ -5161,7 +5207,7 @@ namespace MoreNetworkCapacityRenew
                         if (_extSegRecalcDelegate != null)
                         {
                             NetManager nm = Singleton<NetManager>.instance;
-                            int maxSeg = 65024;
+                            int maxSeg = 65536;
                             if (nm != null && nm.m_segments != null && nm.m_segments.m_buffer != null)
                             {
                                 maxSeg = Math.Min(maxSeg, nm.m_segments.m_buffer.Length);
@@ -5190,7 +5236,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool ExtSegmentManager_Recalculate_ushort_Prefix(ushort segmentId)
         {
-            if (segmentId >= 65024) return false;
+            if (segmentId >= 65536) return false;
             if (NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null)
             {
                 if (segmentId >= NetManager.instance.m_segments.m_buffer.Length) return false;
@@ -5211,7 +5257,7 @@ namespace MoreNetworkCapacityRenew
                         MethodInfo calcCorners = t.GetMethod("CalculateCorners", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
                         if (calcCorners != null)
                         {
-                            int maxSeg = 65024;
+                            int maxSeg = 65536;
                             if (NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null)
                             {
                                 maxSeg = Math.Min(maxSeg, NetManager.instance.m_segments.m_buffer.Length);
@@ -5246,7 +5292,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool ExtSegmentEndManager_CalculateCorners_Prefix(ushort segmentId, bool startNode)
         {
-            if (segmentId >= 65024) return false;
+            if (segmentId >= 65536) return false;
             if (NetManager.instance != null && NetManager.instance.m_segments != null && NetManager.instance.m_segments.m_buffer != null)
             {
                 if (segmentId >= NetManager.instance.m_segments.m_buffer.Length) return false;
@@ -5256,7 +5302,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool SegmentEndManager_UpdateSegmentEnd_Prefix(ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 __result = false;
                 return false;
@@ -5274,7 +5320,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool TrafficPriorityManager_RemovePrioritySignFromSegmentEnd_Prefix(object __instance, ushort segmentId, bool startNode)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 return false;
             }
@@ -5291,7 +5337,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool TrafficPriorityManager_HasSegmentPrioritySign_Prefix(object __instance, ushort segmentId, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 __result = false;
                 return false;
@@ -5310,7 +5356,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool TrafficPriorityManager_HasSegmentPrioritySign2_Prefix(object __instance, ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 __result = false;
                 return false;
@@ -5372,7 +5418,7 @@ namespace MoreNetworkCapacityRenew
                 if (NetManager.instance == null || NetManager.instance.m_nodes == null || NetManager.instance.m_nodes.m_buffer == null)
                     return true;
 
-                int maxNode = Math.Min(65024, NetManager.instance.m_nodes.m_buffer.Length);
+                int maxNode = Math.Min(65536, NetManager.instance.m_nodes.m_buffer.Length);
                 NetNode[] nodeBuffer = NetManager.instance.m_nodes.m_buffer;
 
                 for (int nodeId = 0; nodeId < maxNode; nodeId++)
@@ -5432,7 +5478,7 @@ namespace MoreNetworkCapacityRenew
                     return true;
 
                 int minNode = (forceNodeId == 0 ? 1 : (int)forceNodeId);
-                int maxNode = (forceNodeId == 0 ? 65024 : (int)forceNodeId + 1);
+                int maxNode = (forceNodeId == 0 ? 65536 : (int)forceNodeId + 1);
                 maxNode = Math.Min(maxNode, NetManager.instance.m_nodes.m_buffer.Length);
                 NetNode[] nodeBuffer = NetManager.instance.m_nodes.m_buffer;
 
@@ -5661,9 +5707,9 @@ namespace MoreNetworkCapacityRenew
                     if (flagsType != null)
                     {
                         FieldInfo f = flagsType.GetField("laneAllowedVehicleTypesArray", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                        if (f != null && f.GetValue(null) is Array arr && arr.Length < 65024)
+                        if (f != null && f.GetValue(null) is Array arr && arr.Length < 65536)
                         {
-                            Array newArr = Array.CreateInstance(arr.GetType().GetElementType(), 65024);
+                            Array newArr = Array.CreateInstance(arr.GetType().GetElementType(), 65536);
                             Array.Copy(arr, newArr, arr.Length);
                             f.SetValue(null, newArr);
                         }
@@ -5795,63 +5841,63 @@ namespace MoreNetworkCapacityRenew
 
         public static bool SegmentEndManager_GetIndex_Prefix(uint segmentId, bool startNode, ref int __result)
         {
-            __result = (int)segmentId + (startNode ? 0 : 65024);
+            __result = (int)segmentId + (startNode ? 0 : 65536);
             return false;
         }
 
         public static bool SegmentEndManager_GetIndex_ushort_Prefix(ushort segmentId, bool startNode, ref int __result)
         {
-            __result = (int)segmentId + (startNode ? 0 : 65024);
+            __result = (int)segmentId + (startNode ? 0 : 65536);
             return false;
         }
 
         public static bool SegmentEndManager_GetSegmentAndNodeFromIndex_Prefix(int index, out uint segmentId, out bool startNode)
         {
-            if (index < 0 || index >= 130048)
+            if (index < 0 || index >= 131072)
             {
                 segmentId = 0u;
                 startNode = false;
                 return false;
             }
-            startNode = index < 65024;
-            segmentId = (uint)(startNode ? index : (index - 65024));
+            startNode = index < 65536;
+            segmentId = (uint)(startNode ? index : (index - 65536));
             return false;
         }
 
         public static bool SegmentEndManager_GetSegmentAndNodeFromIndex_ushort_Prefix(int index, out ushort segmentId, out bool startNode)
         {
-            if (index < 0 || index >= 130048)
+            if (index < 0 || index >= 131072)
             {
                 segmentId = 0;
                 startNode = false;
                 return false;
             }
-            startNode = index < 65024;
-            segmentId = (ushort)(startNode ? index : (index - 65024));
+            startNode = index < 65536;
+            segmentId = (ushort)(startNode ? index : (index - 65536));
             return false;
         }
 
         public static bool TurnOnRedManager_GetIndex_Prefix(uint segmentId, bool startNode, ref int __result)
         {
-            __result = (int)segmentId + (startNode ? 0 : 65024);
+            __result = (int)segmentId + (startNode ? 0 : 65536);
             return false;
         }
 
         public static bool TurnOnRedManager_GetIndex_ushort_Prefix(ushort segmentId, bool startNode, ref int __result)
         {
-            __result = (int)segmentId + (startNode ? 0 : 65024);
+            __result = (int)segmentId + (startNode ? 0 : 65536);
             return false;
         }
 
         public static bool TrafficMeasurementManager_GetDirIndex_Prefix(uint segmentId, NetInfo.Direction dir, ref int __result)
         {
-            __result = (int)segmentId + (dir == NetInfo.Direction.Backward ? 65024 : 0);
+            __result = (int)segmentId + (dir == NetInfo.Direction.Backward ? 65536 : 0);
             return false;
         }
 
         public static bool TrafficMeasurementManager_GetDirIndex_ushort_Prefix(ushort segmentId, NetInfo.Direction dir, ref int __result)
         {
-            __result = (int)segmentId + (dir == NetInfo.Direction.Backward ? 65024 : 0);
+            __result = (int)segmentId + (dir == NetInfo.Direction.Backward ? 65536 : 0);
             return false;
         }
 
@@ -6122,7 +6168,7 @@ namespace MoreNetworkCapacityRenew
             ref VehicleInfo.VehicleType vehicleType)
         {
             ushort segmentId = pathPos.m_segment;
-            if (segmentId == 0 || segmentId >= 65024)
+            if (segmentId == 0 || segmentId >= 65536)
             {
                 direction = NetInfo.Direction.None;
                 laneType = NetInfo.LaneType.None;
@@ -6530,7 +6576,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool TrafficPriorityManager_GetPrioritySign_Prefix(object __instance, ushort segmentId, bool startNode)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 return false;
             }
@@ -6547,7 +6593,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool JunctionRestrictionsManager_HasJunctionRestrictions_Prefix(object __instance, ushort nodeId, ref bool __result)
         {
-            if (nodeId >= 65024)
+            if (nodeId >= 65536)
             {
                 __result = false;
                 return false;
@@ -6557,7 +6603,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool JunctionRestrictionsManager_IsEnteringBlockedJunctionAllowed_Prefix(object __instance, ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId == 0 || segmentId >= 65024)
+            if (segmentId == 0 || segmentId >= 65536)
             {
                 __result = false;
                 return false;
@@ -6597,7 +6643,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool JunctionRestrictionsManager_IsPedestrianCrossingAllowed_Prefix(object __instance, ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 __result = true;
                 return false;
@@ -6616,7 +6662,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool JunctionRestrictionsManager_IsLaneChangingAllowedWhenGoingStraight_Prefix(object __instance, ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 __result = false;
                 return false;
@@ -6635,7 +6681,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool JunctionRestrictionsManager_IsUturnAllowed_Prefix(object __instance, ushort segmentId, bool startNode, ref bool __result)
         {
-            if (segmentId >= 65024)
+            if (segmentId >= 65536)
             {
                 __result = false;
                 return false;
@@ -7380,7 +7426,7 @@ namespace MoreNetworkCapacityRenew
                 if (tm != null && tm.m_properties != null)
                 {
                     var tc = tm.m_properties;
-                    int requiredSize = 1016; // 65024 / 64 (MNC standard, avoids InvalidOperationException)
+                    int requiredSize = 1024; // 65536 / 64 (MNC standard, avoids InvalidOperationException)
 
                     FieldInfo f1 = typeof(ToolController).GetField("m_collidingSegments1", BindingFlags.NonPublic | BindingFlags.Instance);
                     FieldInfo f2 = typeof(ToolController).GetField("m_collidingSegments2", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -8593,7 +8639,7 @@ namespace MoreNetworkCapacityRenew
             {
                 if (instruction.opcode == OpCodes.Ldc_I4 && instruction.operand is int val && val == 32768)
                 {
-                    instruction.operand = 65024;
+                    instruction.operand = 65536;
                 }
                 yield return instruction;
             }
@@ -8605,7 +8651,7 @@ namespace MoreNetworkCapacityRenew
             {
                 if (instruction.opcode == OpCodes.Ldc_I4 && instruction.operand is int val && val == 36864)
                 {
-                    instruction.operand = 65024;
+                    instruction.operand = 65536;
                 }
                 yield return instruction;
             }
@@ -8913,10 +8959,10 @@ namespace MoreNetworkCapacityRenew
                         if (shouldChange)
                         {
                             int expectedVal = val;
-                            if (val == 32768 || val == 36864) expectedVal = 65024;
-                            else if (val == 32767 || val == 36863) expectedVal = 65023;
-                            else if (val == 73728) expectedVal = 130048;
-                            else if (val == 73727) expectedVal = 130047;
+                            if (val == 32768 || val == 36864) expectedVal = 65536;
+                            else if (val == 32767 || val == 36863) expectedVal = 65535;
+                            else if (val == 73728) expectedVal = 131072;
+                            else if (val == 73727) expectedVal = 131071;
 
                             instruction.operand = expectedVal;
                         }
@@ -9069,7 +9115,7 @@ namespace MoreNetworkCapacityRenew
             if (__instance == null) return;
             try
             {
-                int req = 1016; // 65024 / 64 (MNC standard)
+                int req = 1024; // 65536 / 64 (MNC standard)
                 FieldInfo f1 = typeof(ToolController).GetField("m_collidingSegments1", BindingFlags.NonPublic | BindingFlags.Instance);
                 FieldInfo f2 = typeof(ToolController).GetField("m_collidingSegments2", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (f1 != null) f1.SetValue(__instance, new ulong[req]);
@@ -9092,7 +9138,7 @@ namespace MoreNetworkCapacityRenew
                 var tc = tm.m_properties;
                 if (tc == null) return;
 
-                int req = 1016; // 65024 / 64 (MNC standard)
+                int req = 1024; // 65536 / 64 (MNC standard)
                 FieldInfo f1 = typeof(ToolController).GetField("m_collidingSegments1", BindingFlags.NonPublic | BindingFlags.Instance);
                 FieldInfo f2 = typeof(ToolController).GetField("m_collidingSegments2", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (f1 != null && (f1.GetValue(tc) is ulong[] a1 && a1.Length < req)) f1.SetValue(tc, new ulong[req]);
@@ -9302,13 +9348,13 @@ namespace MoreNetworkCapacityRenew
 
                 bool resizedAny = false;
 
-                // 1. NodeBuffer (NetNodeExt[65024])
+                // 1. NodeBuffer (NetNodeExt[65536])
                 FieldInfo nf = nemType.GetField("NodeBuffer", BindingFlags.Public | BindingFlags.Instance);
-                if (nf != null && nf.GetValue(nem) is Array nArr && nArr.Length < 65024)
+                if (nf != null && nf.GetValue(nem) is Array nArr && nArr.Length < 65536)
                 {
                     int oldLen = nArr.Length;
                     Type nType = nArr.GetType().GetElementType();
-                    Array newArr = Array.CreateInstance(nType, 65024);
+                    Array newArr = Array.CreateInstance(nType, 65536);
                     Array.Copy(nArr, newArr, oldLen);
 
                     MethodInfo initM = nType.GetMethod("Init", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
@@ -9317,11 +9363,11 @@ namespace MoreNetworkCapacityRenew
                         var fastInit = CreateFastInit16(nType, initM);
                         if (fastInit != null)
                         {
-                            fastInit(newArr, oldLen, 65024);
+                            fastInit(newArr, oldLen, 65536);
                         }
                         else
                         {
-                            for (int i = oldLen; i < 65024; i++)
+                            for (int i = oldLen; i < 65536; i++)
                             {
                                 object item = Activator.CreateInstance(nType);
                                 initM.Invoke(item, new object[] { (ushort)i });
@@ -9331,16 +9377,16 @@ namespace MoreNetworkCapacityRenew
                     }
                     nf.SetValue(nem, newArr);
                     resizedAny = true;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized AdaptiveRoads NodeBuffer from {0} to 65024 ({1})", oldLen, context));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized AdaptiveRoads NodeBuffer from {0} to 65536 ({1})", oldLen, context));
                 }
 
-                // 2. SegmentBuffer (NetSegmentExt[65024])
+                // 2. SegmentBuffer (NetSegmentExt[65536])
                 FieldInfo sf = nemType.GetField("SegmentBuffer", BindingFlags.Public | BindingFlags.Instance);
-                if (sf != null && sf.GetValue(nem) is Array sArr && sArr.Length < 65024)
+                if (sf != null && sf.GetValue(nem) is Array sArr && sArr.Length < 65536)
                 {
                     int oldLen = sArr.Length;
                     Type sType = sArr.GetType().GetElementType();
-                    Array newArr = Array.CreateInstance(sType, 65024);
+                    Array newArr = Array.CreateInstance(sType, 65536);
                     Array.Copy(sArr, newArr, oldLen);
 
                     MethodInfo initM = sType.GetMethod("Init", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
@@ -9349,11 +9395,11 @@ namespace MoreNetworkCapacityRenew
                         var fastInit = CreateFastInit16(sType, initM);
                         if (fastInit != null)
                         {
-                            fastInit(newArr, oldLen, 65024);
+                            fastInit(newArr, oldLen, 65536);
                         }
                         else
                         {
-                            for (int i = oldLen; i < 65024; i++)
+                            for (int i = oldLen; i < 65536; i++)
                             {
                                 object item = Activator.CreateInstance(sType);
                                 initM.Invoke(item, new object[] { (ushort)i });
@@ -9363,16 +9409,16 @@ namespace MoreNetworkCapacityRenew
                     }
                     sf.SetValue(nem, newArr);
                     resizedAny = true;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized AdaptiveRoads SegmentBuffer from {0} to 65024 ({1})", oldLen, context));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized AdaptiveRoads SegmentBuffer from {0} to 65536 ({1})", oldLen, context));
                 }
 
-                // 3. SegmentEndBuffer (NetSegmentEnd[130048])
+                // 3. SegmentEndBuffer (NetSegmentEnd[131072])
                 FieldInfo sef = nemType.GetField("SegmentEndBuffer", BindingFlags.Public | BindingFlags.Instance);
-                if (sef != null && sef.GetValue(nem) is Array seArr && seArr.Length < 130048)
+                if (sef != null && sef.GetValue(nem) is Array seArr && seArr.Length < 131072)
                 {
                     int oldLen = seArr.Length;
                     Type seType = seArr.GetType().GetElementType();
-                    Array newArr = Array.CreateInstance(seType, 130048);
+                    Array newArr = Array.CreateInstance(seType, 131072);
                     Array.Copy(seArr, newArr, oldLen);
 
                     MethodInfo initM = seType.GetMethod("Init", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ushort), typeof(bool) }, null);
@@ -9381,11 +9427,11 @@ namespace MoreNetworkCapacityRenew
                         var fastInit = CreateFastInitSegmentEnd(seType, initM);
                         if (fastInit != null)
                         {
-                            fastInit(newArr, oldLen / 2, 65024);
+                            fastInit(newArr, oldLen / 2, 65536);
                         }
                         else
                         {
-                            for (int i = oldLen / 2; i < 65024; i++)
+                            for (int i = oldLen / 2; i < 65536; i++)
                             {
                                 object startItem = Activator.CreateInstance(seType);
                                 initM.Invoke(startItem, new object[] { (ushort)i, true });
@@ -9399,7 +9445,7 @@ namespace MoreNetworkCapacityRenew
                     }
                     sef.SetValue(nem, newArr);
                     resizedAny = true;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized AdaptiveRoads SegmentEndBuffer from {0} to 130048 ({1})", oldLen, context));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized AdaptiveRoads SegmentEndBuffer from {0} to 131072 ({1})", oldLen, context));
                 }
 
                 // 4. LaneBuffer (NetLaneExt[524288])
@@ -9487,25 +9533,25 @@ namespace MoreNetworkCapacityRenew
 
                 bool resized = false;
                 FieldInfo ssField = nsmType.GetField("SegmentSkins", BindingFlags.Public | BindingFlags.Static);
-                if (ssField != null && ssField.GetValue(null) is Array ssArr && ssArr.Length < 65024)
+                if (ssField != null && ssField.GetValue(null) is Array ssArr && ssArr.Length < 65536)
                 {
                     Type elem = ssArr.GetType().GetElementType();
-                    Array newArr = Array.CreateInstance(elem, 65024);
+                    Array newArr = Array.CreateInstance(elem, 65536);
                     Array.Copy(ssArr, newArr, ssArr.Length);
                     ssField.SetValue(null, newArr);
                     resized = true;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized NetworkSkins SegmentSkins from {0} to 65024 ({1})", ssArr.Length, context));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized NetworkSkins SegmentSkins from {0} to 65536 ({1})", ssArr.Length, context));
                 }
 
                 FieldInfo nsField = nsmType.GetField("NodeSkins", BindingFlags.Public | BindingFlags.Static);
-                if (nsField != null && nsField.GetValue(null) is Array nsArr && nsArr.Length < 65024)
+                if (nsField != null && nsField.GetValue(null) is Array nsArr && nsArr.Length < 65536)
                 {
                     Type elem = nsArr.GetType().GetElementType();
-                    Array newArr = Array.CreateInstance(elem, 65024);
+                    Array newArr = Array.CreateInstance(elem, 65536);
                     Array.Copy(nsArr, newArr, nsArr.Length);
                     nsField.SetValue(null, newArr);
                     resized = true;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized NetworkSkins NodeSkins from {0} to 65024 ({1})", nsArr.Length, context));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized NetworkSkins NodeSkins from {0} to 65536 ({1})", nsArr.Length, context));
                 }
 
                 if (resized)
@@ -9550,14 +9596,14 @@ namespace MoreNetworkCapacityRenew
                         if (bufProp != null)
                         {
                             Array buf = bufProp.GetValue(ncMgr, null) as Array;
-                            if (buf != null && buf.Length < 65024)
+                            if (buf != null && buf.Length < 65536)
                             {
                                 Type elem = buf.GetType().GetElementType();
-                                Array newBuf = Array.CreateInstance(elem, 65024);
+                                Array newBuf = Array.CreateInstance(elem, 65536);
                                 Array.Copy(buf, newBuf, buf.Length);
                                 bufProp.SetValue(ncMgr, newBuf, null);
                                 MemoryOptimizer.StrategicGarbageCollect("AfterNodeControllerBufferExpansion");
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized NodeController Buffer from {0} to 65024 ({1})", buf.Length, context));
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized NodeController Buffer from {0} to 65536 ({1})", buf.Length, context));
                             }
                         }
                     }
@@ -9688,13 +9734,13 @@ namespace MoreNetworkCapacityRenew
                                 if (field != null)
                                 {
                                     Array arr = field.GetValue(null) as Array;
-                                    if (arr != null && arr.Length < 65024)
+                                    if (arr != null && arr.Length < 65536)
                                     {
                                         Type elem = arr.GetType().GetElementType();
-                                        Array newArr = Array.CreateInstance(elem, 65024);
+                                        Array newArr = Array.CreateInstance(elem, 65536);
                                         Array.Copy(arr, newArr, arr.Length);
                                         field.SetValue(null, newArr);
-                                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized {0}.m_cachedNodeData from {1} to 65024 ({2})", type.FullName, arr.Length, context));
+                                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Resized {0}.m_cachedNodeData from {1} to 65536 ({2})", type.FullName, arr.Length, context));
                                     }
                                 }
                             }
@@ -10944,7 +10990,7 @@ namespace MoreNetworkCapacityRenew
                 {
                     long remaining = stream.Length - stream.Position;
                     // Standard 36K saves require ~868KB to 1.16MB base. Total stream is < 1.45MB.
-                    // Expanded 65K saves require at least 1.56MB base (65024*4 + 130048*8 + 65024*4) + 520KB user data = 2.08MB base before lanes!
+                    // Expanded 65K saves require at least 1.57MB base (65536*4 + 131072*8 + 65536*4) + 520KB user data = 2.09MB base before lanes!
                     if (remaining < 1500000)
                     {
                         return false;
@@ -11274,7 +11320,7 @@ namespace MoreNetworkCapacityRenew
 
         public static bool TransferManager_PathDistance_UpdateNode_Prefix(object __instance, ushort nodeId, ushort prevId, float travelTime)
         {
-            if (nodeId == 0 || nodeId >= 65024 || travelTime <= 0f)
+            if (nodeId == 0 || nodeId >= 65536 || travelTime <= 0f)
             {
                 return false;
             }
@@ -12255,7 +12301,7 @@ namespace MoreNetworkCapacityRenew
                         }
                         else
                         {
-                            if (tm.m_lines.m_buffer[i].m_stops >= 65024)
+                            if (tm.m_lines.m_buffer[i].m_stops >= 65536)
                             {
                                 tm.m_lines.m_buffer[i].m_stops = 0;
                             }
@@ -12681,7 +12727,7 @@ namespace MoreNetworkCapacityRenew
                             tm.m_lines.m_buffer[i].m_vehicles = 0;
                             cleaned++;
                         }
-                        else if (stops >= 65024)
+                        else if (stops >= 65536)
                         {
                             tm.m_lines.m_buffer[i].m_stops = 0;
                             cleaned++;
@@ -13236,7 +13282,7 @@ namespace MoreNetworkCapacityRenew
 
          public static bool TransportLine_GetNextStop_Prefix(ushort stop, ref ushort __result)
         {
-            if (stop == 0 || stop >= 65024)
+            if (stop == 0 || stop >= 65536)
             {
                 __result = 0;
                 return false;

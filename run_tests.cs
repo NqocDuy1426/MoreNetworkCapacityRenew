@@ -257,9 +257,9 @@ class TestSuite
             Assert(!hasReflectionInPfi, "CustomPathFind_PathFindImplementation_Prefix is 100% pure array lookups with zero reflection overhead");
 
             // 6.3 Verify IPT buffers expanded for both Node and Vehicle arrays
-            bool expandsIptNodes = renewCode.Contains("m_cachedNodeData") && renewCode.Contains("65024");
+            bool expandsIptNodes = renewCode.Contains("m_cachedNodeData") && renewCode.Contains("65536");
             bool expandsIptVehicles = renewCode.Contains("m_cachedVehicleData") && renewCode.Contains("65536");
-            Assert(expandsIptNodes, "EnsureImprovedPublicTransportBuffers expands CachedNodeData.m_cachedNodeData to 65024");
+            Assert(expandsIptNodes, "EnsureImprovedPublicTransportBuffers expands CachedNodeData.m_cachedNodeData to 65536");
             Assert(expandsIptVehicles, "EnsureImprovedPublicTransportBuffers expands CachedVehicleData.m_cachedVehicleData to 65536");
 
             // 6.4 Verify TransportLine problem checks clean fatal problem and path failed flags
@@ -367,10 +367,10 @@ class TestSuite
                                   renewCode.Contains("262144");
             Assert(hasLaneEnd524k, "LaneEndBackwardRoutings & LaneEndForwardRoutings normalized to standard 524,288 with offset 262,144");
 
-            // 9.2 Verify updatedSegmentBuckets size 1016
-            bool hasBuckets1016 = renewCode.Contains("updatedSegmentBuckets: {0} -> 1016") &&
-                                  renewCode.Contains("new ulong[1016]");
-            Assert(hasBuckets1016, "RoutingManager.updatedSegmentBuckets normalized to 1016 to strictly match 65,024 segment capacity and TMPEBufferValidation");
+            // 9.2 Verify updatedSegmentBuckets size 1024
+            bool hasBuckets1024 = renewCode.Contains("updatedSegmentBuckets: {0} -> 1024") &&
+                                  renewCode.Contains("new ulong[1024]");
+            Assert(hasBuckets1024, "RoutingManager.updatedSegmentBuckets normalized to 1024 to strictly match 65,536 segment capacity");
 
             // 9.3 Verify ExtLane.GetLaneInfo linked-list resolver (IndexOutOfRangeException defense)
             bool hasGliPrefix = renewCode.Contains("ExtLane_GetLaneInfo_Prefix") &&
@@ -394,11 +394,11 @@ class TestSuite
                              renewCode.Contains("Initialized TM:PE native junction defaults");
             Assert(hasJrd64k, "EnsureJunctionRestrictionsDefaults64k populates native TM:PE defaults for segments >= 36864");
 
-            // 9.7 Verify RequestFullRecalculation64k marks all 65,024 segments for update
+            // 9.7 Verify RequestFullRecalculation64k marks all 65,536 segments for update
             bool hasReqFull64k = renewCode.Contains("RequestFullRecalculation64k") &&
-                                 renewCode.Contains("65024") &&
-                                 renewCode.Contains("RequestFullRecalculation64k: Queued all 65,024 segments");
-            Assert(hasReqFull64k, "RequestFullRecalculation64k ensures all 65,024 segments are marked for TM:PE update");
+                                 renewCode.Contains("65536") &&
+                                 renewCode.Contains("RequestFullRecalculation64k: Queued all 65,536 segments");
+            Assert(hasReqFull64k, "RequestFullRecalculation64k ensures all 65,536 segments are marked for TM:PE update");
 
             // 9.8 Verify TMPEBufferValidation prefix
             bool hasTbvPrefix = renewCode.Contains("TMPEBufferValidation_Validate_Prefix") &&
@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.44 version bump
-            bool hasV444 = renewCode.Contains("More Network Capacity Renew v4.3.44 by NgocDuy");
-            Assert(hasV444, "Version correctly bumped to v4.3.44 in RenewMod.Name");
+            // 11.1 Check v4.3.45 version bump
+            bool hasV445 = renewCode.Contains("More Network Capacity Renew v4.3.45 by NgocDuy");
+            Assert(hasV445, "Version correctly bumped to v4.3.45 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -579,7 +579,7 @@ class TestSuite
 
             // 13.4 PathDistance UpdateNode bounds guard prefix
             bool hasUpdateNodePre = renewCode.Contains("TransferManager_PathDistance_UpdateNode_Prefix") &&
-                                    renewCode.Contains("nodeId >= 65024");
+                                    renewCode.Contains("nodeId >= 65536");
             Assert(hasUpdateNodePre, "PathDistance.UpdateNode prefix safely bounds-checks node IDs and dynamically resizes BitArray");
 
             // 13.5 EnsureTransferManagerBuffers synchronizes NetNodes and NetSegments
@@ -883,10 +883,10 @@ class TestSuite
                                 renewCode.Contains("else if (ver == 2)");
             Assert(hasPayloadV2, "High-ID TM:PE data serialized & restored using comprehensive binary Payload v2");
 
-            // 20.5 Timed Traffic Light scan across all nodes (0..65023) for master nodes
-            bool hasFullNodeScan = renewCode.Contains("for (int n = 0; n < 65024 && n < sims.Length; n++)") &&
+            // 20.5 Timed Traffic Light scan across all nodes (0..65535) for master nodes
+            bool hasFullNodeScan = renewCode.Contains("for (int n = 0; n < 65536 && n < sims.Length; n++)") &&
                                    renewCode.Contains("masterNodeId != (ushort)n");
-            Assert(hasFullNodeScan, "Timed Traffic Light scan inspects all nodes (0..65023) covering low-low, low-high, high-high, and single nodes");
+            Assert(hasFullNodeScan, "Timed Traffic Light scan inspects all nodes (0..65535) covering low-low, low-high, high-high, and single nodes");
 
             // 20.6 CustomSegmentLight reflection instantiation using parameterless constructor
             bool hasCslActivator = renewCode.Contains("object lightObj = Activator.CreateInstance(cslLightCfgType);") &&
@@ -962,6 +962,56 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 21 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 22: SAVEGAME FULL DATA INTEGRITY & 1..65535 HIGH-ID COVERAGE (v4.3.45)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 22: Savegame Full Data Integrity & 1..65535 High-ID Coverage (v4.3.45) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 22.1 Mod version bumped to v4.3.45
+            bool hasVersionBump = renewCode.Contains("v4.3.45");
+            Assert(hasVersionBump, "Mod version bumped to v4.3.45 in RenewMod.Name");
+
+            // 22.2 EnsureExpandedSave ensures metadata and patch state across all save systems
+            bool hasEnsureExpandedSave = renewCode.Contains("EnsureExpandedSave") &&
+                                         renewCode.Contains("User/MoreNetworkCapacity/64K-v1") &&
+                                         renewCode.Contains("SetExpandedSave");
+            Assert(hasEnsureExpandedSave, "EnsureExpandedSave guarantees save metadata flag and sets patch state for 64K save compatibility");
+
+            // 22.3 High-ID TM:PE serialization covers full 65,536 segments and nodes
+            bool hasFull65kSerialization = renewCode.Contains("SerializeHighIdTMPEData") &&
+                                           renewCode.Contains("s < 65536 && s < segBuffer.Length") &&
+                                           renewCode.Contains("n < 65536 && n < sims.Length");
+            Assert(hasFull65kSerialization, "SerializeHighIdTMPEData loops iterate full ranges (s < 65536 and n < 65536) covering all nodes and segments 1..65535");
+
+            // 22.4 Zero legacy 65024, 130048, or 1016 constants across Renew.cs
+            bool hasZeroLegacyCaps = !renewCode.Contains("65024") &&
+                                     !renewCode.Contains("130048") &&
+                                     !renewCode.Contains("1016");
+            Assert(hasZeroLegacyCaps, "Zero legacy 65024, 130048, or 1016 constants remain in codebase - 100% upgraded to 65536 / 131072 / 1024");
+
+            // 22.5 SegmentEndManager index offsets handle all 65,536 segments and 131,072 segment ends
+            bool hasSegmentEnd65k = renewCode.Contains("startNode ? 0 : 65536") &&
+                                    renewCode.Contains("index >= 131072");
+            Assert(hasSegmentEnd65k, "SegmentEndManager index calculation and bounds checks fully expanded to 65536 / 131072");
+
+            // 22.6 ToolController collision bitmasks sized to 1024 ulongs for full 65,536 segments
+            bool hasToolController1024 = renewCode.Contains("int req = 1024; // 65536 / 64") &&
+                                         renewCode.Contains("int requiredSize = 1024; // 65536 / 64");
+            Assert(hasToolController1024, "ToolController collision arrays sized to 1024 ulongs preventing collision bitmask IndexOutOfRangeException");
+
+            // 22.7 Public transport and transit stop sanitizers preserve stops on all 65,536 nodes
+            bool hasTransportStopSanitizer = renewCode.Contains("m_stops >= 65536") &&
+                                            renewCode.Contains("stop >= 65536");
+            Assert(hasTransportStopSanitizer, "TransportLine and IPT stop sanitizers protect full 65,536 nodes without wiping stops on nodes >= 65024");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 22 exception", ex.ToString());
         }
 
         // ====================================================================

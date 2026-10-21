@@ -487,9 +487,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.46 version bump
-            bool hasV446 = renewCode.Contains("More Network Capacity Renew v4.3.46 by NgocDuy");
-            Assert(hasV446, "Version correctly bumped to v4.3.46 in RenewMod.Name");
+            // 11.1 Check v4.3.47 version bump
+            bool hasV447 = renewCode.Contains("More Network Capacity Renew v4.3.47 by NgocDuy");
+            Assert(hasV447, "Version correctly bumped to v4.3.47 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -972,9 +972,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 22.1 Mod version bumped to v4.3.46
-            bool hasVersionBump = renewCode.Contains("v4.3.46");
-            Assert(hasVersionBump, "Mod version bumped to v4.3.46 in RenewMod.Name");
+            // 22.1 Mod version bumped to v4.3.47
+            bool hasVersionBump = renewCode.Contains("v4.3.47");
+            Assert(hasVersionBump, "Mod version bumped to v4.3.47 in RenewMod.Name");
 
             // 22.2 EnsureExpandedSave ensures metadata and patch state across all save systems
             bool hasEnsureExpandedSave = renewCode.Contains("EnsureExpandedSave") &&
@@ -1013,6 +1013,57 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 22 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 23: WATER TRANSPORT & SHIP PATH COMPATIBILITY (v4.3.47)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 23: Water Transport & Ship Path Compatibility (v4.3.47) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 23.1 WaterTransportCompatibility class exists
+            bool hasWaterClass = renewCode.Contains("public static class WaterTransportCompatibility");
+            Assert(hasWaterClass, "WaterTransportCompatibility class defined for water transit and Ship Path support");
+
+            // 23.2 Water network synchronization and lane configuration
+            bool hasConfigureWater = renewCode.Contains("ConfigureWaterNetInfo") &&
+                                     renewCode.Contains("SynchronizeWaterTransportNetworks") &&
+                                     renewCode.Contains("VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry");
+            Assert(hasConfigureWater, "SynchronizeWaterTransportNetworks dynamically configures dual Ship & Ferry vehicle types on water networks");
+
+            // 23.3 ShipDockAI FindFerryPath & FindConnectionPath postfixes with 128m radius
+            bool hasShipDockPostfixes = renewCode.Contains("ShipDockAI_FindFerryPath_Postfix") &&
+                                        renewCode.Contains("ShipDockAI_FindConnectionPath_Postfix") &&
+                                        renewCode.Contains("128f");
+            Assert(hasShipDockPostfixes, "ShipDockAI path postfixes expand connection radius to 128m with dual Ship & Ferry fallback");
+
+            // 23.4 HarborAI TransportLineInfo fallback enables passenger line stops
+            bool hasHarborFallback = renewCode.Contains("TransportStationAI_GetTransportLineInfo_Postfix") &&
+                                     renewCode.Contains("HarborAI") &&
+                                     renewCode.Contains("GetWaterTransportInfo");
+            Assert(hasHarborFallback, "TransportStationAI GetTransportLineInfo postfix enables Harbors to serve as transit stops");
+
+            // 23.5 Level load integration and dock reconnection
+            bool hasLevelLoadIntegration = renewCode.Contains("WaterTransportCompatibility.SynchronizeWaterTransportNetworks()") &&
+                                           renewCode.Contains("WaterTransportCompatibility.ReconnectWaterDocks()") &&
+                                           renewCode.Contains("WaterTransportCompatibility.Apply(harmony)");
+            Assert(hasLevelLoadIntegration, "WaterTransportCompatibility applied in EnsureAllPatchesApplied and docks reconnected on level load");
+
+            // 23.6 NetInfo.InitializePrefab postfix guarantees newly loaded water networks are compatible
+            bool hasPrefabPostfix = renewCode.Contains("NetInfo_InitializePrefab_Postfix");
+            Assert(hasPrefabPostfix, "NetInfo.InitializePrefab postfix guarantees newly instantiated water paths get dual vehicle types");
+
+            // 23.7 WaterTransportCompatibility uses only Assembly-CSharp types with zero TM:PE hooks
+            bool waterNoTmpe = !renewCode.Contains("WaterTransportCompatibility error") ||
+                               (!renewCode.Contains("Patched TM:PE SegmentEndManager.GetIndex") &&
+                                !renewCode.Contains("Patched TM:PE TurnOnRedManager.GetIndex"));
+            Assert(waterNoTmpe, "WaterTransportCompatibility operates cleanly on Assembly-CSharp with zero TM:PE hooks");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 23 exception", ex.ToString());
         }
 
         // ====================================================================

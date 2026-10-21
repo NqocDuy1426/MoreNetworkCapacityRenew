@@ -6,7 +6,27 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.46 (Core Canonical Architecture Alignment & Save Loading Hang Fix) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.47 (Water Transport & Ship Path Transit Line Fix) ✨[/h1]
+[list]
+[*] [b]Fixed Inability to Create Boat/Ferry Lines on Ship Paths:[/b]
+[list]
+    [*] Fixed the engine-level vehicle type restriction where [i]Ship Path[/i] networks only possessed [i]VehicleType.Ship[/i] (8), causing the ferry/boat line tool ([i]VehicleType.Ferry[/i] 1024) to fail with pathfinding errors.
+    [*] All water navigation networks ([i]ShipPathAI[/i], Ship Paths, Canals, and Waterways) now dynamically support dual [b]Ship | Ferry[/b] vehicle types on all vehicle lanes.
+[/list]
+[*] [b]Dock & Pier Snapping Armor (128m Search Fallback):[/b]
+[list]
+    [*] Fixed [i]ShipDockAI.FindFerryPath[/i] and [i]FindConnectionPath[/i] narrow 32m search failure. Added fallback pathfinding up to 128 meters supporting both Ship and Ferry lane types, eliminating unconnected docks ([i]m_lane == 0[/i]).
+    [*] Added automatic dock reconnection on level load to repair existing docks in saved games.
+[/list]
+[*] [b]Passenger Harbor Transit Stop Support:[/b]
+[list]
+    [*] Enabled passenger Harbors ([i]HarborAI[/i]) to provide valid water transit line metadata, allowing ferry and boat lines to add stops at passenger harbors seamlessly.
+[/list]
+[/list]
+
+[hr][/hr]
+
+[h1]✨ WHAT'S NEW IN v4.3.46 (Core Canonical Architecture Alignment & Save Loading Hang Fix) ✨[/h1]
 [list]
 [*] [b]Fixed Savegame Loading Freeze & AdaptiveRoads Loop Overflow:[/b]
 [list]
@@ -102,6 +122,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.46 - Core Canonical Architecture Alignment & Save Loading Hang Fix: Fixed loading screen freeze during savegame load by eliminating AdaptiveRoads ushort loop overflow; aligned all network capacities to Core canonical specification (65,024 nodes/segments, 130,048 split arrays, 1,016 bucket arrays, 524,288 lanes); fixed SerializableDataWrapper.LoadData Harmony parameter mismatch; 100% Core engine compatibility with zero fatal assertion errors."
+	"changenote"		"v4.3.47 - Water Transport & Ship Path Line Fix: Fixed inability to create boat/ferry passenger lines over Ship Paths. Synchronized all water network prefabs to dual VehicleType support (Ship | Ferry) across all vehicle lanes; patched ShipDockAI.FindFerryPath and FindConnectionPath with 128m search fallback to guarantee dock-to-path snapping; enabled passenger Harbors (HarborAI) to host transit line stops; automatic dock reconnection on level load."
 }
 

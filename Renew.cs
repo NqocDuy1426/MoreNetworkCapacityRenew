@@ -1078,7 +1078,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.46 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.47 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -7326,6 +7326,16 @@ namespace MoreNetworkCapacityRenew
 
                 try
                 {
+                    // Water Transport Compatibility (allows boat/ferry line creation on Ship Paths & connects Ferry/Ship Docks)
+                    WaterTransportCompatibility.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] WaterTransportCompatibility error: " + ex);
+                }
+
+                try
+                {
                     // Patch KianCommons limits
                     int patchedCount = 0;
                     foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -7482,6 +7492,16 @@ namespace MoreNetworkCapacityRenew
                     }
                 }
                 catch { }
+
+                try
+                {
+                    WaterTransportCompatibility.SynchronizeWaterTransportNetworks();
+                    WaterTransportCompatibility.ReconnectWaterDocks();
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] WaterTransportCompatibility initialization error: " + ex);
+                }
 
                 DiagnosticLogger.Checkpoint("OnLevelLoaded.Complete");
                 MemoryOptimizer.StrategicGarbageCollect("OnLevelLoaded (Post-Save Cleanup)");
@@ -13808,6 +13828,349 @@ namespace MoreNetworkCapacityRenew
                 }
             }
             return count;
+        }
+    }
+
+    // ====================================================================
+    // WATER TRANSPORT COMPATIBILITY (v4.3.47)
+    // Fixes boat / ferry transit lines on Ship Paths & Harbor/Dock connectivity
+    // ====================================================================
+    public static class WaterTransportCompatibility
+    {
+        private static bool s_applied = false;
+        private static TransportInfo s_cachedFerryInfo = null;
+
+        public static void Apply(HarmonyInstance harmony)
+        {
+            if (s_applied) return;
+            try
+            {
+                // 1. Patch NetInfo.InitializePrefab (dynamically configures newly initialized water networks)
+                try
+                {
+                    MethodInfo initPrefab = typeof(NetInfo).GetMethod("InitializePrefab", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (initPrefab != null)
+                    {
+                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(NetInfo_InitializePrefab_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(initPrefab, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched NetInfo.InitializePrefab for Water Transport Compatibility.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetInfo.InitializePrefab: " + ex);
+                }
+
+                // 2. Patch ShipDockAI.FindFerryPath (reconnects ferry docks/piers with extended 128m radius and dual Ship|Ferry check)
+                try
+                {
+                    MethodInfo findFerry = typeof(ShipDockAI).GetMethod("FindFerryPath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (findFerry != null)
+                    {
+                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(ShipDockAI_FindFerryPath_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(findFerry, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched ShipDockAI.FindFerryPath for Water Transport Compatibility.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ShipDockAI.FindFerryPath: " + ex);
+                }
+
+                // 3. Patch ShipDockAI.FindConnectionPath (extended 128m search for ship docks)
+                try
+                {
+                    MethodInfo findConn = typeof(ShipDockAI).GetMethod("FindConnectionPath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (findConn != null)
+                    {
+                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(ShipDockAI_FindConnectionPath_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(findConn, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched ShipDockAI.FindConnectionPath for Water Transport Compatibility.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ShipDockAI.FindConnectionPath: " + ex);
+                }
+
+                // 4. Patch TransportStationAI.GetTransportLineInfo (enables Harbors to be selected as transit stops)
+                try
+                {
+                    MethodInfo getTLInfo = typeof(TransportStationAI).GetMethod("GetTransportLineInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (getTLInfo != null)
+                    {
+                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(TransportStationAI_GetTransportLineInfo_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(getTLInfo, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportStationAI.GetTransportLineInfo for Harbor support.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TransportStationAI.GetTransportLineInfo: " + ex);
+                }
+
+                // 5. Patch TransportStationAI.GetSecondaryTransportLineInfo
+                try
+                {
+                    MethodInfo getSecTLInfo = typeof(TransportStationAI).GetMethod("GetSecondaryTransportLineInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (getSecTLInfo != null)
+                    {
+                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(TransportStationAI_GetSecondaryTransportLineInfo_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(getSecTLInfo, postfix: new HarmonyMethod(post));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportStationAI.GetSecondaryTransportLineInfo for Harbor support.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TransportStationAI.GetSecondaryTransportLineInfo: " + ex);
+                }
+
+                s_applied = true;
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] WaterTransportCompatibility.Apply error: " + ex);
+            }
+        }
+
+        public static bool IsWaterNetwork(NetInfo info)
+        {
+            if (info == null) return false;
+            if (info.m_netAI is ShipPathAI) return true;
+            if (info.m_class != null && (info.m_class.m_layer == ItemClass.Layer.ShipPaths || info.m_class.m_layer == ItemClass.Layer.FerryPaths)) return true;
+            if (info.name != null)
+            {
+                string lower = info.name.ToLower();
+                if (lower.Contains("ship path") || lower.Contains("ferry path") || 
+                    lower.Contains("ship canal") || lower.Contains("ferry canal") ||
+                    lower.Contains("water path"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static void ConfigureWaterNetInfo(NetInfo info)
+        {
+            if (info == null || !IsWaterNetwork(info)) return;
+
+            info.m_vehicleTypes |= (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry);
+            info.m_availableIn = ItemClass.Availability.All;
+
+            if (info.m_lanes != null)
+            {
+                for (int j = 0; j < info.m_lanes.Length; j++)
+                {
+                    var lane = info.m_lanes[j];
+                    if (lane == null) continue;
+                    if (lane.m_laneType == NetInfo.LaneType.Vehicle || 
+                        (lane.m_vehicleType & (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry)) != 0)
+                    {
+                        lane.m_vehicleType |= (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry);
+                    }
+                }
+            }
+        }
+
+        public static void SynchronizeWaterTransportNetworks()
+        {
+            try
+            {
+                int count = PrefabCollection<NetInfo>.LoadedCount();
+                int waterCount = 0;
+                for (uint i = 0; i < count; i++)
+                {
+                    NetInfo info = PrefabCollection<NetInfo>.GetLoaded(i);
+                    if (info != null && IsWaterNetwork(info))
+                    {
+                        ConfigureWaterNetInfo(info);
+                        waterCount++;
+                    }
+                }
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] WaterTransportCompatibility: Synchronized {0} water transport network prefabs.", waterCount));
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SynchronizeWaterTransportNetworks error: " + ex);
+            }
+        }
+
+        public static void ReconnectWaterDocks()
+        {
+            try
+            {
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null || nm.m_nodes == null || nm.m_nodes.m_buffer == null) return;
+
+                int reconnected = 0;
+                int bufferLen = nm.m_nodes.m_buffer.Length;
+                for (ushort i = 0; i < bufferLen; i++)
+                {
+                    if ((nm.m_nodes.m_buffer[i].m_flags & NetNode.Flags.Created) == 0) continue;
+                    NetInfo info = nm.m_nodes.m_buffer[i].Info;
+                    if (info == null || !(info.m_netAI is ShipDockAI dockAI)) continue;
+
+                    if (nm.m_nodes.m_buffer[i].m_lane == 0)
+                    {
+                        dockAI.UpdateLaneConnection(i, ref nm.m_nodes.m_buffer[i]);
+                        if (nm.m_nodes.m_buffer[i].m_lane != 0)
+                        {
+                            reconnected++;
+                        }
+                    }
+                }
+
+                if (reconnected > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] WaterTransportCompatibility: Reconnected {0} water docks/piers to ship/ferry paths.", reconnected));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ReconnectWaterDocks error: " + ex);
+            }
+        }
+
+        public static void NetInfo_InitializePrefab_Postfix(NetInfo __instance)
+        {
+            try
+            {
+                if (__instance != null && IsWaterNetwork(__instance))
+                {
+                    ConfigureWaterNetInfo(__instance);
+                }
+            }
+            catch { }
+        }
+
+        public static void ShipDockAI_FindFerryPath_Postfix(ref Vector3 position, ref uint laneID, ref byte offset, ref bool __result)
+        {
+            if (!__result)
+            {
+                try
+                {
+                    PathUnit.Position posA;
+                    PathUnit.Position posB;
+                    float distA, distB;
+
+                    if (PathManager.FindPathPosition(
+                        position,
+                        ItemClass.Service.PublicTransport,
+                        NetInfo.LaneType.Vehicle,
+                        VehicleInfo.VehicleType.Ferry | VehicleInfo.VehicleType.Ship,
+                        VehicleInfo.VehicleCategory.All,
+                        false,
+                        true,
+                        128f,
+                        false,
+                        false,
+                        out posA,
+                        out posB,
+                        out distA,
+                        out distB))
+                    {
+                        laneID = PathManager.GetLaneID(posA);
+                        offset = posA.m_offset;
+                        __result = true;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        public static void ShipDockAI_FindConnectionPath_Postfix(ref Vector3 position, ref uint laneID, ref byte offset, bool laneConnection, ref bool __result)
+        {
+            if (!__result)
+            {
+                try
+                {
+                    PathUnit.Position posA;
+                    PathUnit.Position posB;
+                    float distA, distB;
+
+                    if (PathManager.FindPathPosition(
+                        position,
+                        ItemClass.Service.PublicTransport,
+                        NetInfo.LaneType.Vehicle,
+                        VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry,
+                        VehicleInfo.VehicleCategory.All,
+                        false,
+                        true,
+                        128f,
+                        false,
+                        false,
+                        out posA,
+                        out posB,
+                        out distA,
+                        out distB))
+                    {
+                        laneID = PathManager.GetLaneID(posA);
+                        offset = posA.m_offset;
+                        __result = true;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        public static TransportInfo GetWaterTransportInfo()
+        {
+            if (s_cachedFerryInfo != null) return s_cachedFerryInfo;
+            try
+            {
+                s_cachedFerryInfo = PrefabCollection<TransportInfo>.FindLoaded("Ferry")
+                                 ?? PrefabCollection<TransportInfo>.FindLoaded("Ship");
+                if (s_cachedFerryInfo == null)
+                {
+                    int count = PrefabCollection<TransportInfo>.LoadedCount();
+                    for (uint i = 0; i < count; i++)
+                    {
+                        var ti = PrefabCollection<TransportInfo>.GetLoaded(i);
+                        if (ti != null && (ti.m_transportType == TransportInfo.TransportType.Ship || 
+                                           ti.m_vehicleType == VehicleInfo.VehicleType.Ferry ||
+                                           ti.m_vehicleType == VehicleInfo.VehicleType.Ship))
+                        {
+                            s_cachedFerryInfo = ti;
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return s_cachedFerryInfo;
+        }
+
+        public static void TransportStationAI_GetTransportLineInfo_Postfix(TransportStationAI __instance, ref TransportInfo __result)
+        {
+            if (__result == null && __instance is HarborAI)
+            {
+                try
+                {
+                    TransportInfo waterInfo = GetWaterTransportInfo();
+                    if (waterInfo != null)
+                    {
+                        __result = waterInfo;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        public static void TransportStationAI_GetSecondaryTransportLineInfo_Postfix(TransportStationAI __instance, ref TransportInfo __result)
+        {
+            if (__result == null && __instance is HarborAI)
+            {
+                try
+                {
+                    TransportInfo waterInfo = GetWaterTransportInfo();
+                    if (waterInfo != null)
+                    {
+                        __result = waterInfo;
+                    }
+                }
+                catch { }
+            }
         }
     }
 }

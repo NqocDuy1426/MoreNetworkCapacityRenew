@@ -491,9 +491,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.48 version bump
-            bool hasV448 = renewCode.Contains("More Network Capacity Renew v4.3.48 by NgocDuy");
-            Assert(hasV448, "Version correctly bumped to v4.3.48 in RenewMod.Name");
+            // 11.1 Check v5.0 version bump and rebranding
+            bool hasV50 = renewCode.Contains("More Nodes/Segments v5.0 by NgocDuy");
+            Assert(hasV50, "Version and name correctly updated to More Nodes/Segments v5.0 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -976,9 +976,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 22.1 Mod version bumped to v4.3.48
-            bool hasVersionBump = renewCode.Contains("v4.3.48");
-            Assert(hasVersionBump, "Mod version bumped to v4.3.48 in RenewMod.Name");
+            // 22.1 Mod version bumped to v5.0
+            bool hasVersionBump = renewCode.Contains("v5.0");
+            Assert(hasVersionBump, "Mod version bumped to v5.0 in RenewMod.Name");
 
             // 22.2 EnsureExpandedSave ensures metadata and patch state across all save systems
             bool hasEnsureExpandedSave = renewCode.Contains("EnsureExpandedSave") &&

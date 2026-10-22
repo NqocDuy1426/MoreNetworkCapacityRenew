@@ -1,4 +1,4 @@
-# More Network Capacity Renew
+# More Nodes/Segments v5.0
 
 [![Steam Workshop](https://img.shields.io/badge/Steam_Workshop-3818403598-blue.svg?logo=steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=3818403598)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-brightgreen.svg)]()
@@ -18,9 +18,9 @@
 ### Overview: What is this mod?
 Vanilla *Cities: Skylines* caps road and network creation at ~32,000 nodes and segments. Once this threshold is reached, the game displays the notorious `"Cannot create more objects of this type"` error, halting all city expansion.
 
-**More Network Capacity Renew** safely elevates this internal engine ceiling to **65,536 (64K) Nodes and Segments**, providing double the building freedom. 
+**More Nodes/Segments v5.0** (formerly *More Network Capacity Renew*) safely elevates this internal engine ceiling to **65,536 (64K) Nodes and Segments**, providing double the building freedom. 
 
-Unlike previous experimental or unmaintained releases that suffered from severe crash loops and broken traffic routing, **Renew** is engineered from the ground up for **rock-solid stability, accurate traffic simulation, and zero savegame data loss.**
+Unlike previous experimental or unmaintained releases that suffered from severe crash loops and broken traffic routing, **More Nodes/Segments** is engineered from the ground up for **rock-solid stability, accurate traffic simulation, and zero savegame data loss.**
 
 ---
 
@@ -117,9 +117,9 @@ The script compiles the assembly with `Mono` / `mcs`, strips redundant interface
 ### Giới thiệu: Bản mod này là gì?
 Mặc định *Cities: Skylines* giới hạn số lượng hạ tầng mạng lưới đường sá ở mức ~32,000 node và segment. Khi chạm ngưỡng này, trò chơi sẽ thông báo lỗi `"Cannot create more objects of this type"`, khiến người chơi không thể đặt thêm đường xá hay đường sắt.
 
-**More Network Capacity Renew** phá vỡ rào cản này một cách an toàn, nâng tổng sức chứa lên **65,536 (64K) Node & Segment** - nhân đôi không gian xây dựng để bạn thỏa sức kiến thiết các siêu đô thị triệu dân.
+**More Nodes/Segments v5.0** (tên cũ: *More Network Capacity Renew*) phá vỡ rào cản này một cách an toàn, nâng tổng sức chứa lên **65,536 (64K) Node & Segment** - nhân đôi không gian xây dựng để bạn thỏa sức kiến thiết các siêu đô thị triệu dân.
 
-Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập game và lỗi mô phỏng giao thông, phiên bản **Renew** được xây dựng lại toàn diện với tiêu chí: **độ ổn định tuyệt đối, mô phỏng giao thông chuẩn xác và không mất dữ liệu savegame.**
+Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập game và lỗi mô phỏng giao thông, phiên bản **More Nodes/Segments** được xây dựng lại toàn diện với tiêu chí: **độ ổn định tuyệt đối, mô phỏng giao thông chuẩn xác và không mất dữ liệu savegame.**
 
 ---
 
@@ -186,7 +186,7 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 ### 🚀 Hướng dẫn kích hoạt trong Game
 
 1. Khởi động **Cities: Skylines** -> Vào **Quản lý nội dung (Content Manager)** -> **Mods**.
-2. Tìm và **BẬT (ON)**: `More Network Capacity Renew by NgocDuy`.
+2. Tìm và **BẬT (ON)**: `More Nodes/Segments v5.0 by NgocDuy`.
 3. Vào game và tải bản lưu thành phố bình thường!
 
 ---
@@ -200,4 +200,5 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 
 ## 👤 Author & Support
 * **Author:** [NgocDuy1426](https://github.com/NqocDuy1426)
-* **Steam Workshop:** [More Network Capacity Renew (ID: 3818403598)](https://steamcommunity.com/sharedfiles/filedetails/?id=3818403598)
+* **Steam Workshop:** [More Nodes/Segments (ID: 3818403598)](https://steamcommunity.com/sharedfiles/filedetails/?id=3818403598)
+* **GitHub Repository:** [MoreNodesSegments](https://github.com/NqocDuy1426/MoreNodesSegments)

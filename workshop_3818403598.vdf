@@ -97,6 +97,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0 - Major Release: Rebranded to More Nodes/Segments v5.0! Full 64K network limit breaker (up to 65,024 nodes & segments), pure native TM:PE integration, thread-safe save/load lifecycle, water transport pathfinding, and Mac/Apple Silicon stability."
+	"changenote"		"v5.0.1 - Compatibility Update: Added seamless compatibility for Impatient Commuters (Workshop ID 3721119397). Automatically expands stop node capacity arrays to 65,536 elements and immunizes simulation thread against IndexOutOfRangeException on high-ID transport stops."
 }
 

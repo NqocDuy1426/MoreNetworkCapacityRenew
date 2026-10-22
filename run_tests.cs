@@ -1118,6 +1118,62 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 25: Impatient Commuters 65K Compatibility & Crash Immunity (v5.0)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 25: Impatient Commuters 65K Compatibility & Crash Immunity (v5.0) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 25.1 ImpatientCommuters is registered in IsTargetModAssembly
+            bool isTargetRegistered = renewCode.Contains("name == \"ImpatientCommuters\"");
+            Assert(isTargetRegistered, "ImpatientCommuters is registered in IsTargetModAssembly for dynamic patching");
+
+            // 25.2 SynchronizeThirdPartyMods calls EnsureImpatientCommutersBuffers
+            bool syncBuffersCalled = renewCode.Contains("EnsureImpatientCommutersBuffers(context);");
+            Assert(syncBuffersCalled, "SynchronizeThirdPartyMods ensures ImpatientCommuters buffers are synchronized");
+
+            // 25.3 PatchThirdPartyMods calls PatchImpatientCommuters
+            bool patchCalled = renewCode.Contains("PatchImpatientCommuters(harmony);");
+            Assert(patchCalled, "PatchThirdPartyMods applies ImpatientCommuters Harmony hooks");
+
+            // 25.4 PreSaveSanitization includes ImpatientCommuters patching and buffer sync
+            bool preSavePatched = renewCode.Contains("ThirdPartyCompatibility.EnsureImpatientCommutersPatched();") &&
+                                  renewCode.Contains("ThirdPartyCompatibility.EnsureImpatientCommutersBuffers(\"PreSaveSanitization\");");
+            Assert(preSavePatched, "PreSaveSanitization immunizes and synchronizes ImpatientCommuters before save serialization");
+
+            // 25.5 Target array capacity is 65,536 (eliminating IndexOutOfRangeException for all ushort stop nodes)
+            bool targetCapacity65k = renewCode.Contains("const int targetCapacity = 65536;") &&
+                                     renewCode.Contains("_passengerCount") &&
+                                     renewCode.Contains("_capacityThreshold") &&
+                                     renewCode.Contains("_vehicleCount") &&
+                                     renewCode.Contains("_stopCount") &&
+                                     renewCode.Contains("_hasAlternativeLine");
+            Assert(targetCapacity65k, "ExpandImpatientCommutersInstance expands all 5 internal limiter arrays to 65536 elements");
+
+            // 25.6 Simulation tick, frame, and init hooks protect thread execution
+            bool simulationHooks = renewCode.Contains("ImpatientCommuters_EnsureInitialized_Postfix") &&
+                                   renewCode.Contains("ImpatientCommuters_OnBeforeSimulationTick_Prefix") &&
+                                   renewCode.Contains("ImpatientCommuters_OnBeforeSimulationFrame_Prefix");
+            Assert(simulationHooks, "Simulation lifecycle hooks ensure expanded arrays before any simulation tick or frame runs");
+
+            // 25.7 ComputeNodeData prefix verifies node bounds before computation
+            bool computeGuarded = renewCode.Contains("ImpatientCommuters_ComputeNodeData_Prefix") &&
+                                  renewCode.Contains("nodeId >= nodeBuf.Length");
+            Assert(computeGuarded, "ComputeNodeData prefix guards against out-of-range node IDs and ensures array capacity");
+
+            // 25.8 GetStopNode replacement provides 100% bounds checking against expanded path and segment buffers
+            bool getStopNodeGuarded = renewCode.Contains("ImpatientCommuters_GetStopNode_Prefix") &&
+                                      renewCode.Contains("path >= pathBuffer.Length") &&
+                                      renewCode.Contains("segment >= segBuffer.Length");
+            Assert(getStopNodeGuarded, "GetStopNode prefix provides 100% bounds safety against expanded PathUnit and NetSegment buffers");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 25 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

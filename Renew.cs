@@ -9172,6 +9172,8 @@ namespace MoreNetworkCapacityRenew
         private static bool _eightyOne2Patched = false;
         private static bool _morePathUnitsPatched = false;
         private static bool _transferManagerPatched = false;
+        private static bool _impatientCommutersPatched = false;
+        private static readonly List<WeakReference> _impatientLimiterInstances = new List<WeakReference>();
         private static HarmonyInstance _harmonyInstance = null;
 
         public static void Apply(HarmonyInstance harmony)
@@ -9253,7 +9255,8 @@ namespace MoreNetworkCapacityRenew
                    name == "TransferManagerCE" ||
                    name == "TransferManagerExtended" ||
                    name == "RebalancedIndustriesRevisited" ||
-                   name == "MorePathUnits";
+                   name == "MorePathUnits" ||
+                   name == "ImpatientCommuters";
         }
 
         public static void SynchronizeThirdPartyMods(string context)
@@ -9268,6 +9271,7 @@ namespace MoreNetworkCapacityRenew
                 EnsureKianCommonsBuffers(context);
                 EnsureImprovedPublicTransportBuffers(context);
                 EnsureTransferManagerBuffers(context);
+                EnsureImpatientCommutersBuffers(context);
                 SynchronizeMorePathUnits(context);
             }
             catch (Exception ex)
@@ -10105,6 +10109,9 @@ namespace MoreNetworkCapacityRenew
 
             // 6. Transfer Manager Extended (TransferManagerCE) path distance & 65K node safety hooks
             PatchTransferManager(harmony);
+
+            // 7. Impatient Commuters 65K node & segment compatibility hooks
+            PatchImpatientCommuters(harmony);
         }
 
         public static void EnsureEightyOne2Patched()
@@ -11531,6 +11538,356 @@ namespace MoreNetworkCapacityRenew
 
             return true;
         }
+
+        public static void EnsureImpatientCommutersPatched()
+        {
+            if (_impatientCommutersPatched) return;
+            try
+            {
+                var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.ImpatientCommuters");
+                PatchImpatientCommuters(harmony);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureImpatientCommutersPatched error: " + ex);
+            }
+        }
+
+        public static void PatchImpatientCommuters(HarmonyInstance harmony)
+        {
+            if (_impatientCommutersPatched || harmony == null) return;
+            try
+            {
+                Assembly targetAsm = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "ImpatientCommuters")
+                    {
+                        targetAsm = asm;
+                        break;
+                    }
+                }
+                if (targetAsm == null) return;
+
+                Type limiterType = targetAsm.GetType("ImpatientCommuters.CommuterImpatienceLimiter");
+                if (limiterType == null) return;
+
+                int patchedCount = 0;
+
+                // 1. Postfix on EnsureInitialized to expand arrays to 65536 and sync buffers
+                MethodInfo ensureInit = limiterType.GetMethod("EnsureInitialized", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (ensureInit != null)
+                {
+                    MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_EnsureInitialized_Postfix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(ensureInit, postfix: new HarmonyMethod(post));
+                    patchedCount++;
+                }
+
+                // 2. Prefix on OnBeforeSimulationTick to guarantee 65536 arrays before tick runs
+                MethodInfo tickMethod = limiterType.GetMethod("OnBeforeSimulationTick", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (tickMethod != null)
+                {
+                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_OnBeforeSimulationTick_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(tickMethod, prefix: new HarmonyMethod(pre));
+                    patchedCount++;
+                }
+
+                // 3. Prefix on OnBeforeSimulationFrame to guarantee 65536 arrays before frame runs
+                MethodInfo frameMethod = limiterType.GetMethod("OnBeforeSimulationFrame", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (frameMethod != null)
+                {
+                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_OnBeforeSimulationFrame_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(frameMethod, prefix: new HarmonyMethod(pre));
+                    patchedCount++;
+                }
+
+                // 4. Prefix on ComputeNodeData to guard against out-of-range node IDs and ensure array bounds
+                MethodInfo computeNode = limiterType.GetMethod("ComputeNodeData", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
+                if (computeNode != null)
+                {
+                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_ComputeNodeData_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(computeNode, prefix: new HarmonyMethod(pre));
+                    patchedCount++;
+                }
+
+                // 5. Prefix on GetStopNode to safely retrieve stop nodes with 100% bounds checking against expanded buffers
+                MethodInfo getStopNode = limiterType.GetMethod("GetStopNode", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (getStopNode != null)
+                {
+                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_GetStopNode_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(getStopNode, prefix: new HarmonyMethod(pre));
+                    patchedCount++;
+                }
+
+                if (patchedCount > 0)
+                {
+                    _impatientCommutersPatched = true;
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully applied {0} Impatient Commuters 65K node expansion & safety patches!", patchedCount));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchImpatientCommuters error: " + ex);
+            }
+        }
+
+        public static void EnsureImpatientCommutersBuffers(string context)
+        {
+            try
+            {
+                // Synchronize all tracked instances
+                lock (_impatientLimiterInstances)
+                {
+                    for (int i = _impatientLimiterInstances.Count - 1; i >= 0; i--)
+                    {
+                        object target = _impatientLimiterInstances[i].Target;
+                        if (target != null)
+                        {
+                            ExpandImpatientCommutersInstance(target);
+                        }
+                        else
+                        {
+                            _impatientLimiterInstances.RemoveAt(i);
+                        }
+                    }
+                }
+
+                // Discover instances via SimulationManager.m_ThreadingWrapper
+                if (Singleton<SimulationManager>.instance != null)
+                {
+                    var sm = Singleton<SimulationManager>.instance;
+                    FieldInfo twField = typeof(SimulationManager).GetField("m_ThreadingWrapper", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (twField != null)
+                    {
+                        object tw = twField.GetValue(sm);
+                        if (tw != null)
+                        {
+                            FieldInfo listField = tw.GetType().GetField("m_ThreadingExtensions", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (listField != null && listField.GetValue(tw) is System.Collections.IList list)
+                            {
+                                foreach (object ext in list)
+                                {
+                                    if (ext != null && ext.GetType().FullName == "ImpatientCommuters.CommuterImpatienceLimiter")
+                                    {
+                                        ExpandImpatientCommutersInstance(ext);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureImpatientCommutersBuffers error: " + ex);
+            }
+        }
+
+        public static void ExpandImpatientCommutersInstance(object instance)
+        {
+            if (instance == null) return;
+            try
+            {
+                // Register into tracked list if not already present
+                lock (_impatientLimiterInstances)
+                {
+                    bool exists = false;
+                    for (int i = 0; i < _impatientLimiterInstances.Count; i++)
+                    {
+                        if (object.ReferenceEquals(_impatientLimiterInstances[i].Target, instance))
+                        {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists)
+                    {
+                        _impatientLimiterInstances.Add(new WeakReference(instance));
+                    }
+                }
+
+                Type limiterType = instance.GetType();
+                const int targetCapacity = 65536;
+
+                // 1. Expand node index arrays to 65536 (eliminates IndexOutOfRangeException for all ushort values 0..65535)
+                string[] ushortArrayFields = new string[] { "_passengerCount", "_capacityThreshold", "_vehicleCount", "_stopCount" };
+                for (int i = 0; i < ushortArrayFields.Length; i++)
+                {
+                    FieldInfo f = limiterType.GetField(ushortArrayFields[i], BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (f != null && f.GetValue(instance) is ushort[] arr && arr.Length < targetCapacity)
+                    {
+                        ushort[] newArr = new ushort[targetCapacity];
+                        Array.Copy(arr, newArr, arr.Length);
+                        f.SetValue(instance, newArr);
+                    }
+                }
+
+                FieldInfo fBool = limiterType.GetField("_hasAlternativeLine", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fBool != null && fBool.GetValue(instance) is bool[] bArr && bArr.Length < targetCapacity)
+                {
+                    bool[] newBArr = new bool[targetCapacity];
+                    Array.Copy(bArr, newBArr, bArr.Length);
+                    fBool.SetValue(instance, newBArr);
+                }
+
+                // 2. Synchronize game buffer references to active expanded buffers
+                if (Singleton<NetManager>.instance != null)
+                {
+                    NetManager nm = Singleton<NetManager>.instance;
+                    if (nm.m_nodes != null && nm.m_nodes.m_buffer != null)
+                    {
+                        FieldInfo fNodes = limiterType.GetField("_nodes", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fNodes != null && !object.ReferenceEquals(fNodes.GetValue(instance), nm.m_nodes.m_buffer))
+                        {
+                            fNodes.SetValue(instance, nm.m_nodes.m_buffer);
+                        }
+                    }
+                    if (nm.m_segments != null && nm.m_segments.m_buffer != null)
+                    {
+                        FieldInfo fSegs = limiterType.GetField("_segments", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fSegs != null && !object.ReferenceEquals(fSegs.GetValue(instance), nm.m_segments.m_buffer))
+                        {
+                            fSegs.SetValue(instance, nm.m_segments.m_buffer);
+                        }
+                    }
+                }
+
+                if (Singleton<PathManager>.instance != null && Singleton<PathManager>.instance.m_pathUnits != null && Singleton<PathManager>.instance.m_pathUnits.m_buffer != null)
+                {
+                    FieldInfo fPaths = limiterType.GetField("_pathUnits", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fPaths != null && !object.ReferenceEquals(fPaths.GetValue(instance), Singleton<PathManager>.instance.m_pathUnits.m_buffer))
+                    {
+                        fPaths.SetValue(instance, Singleton<PathManager>.instance.m_pathUnits.m_buffer);
+                    }
+                }
+
+                if (Singleton<CitizenManager>.instance != null)
+                {
+                    CitizenManager cm = Singleton<CitizenManager>.instance;
+                    if (cm.m_instances != null && cm.m_instances.m_buffer != null)
+                    {
+                        FieldInfo fInst = limiterType.GetField("_instances", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fInst != null && !object.ReferenceEquals(fInst.GetValue(instance), cm.m_instances.m_buffer))
+                        {
+                            fInst.SetValue(instance, cm.m_instances.m_buffer);
+                        }
+                    }
+                    if (cm.m_citizens != null && cm.m_citizens.m_buffer != null)
+                    {
+                        FieldInfo fCit = limiterType.GetField("_citizens", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fCit != null && !object.ReferenceEquals(fCit.GetValue(instance), cm.m_citizens.m_buffer))
+                        {
+                            fCit.SetValue(instance, cm.m_citizens.m_buffer);
+                        }
+                    }
+                }
+
+                if (Singleton<TransportManager>.instance != null && Singleton<TransportManager>.instance.m_lines != null && Singleton<TransportManager>.instance.m_lines.m_buffer != null)
+                {
+                    FieldInfo fLines = limiterType.GetField("_lines", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fLines != null && !object.ReferenceEquals(fLines.GetValue(instance), Singleton<TransportManager>.instance.m_lines.m_buffer))
+                    {
+                        fLines.SetValue(instance, Singleton<TransportManager>.instance.m_lines.m_buffer);
+                    }
+                }
+
+                if (Singleton<VehicleManager>.instance != null && Singleton<VehicleManager>.instance.m_vehicles != null && Singleton<VehicleManager>.instance.m_vehicles.m_buffer != null)
+                {
+                    FieldInfo fVeh = limiterType.GetField("_vehicles", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fVeh != null && !object.ReferenceEquals(fVeh.GetValue(instance), Singleton<VehicleManager>.instance.m_vehicles.m_buffer))
+                    {
+                        fVeh.SetValue(instance, Singleton<VehicleManager>.instance.m_vehicles.m_buffer);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ExpandImpatientCommutersInstance error: " + ex);
+            }
+        }
+
+        public static void ImpatientCommuters_EnsureInitialized_Postfix(object __instance)
+        {
+            ExpandImpatientCommutersInstance(__instance);
+        }
+
+        public static void ImpatientCommuters_OnBeforeSimulationTick_Prefix(object __instance)
+        {
+            ExpandImpatientCommutersInstance(__instance);
+        }
+
+        public static void ImpatientCommuters_OnBeforeSimulationFrame_Prefix(object __instance)
+        {
+            ExpandImpatientCommutersInstance(__instance);
+        }
+
+        public static bool ImpatientCommuters_ComputeNodeData_Prefix(object __instance, ushort nodeId)
+        {
+            if (nodeId == 0) return false;
+
+            if (Singleton<NetManager>.instance != null && Singleton<NetManager>.instance.m_nodes != null)
+            {
+                var nodeBuf = Singleton<NetManager>.instance.m_nodes.m_buffer;
+                if (nodeBuf != null && nodeId >= nodeBuf.Length)
+                {
+                    return false;
+                }
+            }
+
+            ExpandImpatientCommutersInstance(__instance);
+            return true;
+        }
+
+        public static bool ImpatientCommuters_GetStopNode_Prefix(object __instance, ref CitizenInstance inst, ref ushort __result)
+        {
+            try
+            {
+                uint path = inst.m_path;
+                if (path == 0)
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                if (Singleton<PathManager>.instance == null || Singleton<PathManager>.instance.m_pathUnits == null)
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                var pathBuffer = Singleton<PathManager>.instance.m_pathUnits.m_buffer;
+                if (pathBuffer == null || path >= pathBuffer.Length)
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                PathUnit unit = pathBuffer[path];
+                PathUnit.Position pos = unit.GetPosition(inst.m_pathPositionIndex >> 1);
+                ushort segment = pos.m_segment;
+
+                if (segment == 0 || Singleton<NetManager>.instance == null || Singleton<NetManager>.instance.m_segments == null)
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                var segBuffer = Singleton<NetManager>.instance.m_segments.m_buffer;
+                if (segBuffer == null || segment >= segBuffer.Length)
+                {
+                    __result = 0;
+                    return false;
+                }
+
+                __result = segBuffer[segment].m_startNode;
+                return false;
+            }
+            catch
+            {
+                __result = 0;
+                return false;
+            }
+        }
     }
 
     public static class TransportLineCompatibility
@@ -12290,7 +12647,9 @@ namespace MoreNetworkCapacityRenew
         {
             try { ThirdPartyCompatibility.EnsureEightyOne2Patched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureEightyOne2 error: " + ex); }
             try { ThirdPartyCompatibility.EnsureMorePathUnitsPatched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureMorePathUnits error: " + ex); }
+            try { ThirdPartyCompatibility.EnsureImpatientCommutersPatched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureImpatientCommuters error: " + ex); }
             try { ThirdPartyCompatibility.SynchronizeMorePathUnits("PreSaveSanitization"); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave MorePathUnits sync error: " + ex); }
+            try { ThirdPartyCompatibility.EnsureImpatientCommutersBuffers("PreSaveSanitization"); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave ImpatientCommuters sync error: " + ex); }
             try { ArrayGuardian.ExpandAllArrays(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave ArrayGuardian error: " + ex); }
             try { SanitizeDistricts(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeDistricts error: " + ex); }
             try { SanitizeTransportLines(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTransportLines error: " + ex); }

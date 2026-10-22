@@ -27,6 +27,12 @@
 [list]
     [*] Added automatic in-memory array expansion (up to 65,536 elements) for [b]Impatient Commuters[/b], completely eliminating simulation thread freeze ([i]IndexOutOfRangeException[/i]) on high-ID public transport stops (> 32,768).
     [*] Strict zero-hook architecture: does not modify or hook into the mod's code, achieving pure memory buffer harmony.
+[*] [b]Citizen/Path Units & 81 Tiles 2 Harmonization (v5.0.3 Hotfix):[/b]
+[list]
+    [*] [b]Universal Dynamic Buffer Guard:[/b] Pre-allocates 1M CitizenUnits and 524K PathUnits before deserialization and preserves savegame metadata override flags bidirectionally, completely resolving [i]IndexOutOfRangeException[/i] in [i]CitizenManager.Data.Deserialize[/i].
+    [*] [b]81 Tiles 2 Auto-Harmonization:[/b] Deferred early [i]NetManager.instance[/i] access and auto-expanded [i]NetManager.m_tileNodesCount[/i] to 3402, completely removing the 1050 size mismatch error.
+    [*] [b]Level Reload State Sanitizer:[/b] Clears pending TM:PE serialization buffers and runs strategic garbage collection on level unload, eliminating reload blue screens / freezes on cities > 34K nodes.
+    [*] [b]Universal Mod Harmonizer:[/b] Added dynamic memory harmonization for present and future community mods.
 [/list]
 [/list]
 
@@ -84,7 +90,8 @@ Tested and fully compatible with the standard modern modding ecosystem:
 [*] [b]Advanced Road Tools[/b]
 [*] [b]Improved Public Transport 2 & 3[/b]
 [*] [b]Advanced Vehicle Options[/b]
-[*] [b]More Vehicles Renew 2[/b]
+[*] [b]More CitizenUnits & More PathUnits[/b] (Universal Dynamic Buffer Guard)
+[*] [b]Universal Mod Harmonizer[/b] (Zero-conflict compatibility for community mods)
 [*] [b]Impatient Commuters[/b] (Auto-expanded to 65K stop nodes)
 [/list]
 
@@ -105,6 +112,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.1 - Compatibility Update: Added seamless compatibility for Impatient Commuters (Workshop ID 3721119397). Automatically expands stop node capacity arrays to 65,536 elements and immunizes simulation thread against IndexOutOfRangeException on high-ID transport stops."
+	"changenote"		"v5.0.3 - Compatibility & Stability Hotfix: Universal Dynamic Buffer Guard for CitizenUnits & PathUnits (IndexOutOfRangeException fix); 81 Tiles 2 harmonization (m_tileNodesCount 3402); Level Unload State Sanitizer for seamless in-game city reload; Universal Mod Harmonizer for community mods."
 }
 

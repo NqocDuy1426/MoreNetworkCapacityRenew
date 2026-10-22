@@ -29,6 +29,11 @@ namespace MoreNetworkCapacityRenew
             UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] CHECKPOINT [{0}] +{1:F0}ms", phase, elapsedMs));
             lastCheckpoint = now;
         }
+
+        public static void Reset()
+        {
+            lastCheckpoint = DateTime.Now;
+        }
     }
 
     // ============================================================================
@@ -250,16 +255,19 @@ namespace MoreNetworkCapacityRenew
                 success &= ExpandStaticArray(flagsType, "highwayLaneArrowFlags", 524288);
                 success &= ExpandStaticArray(flagsType, "laneAllowedVehicleTypesArray", MNCConstants.CORE_NET_CAPACITY);
                 
-                // 2. Synchronize live game buffers to TM:PE extension buffers
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm != null)
+                // 2. Synchronize live game buffers to TM:PE extension buffers (Only if NetManager already exists!)
+                if (Singleton<NetManager>.exists)
                 {
-                    if (nm.m_lanes != null && nm.m_lanes.m_buffer != null)
-                        SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer, 262144);
-                    if (nm.m_segments != null && nm.m_segments.m_buffer != null)
-                        SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer, MNCConstants.CORE_NET_CAPACITY);
-                    if (nm.m_nodes != null && nm.m_nodes.m_buffer != null)
-                        SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", nm.m_nodes.m_buffer, MNCConstants.CORE_NET_CAPACITY);
+                    NetManager nm = Singleton<NetManager>.instance;
+                    if (nm != null)
+                    {
+                        if (nm.m_lanes != null && nm.m_lanes.m_buffer != null)
+                            SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer, 262144);
+                        if (nm.m_segments != null && nm.m_segments.m_buffer != null)
+                            SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer, MNCConstants.CORE_NET_CAPACITY);
+                        if (nm.m_nodes != null && nm.m_nodes.m_buffer != null)
+                            SetStaticBuffer(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", nm.m_nodes.m_buffer, MNCConstants.CORE_NET_CAPACITY);
+                    }
                 }
 
                 return success;
@@ -1673,25 +1681,34 @@ namespace MoreNetworkCapacityRenew
 
                 // 1. Sync Static Extension Buffers
                 // CRITICAL: These MUST point directly to the live game buffers! NEVER reallocate them!
-                NetManager nm = Singleton<NetManager>.instance;
-                if (nm != null)
+                if (Singleton<NetManager>.exists)
                 {
-                    if (nm.m_segments != null && nm.m_segments.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer);
-                    if (nm.m_nodes != null && nm.m_nodes.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", nm.m_nodes.m_buffer);
-                    if (nm.m_lanes != null && nm.m_lanes.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer);
+                    NetManager nm = Singleton<NetManager>.instance;
+                    if (nm != null)
+                    {
+                        if (nm.m_segments != null && nm.m_segments.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetSegmentExtensions", "_segBuffer", nm.m_segments.m_buffer);
+                        if (nm.m_nodes != null && nm.m_nodes.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetNodeExtensions", "_nodeBuffer", nm.m_nodes.m_buffer);
+                        if (nm.m_lanes != null && nm.m_lanes.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.NetLaneExtensions", "_laneBuffer", nm.m_lanes.m_buffer);
+                    }
                 }
 
-                BuildingManager bm = Singleton<BuildingManager>.instance;
-                if (bm != null && bm.m_buildings != null && bm.m_buildings.m_buffer != null)
+                if (Singleton<BuildingManager>.exists)
                 {
-                    SetStaticField(tmpe, "TrafficManager.Util.Extensions.BuildingExtensions", "_buildingBuffer", bm.m_buildings.m_buffer);
+                    BuildingManager bm = Singleton<BuildingManager>.instance;
+                    if (bm != null && bm.m_buildings != null && bm.m_buildings.m_buffer != null)
+                    {
+                        SetStaticField(tmpe, "TrafficManager.Util.Extensions.BuildingExtensions", "_buildingBuffer", bm.m_buildings.m_buffer);
+                    }
                 }
 
-                VehicleManager vm = Singleton<VehicleManager>.instance;
-                if (vm != null)
+                if (Singleton<VehicleManager>.exists)
                 {
-                    if (vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.VehicleExtensions", "_vehicleBuffer", vm.m_vehicles.m_buffer);
-                    if (vm.m_parkedVehicles != null && vm.m_parkedVehicles.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.ParkedVehicleExtensions", "_parkedVehiclesBuffer", vm.m_parkedVehicles.m_buffer);
+                    VehicleManager vm = Singleton<VehicleManager>.instance;
+                    if (vm != null)
+                    {
+                        if (vm.m_vehicles != null && vm.m_vehicles.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.VehicleExtensions", "_vehicleBuffer", vm.m_vehicles.m_buffer);
+                        if (vm.m_parkedVehicles != null && vm.m_parkedVehicles.m_buffer != null) SetStaticField(tmpe, "TrafficManager.Util.Extensions.ParkedVehicleExtensions", "_parkedVehiclesBuffer", vm.m_parkedVehicles.m_buffer);
+                    }
                 }
 
                 // 2. Flags static arrays
@@ -2691,7 +2708,7 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                if (tmpe == null || NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                if (tmpe == null || !Singleton<NetManager>.exists || NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
                     return;
 
                 Type jrmType = tmpe.GetType("TrafficManager.Manager.Impl.JunctionRestrictionsManager");
@@ -4904,11 +4921,16 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static void ClearPendingTMPEData()
+        {
+            s_pendingHighIdTMPEData = null;
+        }
+
         public static void RecalculateLiveSegments(Assembly tmpe)
         {
             try
             {
-                if (NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
+                if (!Singleton<NetManager>.exists || NetManager.instance == null || NetManager.instance.m_segments == null || NetManager.instance.m_segments.m_buffer == null)
                     return;
 
                 Type esemType = tmpe.GetType("TrafficManager.Manager.Impl.ExtSegmentEndManager");
@@ -7655,6 +7677,12 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] WaterTransportCompatibility initialization error: " + ex);
                 }
 
+                try
+                {
+                    ThirdPartyCompatibility.Harmonize81Tiles();
+                }
+                catch { }
+
                 DiagnosticLogger.Checkpoint("OnLevelLoaded.Complete");
                 MemoryOptimizer.StrategicGarbageCollect("OnLevelLoaded (Post-Save Cleanup)");
                 MemoryOptimizer.LogMemoryStatus("Gameplay Ready");
@@ -7695,6 +7723,21 @@ namespace MoreNetworkCapacityRenew
 
                 // Stop monitoring systems
                 ArrayGuardianV2.StopMonitoring();
+
+                // Level Unload State Sanitizer (NgocDuy):
+                // Clear pending TM:PE serialized buffers, save diagnostics, and force garbage collection to prevent blue screen on reload
+                try
+                {
+                    TMPECompatibility.ClearPendingTMPEData();
+                    DiagnosticLogger.Reset();
+
+                    MemoryOptimizer.StrategicGarbageCollect("OnLevelUnloading");
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Level Unload Sanitizer: Freed unreferenced heaps & reset serialization state ✓");
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Level Unload Sanitizer warning: " + ex.Message);
+                }
             }
             catch (Exception ex)
             {
@@ -9226,6 +9269,10 @@ namespace MoreNetworkCapacityRenew
                                         }
                                     }
                                 }
+                                else if (!UniversalModHarmonizer.IsIgnoredAssembly(name))
+                                {
+                                    UniversalModHarmonizer.HarmonizeAssembly(args.LoadedAssembly, "AssemblyLoad: " + name);
+                                }
                             }
                         }
                         catch { }
@@ -9283,6 +9330,8 @@ namespace MoreNetworkCapacityRenew
                 EnsureTransferManagerBuffers(context);
                 EnsureImpatientCommutersBuffers(context);
                 SynchronizeMorePathUnits(context);
+                Harmonize81Tiles();
+                UniversalModHarmonizer.HarmonizeActiveMods(context);
             }
             catch (Exception ex)
             {
@@ -10258,6 +10307,23 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patch EightyOne2 Immaterial error: " + ex);
                 }
 
+                // 6. Hook NetManager.Awake to immediately harmonize m_tileNodesCount to 3402
+                try
+                {
+                    MethodInfo nmAwake = typeof(NetManager).GetMethod("Awake", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (nmAwake != null)
+                    {
+                        MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(NetManager_Awake_Postfix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(nmAwake, postfix: new HarmonyMethod(post));
+                        patchedCount++;
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hooked NetManager.Awake for 81 Tiles 2 harmonization.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Hook NetManager.Awake error: " + ex);
+                }
+
                 if (patchedCount > 0)
                 {
                     _eightyOne2Patched = true;
@@ -10267,6 +10333,58 @@ namespace MoreNetworkCapacityRenew
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchEightyOne2 error: " + ex);
+            }
+        }
+
+        public static void Harmonize81Tiles()
+        {
+            try
+            {
+                if (!Singleton<NetManager>.exists) return;
+                NetManager nm = Singleton<NetManager>.instance;
+                if (nm == null) return;
+
+                bool has81Tiles = false;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    string name = asm.GetName().Name;
+                    if (name == "EightyOne2" || name == "EightyOne" || name.Contains("81Tiles"))
+                    {
+                        has81Tiles = true;
+                        break;
+                    }
+                }
+
+                if (has81Tiles)
+                {
+                    const int EIGHTY_ONE_TILES_NODES_COUNT = 3402; // 81 tiles * 42
+                    FieldInfo fTileNodes = typeof(NetManager).GetField("m_tileNodesCount", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (fTileNodes != null && fTileNodes.GetValue(nm) is int[] tileNodes && tileNodes.Length < EIGHTY_ONE_TILES_NODES_COUNT)
+                    {
+                        int oldLen = tileNodes.Length;
+                        int[] expandedTileNodes = new int[EIGHTY_ONE_TILES_NODES_COUNT];
+                        Array.Copy(tileNodes, expandedTileNodes, oldLen);
+                        fTileNodes.SetValue(nm, expandedTileNodes);
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Harmonized 81 Tiles 2: Resized NetManager.m_tileNodesCount from {0} to {1} slots ✓", oldLen, EIGHTY_ONE_TILES_NODES_COUNT));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Harmonize81Tiles error: " + ex);
+            }
+        }
+
+        public static void NetManager_Awake_Postfix(NetManager __instance)
+        {
+            if (__instance == null) return;
+            try
+            {
+                Harmonize81Tiles();
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] NetManager_Awake_Postfix error: " + ex);
             }
         }
 
@@ -11706,6 +11824,204 @@ namespace MoreNetworkCapacityRenew
         }
     }
 
+    // ============================================================================
+    // UNIVERSAL MOD HARMONIZER (v5.0)
+    // Dynamic Runtime Array Expansion & Auto-Harmonization for Future/Untested Mods
+    // ============================================================================
+    public static class UniversalModHarmonizer
+    {
+        private static readonly HashSet<string> s_inspectedAssemblies = new HashSet<string>();
+        private static readonly object s_lock = new object();
+
+        public static bool IsIgnoredAssembly(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return true;
+            return name.StartsWith("System") ||
+                   name.StartsWith("mscorlib") ||
+                   name.StartsWith("UnityEngine") ||
+                   name.StartsWith("ColossalManaged") ||
+                   name.StartsWith("Mono.") ||
+                   name.StartsWith("Harmony") ||
+                   name.StartsWith("0Harmony") ||
+                   name.StartsWith("CitiesHarmony") ||
+                   name.StartsWith("ICities") ||
+                   name.StartsWith("Assembly-CSharp") ||
+                   name == "MoreNodesSegments";
+        }
+
+        public static void HarmonizeActiveMods(string context)
+        {
+            try
+            {
+                Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                foreach (Assembly asm in assemblies)
+                {
+                    if (asm == null) continue;
+                    string asmName = asm.GetName().Name;
+                    if (IsIgnoredAssembly(asmName)) continue;
+
+                    lock (s_lock)
+                    {
+                        if (s_inspectedAssemblies.Contains(asmName)) continue;
+                        s_inspectedAssemblies.Add(asmName);
+                    }
+
+                    HarmonizeAssembly(asm, context);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] UniversalModHarmonizer.HarmonizeActiveMods error: " + ex);
+            }
+        }
+
+        public static int HarmonizeAssembly(Assembly asm, string context)
+        {
+            if (asm == null) return 0;
+            int resizedCount = 0;
+            try
+            {
+                Type[] types;
+                try
+                {
+                    types = asm.GetTypes();
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    types = ex.Types;
+                }
+                catch
+                {
+                    return 0;
+                }
+
+                if (types == null) return 0;
+
+                foreach (Type type in types)
+                {
+                    if (type == null) continue;
+                    try
+                    {
+                        resizedCount += ScanAndHarmonizeType(type, null, context);
+
+                        object instance = FindSingletonInstance(type);
+                        if (instance != null)
+                        {
+                            resizedCount += ScanAndHarmonizeType(type, instance, context);
+                        }
+                    }
+                    catch
+                    {
+                        // Safely continue next type
+                    }
+                }
+            }
+            catch
+            {
+                // Safely continue
+            }
+            return resizedCount;
+        }
+
+        private static object FindSingletonInstance(Type type)
+        {
+            try
+            {
+                string[] instanceFieldNames = new string[] { "instance", "Instance", "s_instance", "_instance", "RawInstance" };
+                foreach (string name in instanceFieldNames)
+                {
+                    FieldInfo f = type.GetField(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (f != null && f.FieldType == type)
+                    {
+                        return f.GetValue(null);
+                    }
+                }
+
+                foreach (string name in instanceFieldNames)
+                {
+                    PropertyInfo p = type.GetProperty(name, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (p != null && p.CanRead && p.PropertyType == type)
+                    {
+                        return p.GetValue(null, null);
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static int ScanAndHarmonizeType(Type type, object instance, string context)
+        {
+            int count = 0;
+            try
+            {
+                BindingFlags flags = instance == null
+                    ? (BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                    : (BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                FieldInfo[] fields = type.GetFields(flags);
+                foreach (FieldInfo field in fields)
+                {
+                    try
+                    {
+                        if (!field.FieldType.IsArray) continue;
+
+                        Array arr = field.GetValue(instance) as Array;
+                        if (arr == null) continue;
+
+                        int len = arr.Length;
+                        int targetLen = 0;
+
+                        // 1. Vanilla 32K or intermediate 36K/49K limits -> expand to 65024 (MNCConstants.CORE_NET_CAPACITY)
+                        if (len == 32768 || len == 36864 || len == 49152)
+                        {
+                            string fName = field.Name.ToLowerInvariant();
+                            string tName = type.Name.ToLowerInvariant();
+                            if (len == 36864 ||
+                                fName.Contains("node") || fName.Contains("segment") || fName.Contains("lane") ||
+                                fName.Contains("net") || fName.Contains("path") || fName.Contains("traffic") ||
+                                tName.Contains("node") || tName.Contains("segment") || tName.Contains("net") ||
+                                tName.Contains("road") || tName.Contains("path"))
+                            {
+                                targetLen = MNCConstants.CORE_NET_CAPACITY;
+                            }
+                        }
+                        // 2. Old 25-tiles node count (1050 = 25 * 42) -> expand to 3402 (81 * 42)
+                        else if (len == 1050)
+                        {
+                            string fName = field.Name.ToLowerInvariant();
+                            string tName = type.Name.ToLowerInvariant();
+                            if (fName.Contains("tile") || fName.Contains("node") || tName.Contains("tile") || tName.Contains("eighty"))
+                            {
+                                targetLen = 3402;
+                            }
+                        }
+
+                        if (targetLen > len)
+                        {
+                            Type elemType = field.FieldType.GetElementType();
+                            Array newArr = Array.CreateInstance(elemType, targetLen);
+                            Array.Copy(arr, newArr, len);
+                            field.SetValue(instance, newArr);
+                            count++;
+                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] UniversalModHarmonizer: Resized {0}.{1} ({2}[{3}] -> [{4}]) ({5})",
+                                type.FullName, field.Name, elemType.Name, len, targetLen, context));
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore individual field errors
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore type scanning errors
+            }
+            return count;
+        }
+    }
+
     public static class TransportLineCompatibility
     {
         public static void Apply(HarmonyInstance harmony)
@@ -11800,6 +12116,26 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PathManager.Data.Deserialize: " + ex);
+                }
+
+                // 3b-2. Patch CitizenManager.Data.Deserialize (Universal Dynamic Buffer Guard for CitizenUnits)
+                try
+                {
+                    Type cmDataType = typeof(CitizenManager).GetNestedType("Data", BindingFlags.NonPublic | BindingFlags.Public);
+                    if (cmDataType != null)
+                    {
+                        MethodInfo cmDes = cmDataType.GetMethod("Deserialize", BindingFlags.Public | BindingFlags.Instance);
+                        if (cmDes != null)
+                        {
+                            MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(CitizenManager_Data_Deserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                            harmony.Patch(cmDes, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched CitizenManager.Data.Deserialize with Universal Dynamic Buffer Guard (Priority.First).");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CitizenManager.Data.Deserialize: " + ex);
                 }
 
                 // 3c. Patch LoadingProfiler.EndDeserialize (Tag safety guard against ArgumentOutOfRangeException)
@@ -13121,6 +13457,38 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static void CitizenManager_Data_Deserialize_Prefix(CitizenManager.Data __instance, ColossalFramework.IO.DataSerializer s)
+        {
+            try
+            {
+                var cm = Singleton<CitizenManager>.instance;
+                if (cm == null) return;
+
+                const int EXPANDED_CITIZEN_UNITS = 1048576;
+                var sm = Singleton<SimulationManager>.instance;
+                if (sm != null && sm.m_metaData != null)
+                {
+                    if (sm.m_metaData.m_modOverride == null)
+                    {
+                        sm.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    sm.m_metaData.m_modOverride["User/More CitizenUnits x2"] = true;
+                    sm.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                }
+
+                if (cm.m_units == null || cm.m_units.m_buffer == null || cm.m_units.m_buffer.Length < EXPANDED_CITIZEN_UNITS)
+                {
+                    cm.m_units = new Array32<CitizenUnit>((uint)EXPANDED_CITIZEN_UNITS);
+                    cm.m_units.CreateItem(out _); // Reserve item 0
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Buffer Guard: Pre-expanded CitizenManager.m_units to {0} slots ✓", EXPANDED_CITIZEN_UNITS));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] CitizenManager_Data_Deserialize_Prefix error: " + ex);
+            }
+        }
+
         public static bool PathManager_Data_Deserialize_Prefix(PathManager.Data __instance, ColossalFramework.IO.DataSerializer s)
         {
             try
@@ -13130,6 +13498,41 @@ namespace MoreNetworkCapacityRenew
 
                 var pm = Singleton<PathManager>.instance;
                 if (pm == null) return true;
+
+                const int memoryUnitsCount = 524288;
+                if (pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null || pm.m_pathUnits.m_buffer.Length < memoryUnitsCount)
+                {
+                    pm.m_pathUnits = new Array32<PathUnit>((uint)memoryUnitsCount);
+                    pm.m_pathUnits.CreateItem(out _);
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Buffer Guard: Pre-expanded PathUnit buffer to {0}.", memoryUnitsCount));
+                }
+
+                var smInst = Singleton<SimulationManager>.instance;
+                if (smInst != null && smInst.m_metaData != null)
+                {
+                    if (smInst.m_metaData.m_modOverride == null)
+                    {
+                        smInst.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    smInst.m_metaData.m_modOverride["User/More PathUnits x2"] = true;
+                    smInst.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                }
+
+                // If MorePathUnits mod is present, let it run natively without interference!
+                bool hasMorePathUnitsMod = false;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "MorePathUnits")
+                    {
+                        hasMorePathUnitsMod = true;
+                        break;
+                    }
+                }
+
+                if (hasMorePathUnitsMod)
+                {
+                    return true; // Let MorePathUnits prefix/transpiler/postfix execute!
+                }
 
                 try
                 {
@@ -13141,14 +13544,6 @@ namespace MoreNetworkCapacityRenew
 
                 bool isExpSave = ThirdPartyCompatibility.IsPathUnitsExpandedSave();
                 int saveUnitsCount = isExpSave ? 524288 : 262144;
-                int memoryUnitsCount = 524288;
-
-                if (pm.m_pathUnits == null || pm.m_pathUnits.m_buffer == null || pm.m_pathUnits.m_buffer.Length < memoryUnitsCount)
-                {
-                    pm.m_pathUnits = new Array32<PathUnit>((uint)memoryUnitsCount);
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] PathManager.Data.Deserialize: Expanded PathUnit buffer to {0}.", memoryUnitsCount));
-                }
-
                 PathUnit[] buffer = pm.m_pathUnits.m_buffer;
                 int length = saveUnitsCount;
                 pm.m_pathUnits.ClearUnused();
@@ -13341,7 +13736,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Guarded LoadingProfiler.EndDeserialize PathManager: " + ex.Message);
                 }
 
-                var smInst = Singleton<SimulationManager>.instance;
+                smInst = Singleton<SimulationManager>.instance;
                 if (smInst != null && smInst.m_metaData != null)
                 {
                     if (smInst.m_metaData.m_modOverride == null)
@@ -13586,17 +13981,21 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 if (__instance == null || source == null) return;
-                if (__instance.m_modOverride != null)
+                // Bidirectional merge to guarantee no key from savegame is EVER lost!
+                if (__instance.m_modOverride != null && source.m_modOverride != null)
                 {
-                    if (source.m_modOverride == null)
-                    {
-                        source.m_modOverride = new Dictionary<string, bool>();
-                    }
                     foreach (var kvp in __instance.m_modOverride)
                     {
                         if (!source.m_modOverride.ContainsKey(kvp.Key))
                         {
                             source.m_modOverride[kvp.Key] = kvp.Value;
+                        }
+                    }
+                    foreach (var kvp in source.m_modOverride)
+                    {
+                        if (!__instance.m_modOverride.ContainsKey(kvp.Key))
+                        {
+                            __instance.m_modOverride[kvp.Key] = kvp.Value;
                         }
                     }
                 }
@@ -13611,6 +14010,14 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                if (__instance != null)
+                {
+                    if (__instance.m_modOverride == null)
+                    {
+                        __instance.m_modOverride = new Dictionary<string, bool>();
+                    }
+                    __instance.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                }
                 ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
                 ThirdPartyCompatibility.SynchronizeMorePathUnits("SimulationMetaData.Merge.Postfix");
             }
@@ -13627,12 +14034,10 @@ namespace MoreNetworkCapacityRenew
                 RenewLoading.EnsureAllPatchesApplied();
                 ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
                 ThirdPartyCompatibility.SynchronizeMorePathUnits("LoadingManager.LoadSimulationData.Prefix");
-                if (ngs != null)
+                // ONLY append if ngs already had an initialized modOverride dictionary!
+                // If ngs.m_modOverride is null, LEAVE IT NULL so vanilla Merge does not wipe save metadata!
+                if (ngs != null && ngs.m_modOverride != null)
                 {
-                    if (ngs.m_modOverride == null)
-                    {
-                        ngs.m_modOverride = new Dictionary<string, bool>();
-                    }
                     if (ThirdPartyCompatibility.IsPathUnitsExpandedSave(ngs))
                     {
                         ngs.m_modOverride["User/More PathUnits x2"] = true;

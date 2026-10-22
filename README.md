@@ -85,7 +85,8 @@ Fully tested and compatible with the modern modding ecosystem:
 - **Advanced Road Tools**
 - **Improved Public Transport 2 & 3**
 - **Advanced Vehicle Options**
-- **More Vehicles Renew 2**
+- **More CitizenUnits & More PathUnits** (Universal Dynamic Buffer Guard)
+- **Universal Mod Harmonizer** (Tự động đồng bộ và mở rộng bộ nhớ cho mọi mod cộng đồng)
 
 ---
 
@@ -189,7 +190,8 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 - **Advanced Road Tools**
 - **Improved Public Transport 2 & 3**
 - **Advanced Vehicle Options**
-- **More Vehicles Renew 2**
+- **More CitizenUnits & More PathUnits** (Universal Dynamic Buffer Guard)
+- **Universal Mod Harmonizer** (Tự động đồng bộ và mở rộng bộ nhớ cho mọi mod cộng đồng)
 
 ---
 

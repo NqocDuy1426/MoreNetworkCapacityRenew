@@ -1172,6 +1172,73 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 26: Universal Mod Harmonizer & Multi-Mod Compatibility (v5.0)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 26: Universal Mod Harmonizer & Multi-Mod Compatibility (v5.0) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 26.1 UniversalModHarmonizer class exists with dynamic scanning methods
+            bool harmonizerDefined = renewCode.Contains("public static class UniversalModHarmonizer") &&
+                                     renewCode.Contains("HarmonizeActiveMods(string context)") &&
+                                     renewCode.Contains("HarmonizeAssembly(Assembly asm, string context)") &&
+                                     renewCode.Contains("ScanAndHarmonizeType(Type type, object instance, string context)");
+            Assert(harmonizerDefined, "UniversalModHarmonizer defines dynamic scanning and harmonization methods");
+
+            // 26.2 UniversalModHarmonizer called in SynchronizeThirdPartyMods and AssemblyLoad
+            bool harmonizerHooked = renewCode.Contains("UniversalModHarmonizer.HarmonizeActiveMods(context);") &&
+                                    renewCode.Contains("UniversalModHarmonizer.HarmonizeAssembly(args.LoadedAssembly, \"AssemblyLoad: \" + name);");
+            Assert(harmonizerHooked, "UniversalModHarmonizer hooked into SynchronizeThirdPartyMods and dynamic AssemblyLoad");
+
+            // 26.3 Array size scanning targets intermediate limits (32768, 36864, 49152 -> 65024 and 1050 -> 3402)
+            bool scansLimits = renewCode.Contains("len == 32768 || len == 36864 || len == 49152") &&
+                               renewCode.Contains("targetLen = MNCConstants.CORE_NET_CAPACITY;") &&
+                               renewCode.Contains("len == 1050") &&
+                               renewCode.Contains("targetLen = 3402;");
+            Assert(scansLimits, "UniversalModHarmonizer automatically expands 32K/36K/49K arrays to 65024 and 1050 tile node arrays to 3402");
+
+            // 26.4 CitizenManager Universal Dynamic Buffer Guard (Konstantin fix)
+            bool citizenBufferGuard = renewCode.Contains("CitizenManager_Data_Deserialize_Prefix") &&
+                                      renewCode.Contains("cm.m_units = new Array32<CitizenUnit>((uint)EXPANDED_CITIZEN_UNITS);") &&
+                                      renewCode.Contains("sm.m_metaData.m_modOverride[\"User/More CitizenUnits x2\"] = true;");
+            Assert(citizenBufferGuard, "CitizenManager Universal Dynamic Buffer Guard pre-allocates 1,048,576 units and sets modOverride flag");
+
+            // 26.5 Non-destructive m_modOverride handling in LoadingManager and SimulationMetaData
+            bool nonDestructiveOverride = renewCode.Contains("SimulationMetaData_Merge_Prefix") &&
+                                          renewCode.Contains("SimulationMetaData_Merge_Postfix") &&
+                                          renewCode.Contains("if (ngs != null && ngs.m_modOverride != null)");
+            Assert(nonDestructiveOverride, "Savegame modOverride dictionary is preserved bidirectionally without single-key clobbering");
+
+            // 26.6 PathManager cooperative guard with MorePathUnits
+            bool pathUnitsCooperative = renewCode.Contains("PathManager_Data_Deserialize_Prefix") &&
+                                        renewCode.Contains("hasMorePathUnitsMod") &&
+                                        renewCode.Contains("return true; // Let MorePathUnits prefix/transpiler/postfix execute!");
+            Assert(pathUnitsCooperative, "PathManager guard yields to MorePathUnits when loaded while pre-expanding buffers safely");
+
+            // 26.7 81 Tiles 2 Auto-Harmonization (m_tileNodesCount 1050 -> 3402)
+            bool eightyOneHarmonized = renewCode.Contains("Harmonize81Tiles()") &&
+                                       renewCode.Contains("const int EIGHTY_ONE_TILES_NODES_COUNT = 3402;") &&
+                                       renewCode.Contains("NetManager_Awake_Postfix");
+            Assert(eightyOneHarmonized, "Harmonize81Tiles dynamically expands NetManager.m_tileNodesCount to 3402 and hooks NetManager.Awake");
+
+            // 26.8 Deferred NetManager.instance access to prevent early Awake race condition
+            bool deferredNetManager = renewCode.Contains("if (Singleton<NetManager>.exists)") &&
+                                      renewCode.Contains("ExpandTMPEFlagsArrays");
+            Assert(deferredNetManager, "Early NetManager.instance access deferred using Singleton<NetManager>.exists check");
+
+            // 26.9 Level Unload State Sanitizer (Fremdwanne fix)
+            bool unloadSanitizer = renewCode.Contains("ClearPendingTMPEData()") &&
+                                   renewCode.Contains("OnLevelUnloading()") &&
+                                   renewCode.Contains("StrategicGarbageCollect(\"OnLevelUnloading\")");
+            Assert(unloadSanitizer, "OnLevelUnloading resets pending TMPE buffers and runs strategic GC to prevent reload blue screen");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 26 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

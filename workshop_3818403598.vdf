@@ -21,6 +21,11 @@
 [list]
     [*] Enabled boat/ferry passenger line creation over Ship Paths with dual [b]Ship | Ferry[/b] vehicle types, 128m dock search fallback, and passenger Harbor stops.
 [/list]
+[*] [b]Impatient Commuters Compatibility (v5.0.1 Hotfix):[/b]
+[list]
+    [*] Added automatic in-memory array expansion (up to 65,536 elements) for [b]Impatient Commuters[/b], completely eliminating simulation thread freeze ([i]IndexOutOfRangeException[/i]) on high-ID public transport stops (> 32,768).
+    [*] Strict zero-hook architecture: does not modify or hook into the mod's code, achieving pure memory buffer harmony.
+[/list]
 [/list]
 
 [hr][/hr]
@@ -54,7 +59,7 @@ Unlike unstable legacy experimental versions that caused fatal crashes and corru
 [/list]
 [*] [b]Accurate Traffic Flow & Real-Time Heatmaps:[/b] Full traffic flow color refresh across all extended segments without frozen vehicles or phantom deadlocks.
 [*] [b]Safe Persistence Guarantee:[/b] Implements clean savegame serialization to ensure custom traffic setups and extended networks reload perfectly.
-[*] [b]Deep Mod Ecosystem Compatibility:[/b] Seamless integration with Adaptive Roads, Network Skins, Node Controller Renewal, Move It, IMT, Network Multitool, Network Anarchy, Picker, Find It, etc.
+[*] [b]Deep Mod Ecosystem Compatibility:[/b] Seamless integration with Adaptive Roads, Network Skins, Node Controller Renewal, Move It, IMT, Network Multitool, Network Anarchy, Picker, Find It, Impatient Commuters, etc.
 [/list]
 
 [hr][/hr]
@@ -78,6 +83,7 @@ Tested and fully compatible with the standard modern modding ecosystem:
 [*] [b]Improved Public Transport 2 & 3[/b]
 [*] [b]Advanced Vehicle Options[/b]
 [*] [b]More Vehicles Renew 2[/b]
+[*] [b]Impatient Commuters[/b] (Auto-expanded to 65K stop nodes)
 [/list]
 
 [hr][/hr]

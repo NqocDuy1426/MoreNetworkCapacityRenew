@@ -24,32 +24,30 @@ Unlike previous experimental or unmaintained releases that suffered from severe 
 
 ---
 
-### 🚨 What's New in v4.3.40 (Full-Map TM:PE Traffic Light Stepper & 100% Zero-Hook Architecture)
+### 🚨 What's New in v5.0 & v5.0.1 (More Nodes/Segments Major Release & Hotfixes)
+- **v5.0.1 Hotfix (Impatient Commuters Compatibility & Zero-Hook Architecture):**
+  - **Solved Simulation Thread Freeze:** Resolved `IndexOutOfRangeException` when running with *Impatient Commuters* (Workshop ID `3721119397`). The mod hardcoded its stop node tracking arrays to 32,768, crashing simulation threads when public transit stops were placed on nodes >= 32,768.
+  - **Pure In-Memory Array Expansion:** Automatically sizes all 5 limiter arrays to 65,536 elements (`ushort.MaxValue + 1`) directly in memory on level load and simulation ticks.
+  - **Strictly Zero Harmony Hooks:** No methods in third-party mods are hooked, preserving 100% of the mod's native logic and performance.
+- **v5.0.0 Major Release & Official Rebranding:**
+  - Officially rebranded from *More Network Capacity Renew* to **More Nodes/Segments v5.0**!
+  - **Thread-Safe Save & Quit Armor:** Eliminated off-thread `QuitApplication()` call during save completion, safely delegating to the Main Thread via `ThreadHelper.dispatcher.Dispatch`. Completely prevents Unity UI `NullReferenceException` in Adaptive Roads and rendering engines when saving and quitting.
+  - **Water Transport & Ship Path Line Fix:** Configures dual `Ship | Ferry` vehicle types on water networks, expands dock search connection radius to 128m with automatic fallback, and enables passenger Harbors to serve as transit stops.
 - **Full-Map TM:PE Traffic Light Stepper (Fixed Frozen Vehicles):**
-  - Solved the root cause of vehicles standing completely still mid-road or at intersections despite having a valid route and destination: TM:PE's native `SimulationStep` hardcoded simulation stepping to nodes `0..32,767`. Nodes `32,768..65,023` were never stepped, causing traffic lights on those nodes to remain perpetually stuck in red/unadvanced phases.
-  - Added native `MNCTrafficLightStepper` (`ICities.ThreadingExtensionBase`) that runs on the simulation thread, natively stepping nodes `32,768..65,023` (504 nodes per frame) with zero overhead via JIT dynamic invocation (`ldelema` on struct array).
-  - Timed traffic lights and adaptive signals across the entire 64K map now cycle fluidly.
+  - `MNCTrafficLightStepper` (`ICities.ThreadingExtensionBase`) natively steps nodes `32,768..65,023` (504 nodes per frame) with zero overhead via JIT dynamic invocation, ensuring timed traffic lights cycle fluidly across the entire 64K map.
 - **Strictly Zero Harmony Hooks into TM:PE (Full Performance & FPS Restored):**
-  - Completely eliminated all intrusive Harmony hooks into TM:PE methods (`SegmentEndManager.GetIndex`, `TurnOnRedManager.GetIndex`, `TrafficMeasurementManager.GetDirIndex`, `GlobalConfig`, etc.). TM:PE runs 100% pure native code.
-  - Excluded `TrafficManager` from `DynamicPatcher.targetModNames` to preserve native enum values (`ExtVehicleType.CableCar`) and retain full Mono JIT optimization, resolving severe FPS degradation.
-  - All TM:PE data synchronization is accomplished safely via direct memory buffers (`_segBuffer`, `_nodeBuffer`, `_laneBuffer`) and expanded array capacities.
-- **Contiguous 131,072 Buffer Expansion for TM:PE Split Arrays:**
-  - Expanded `TurnOnRedSegments`, `SegmentDirTrafficData`, and `SegmentEnds` contiguously to 131,072 elements. TM:PE's native indexing (`segmentId + 36864`, max 101,888) fits comfortably without any hooks or shifting.
-- **Anti-Freeze Speed Limit Cache Guarantee:**
-  - Ensured all entries in TM:PE's speed limit cache (`cachedLaneSpeedLimits_`) <= 0.001f default to `1.25f` (50 km/h), completely preventing vehicles from stopping dead mid-lane due to zero-speed cache entries.
-- **Safe Pulse Unit Casting:**
-  - Wrapped `SafeCopyPulseUnits` in safe exception handling to prevent `InvalidCastException` with mods like 81 Tiles 2.
+  - TM:PE runs 100% pure native code. All data synchronization is achieved safely via direct memory buffers (`_segBuffer`, `_nodeBuffer`, `_laneBuffer`).
 
 ---
 
 ### ⚡ Key Advantages & Superior Features
 
 1. **True 64K Expanded Capacity:**
-   - Doubles maximum node and segment capacity to 65,536.
+   - Doubles maximum node and segment capacity to 65,536 (and lanes to 524,288).
    - Build extensive regional passenger & cargo rail, complex multi-level highway interchanges, and expansive subway grids without restriction.
 
 2. **Native Apple Silicon & Intel Mac Stability:**
-   - Eliminates hard memory alignment overflows and engine crash loops on macOS (M1/M2/M3/M4 & Intel).
+   - Eliminates hard memory alignment overflows and engine crash loops on macOS (M1/M2/M3/M4 & Intel) and Windows.
    - Dynamic IL transpilers safely bypass hardcoded array boundary checks in vanilla routines and third-party dependencies.
 
 3. **Complete TM:PE (Traffic Manager) Compatibility:**
@@ -74,13 +72,20 @@ Unlike previous experimental or unmaintained releases that suffered from severe 
 Fully tested and compatible with the modern modding ecosystem:
 - **Harmony 2.2+** *(Required Dependency)*
 - **TM:PE (Traffic Manager: President Edition)** *(Stable & Labs)*
+- **Impatient Commuters** *(Auto-expanded to 65K stop nodes, zero-hook)*
 - **81 Tiles 2**
 - **Move It**
 - **Node Controller Renewal**
 - **Intersection Marking Tool (IMT)**
 - **Network Multitool**
 - **Adaptive Roads (ADR)**
-- **Network Skins**
+- **Network Skins 2**
+- **Network Anarchy**
+- **Picker & Find It 2**
+- **Advanced Road Tools**
+- **Improved Public Transport 2 & 3**
+- **Advanced Vehicle Options**
+- **More Vehicles Renew 2**
 
 ---
 
@@ -100,7 +105,7 @@ To compile locally on macOS/Linux:
 ```bash
 ./build.sh
 ```
-The script compiles the assembly with `Mono` / `mcs`, strips redundant interfaces, and deploys directly to your game's `Addons/Mods/MoreNetworkCapacityRenew` and Workshop directories.
+The script compiles the assembly with `Mono` / `mcs`, strips redundant interfaces, and deploys directly to your game's `Addons/Mods/MoreNodesSegments` and Workshop directories.
 
 ---
 
@@ -123,32 +128,30 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 
 ---
 
-### 🚨 Điểm mới trong bản cập nhật v4.3.40 (Bộ quét Đèn Giao thông Toàn bản đồ & Kiến trúc Không Hook TM:PE)
+### 🚨 Điểm mới trong bản cập nhật v5.0 & v5.0.1 (Phát hành Lớn & Bản vá Tương thích)
+- **v5.0.1 Hotfix (Tương thích Hoàn hảo Impatient Commuters & Kiến trúc Zero-Hook):**
+  - **Khắc phục Triệt để Lỗi Đóng băng Luồng Mô phỏng:** Sửa lỗi `IndexOutOfRangeException` khi chơi cùng mod *Impatient Commuters* (Workshop ID `3721119397`). Mod này cố định kích thước mảng trạm dừng ở 32,768 phần tử, khiến game bị treo luồng tính toán khi có trạm dừng đặt tại node >= 32,768.
+  - **Mở rộng Mảng Trực tiếp trong Bộ nhớ (Pure In-Memory Expansion):** Tự động mở rộng toàn bộ 5 mảng nội bộ của limiter lên 65,536 phần tử (`ushort.MaxValue + 1`) trực tiếp trong bộ nhớ khi load màn và tick mô phỏng.
+  - **Tuyệt đối Không Hook Harmony vào Mod Khác:** Không can thiệp, không hook vào bất kỳ hàm nào của bên thứ ba, bảo toàn 100% logic nguyên bản và hiệu năng.
+- **v5.0.0 Bản Phát hành Lớn & Đổi tên Chính thức:**
+  - Chính thức đổi tên từ *More Network Capacity Renew* thành **More Nodes/Segments v5.0**!
+  - **Cơ chế Lưu & Thoát Game An toàn (Thread-Safe Save & Quit Armor):** Khắc phục lỗi gọi `QuitApplication()` ngoài luồng phụ khi hoàn tất lưu game, chuyển giao an toàn về Main Thread qua `ThreadHelper.dispatcher.Dispatch`. Triệt tiêu hoàn toàn lỗi Unity UI `NullReferenceException` trong Adaptive Roads và engine hiển thị khi Lưu & Thoát.
+  - **Hỗ trợ Tuyến Đường Thủy & Luồng Tàu (Water Transport & Ship Path Fix):** Cấu hình tự động dạng phương tiện đôi `Ship | Ferry` trên mạng lưới đường thủy, nới rộng bán kính tìm kiếm bến cảng lên 128m kèm cơ chế dự phòng tự động, cho phép các bến tàu chở khách hoạt động như trạm dừng trung chuyển.
 - **Bộ quét Đèn Tín hiệu Toàn bản đồ TM:PE (Khắc phục Triệt để Xe đứng im giữa đường):**
-  - Tìm ra nguyên nhân gốc rễ hiện tượng xe đứng im giữa đường/nút giao dù có điểm đến và lộ trình hợp lệ: Hàm `SimulationStep` gốc của TM:PE chỉ quét và nhảy pha đèn cho các node `0..32,767`. Các node mở rộng `32,768..65,023` hoàn toàn không bao giờ được TM:PE quét, khiến đèn tín hiệu tại các node này luôn kẹt cứng ở màu đỏ vĩnh viễn, xe dừng lại chờ đèn chuyển xanh nhưng đèn không bao giờ nhảy.
-  - Bổ sung `MNCTrafficLightStepper` (`ICities.ThreadingExtensionBase`) chạy trực tiếp trên luồng mô phỏng, quét định kỳ các node `32,768..65,023` (504 node mỗi frame) với tốc độ JIT Dynamic invocation (`ldelema`) siêu tốc (< 1 microsecond/frame).
-  - Đèn đếm giây và chu kỳ chuyển pha đèn hoạt động mượt mà 100% trên toàn bộ bản đồ 64K.
+  - `MNCTrafficLightStepper` (`ICities.ThreadingExtensionBase`) chạy trực tiếp trên luồng mô phỏng, quét định kỳ các node `32,768..65,023` (504 node mỗi frame) với tốc độ JIT Dynamic invocation (`ldelema`) siêu tốc (< 1 microsecond/frame).
 - **Tuyệt đối Không Can thiệp Hook Harmony vào các hàm của TM:PE (Khôi phục FPS & Hiệu năng Cao):**
-  - Loại bỏ hoàn toàn toàn bộ các hook can thiệp vào TM:PE (`SegmentEndManager.GetIndex`, `TurnOnRedManager.GetIndex`, `TrafficMeasurementManager.GetDirIndex`, `GlobalConfig`, v.v.). TM:PE chạy 100% native nguyên bản.
-  - Gỡ bỏ `TrafficManager` khỏi `DynamicPatcher.targetModNames` để bảo toàn enum `ExtVehicleType.CableCar` và giữ nguyên tối ưu hóa của Mono JIT, khắc phục triệt để tình trạng tụt FPS nghiêm trọng.
-  - Đồng bộ dữ liệu TM:PE an toàn thông qua con trỏ bộ nhớ trực tiếp (`_segBuffer`, `_nodeBuffer`, `_laneBuffer`) và mở rộng dung lượng mảng.
-- **Mở rộng Mảng Đôi Contiguous 131,072 cho TM:PE:**
-  - Mở rộng các mảng `TurnOnRedSegments`, `SegmentDirTrafficData`, và `SegmentEnds` lên 131,072 phần tử liên tục. Công thức đánh chỉ mục gốc của TM:PE (`segmentId + 36864`, tối đa 101,888) hoạt động tự nhiên không cần hook dịch chuyển chỉ số.
-- **Chống Đóng băng Tốc độ (Anti-Freeze Speed Limit Cache Guarantee):**
-  - Đảm bảo toàn bộ các slot trong cache tốc độ TM:PE (`cachedLaneSpeedLimits_`) <= 0.001f được gán mặc định `1.25f` (50 km/h), ngăn chặn hoàn toàn hiện tượng xe bị gán tốc độ 0 km/h đứng chôn chân.
-- **Bảo vệ Ép kiểu Đơn vị Nước/Xung (Safe Pulse Unit Casting):**
-  - Bọc try-catch an toàn trong `SafeCopyPulseUnits` loại bỏ hoàn toàn lỗi `InvalidCastException` khi dùng chung với 81 Tiles 2.
+  - TM:PE chạy 100% native nguyên bản. Mọi dữ liệu được đồng bộ an toàn qua các buffer bộ nhớ trực tiếp (`_segBuffer`, `_nodeBuffer`, `_laneBuffer`).
 
 ---
 
 ### ⚡ Ưu điểm vượt trội & Tính năng chính
 
 1. **Mở rộng sức chứa 64K thực thụ:**
-   - Nâng giới hạn node và segment lên 65,536 (chuẩn 64K).
+   - Nâng giới hạn node và segment lên 65,536 (chuẩn 64K) và làn đường lên 524,288.
    - Thoải mái phát triển hệ thống cao tốc đa tầng, mạng lưới đường sắt liên vùng và tàu điện ngầm dày đặc.
 
 2. **Khắc phục triệt để lỗi sập trên macOS:**
-   - Sửa toàn bộ lỗi tràn bộ nhớ và crash loop trên máy Mac (cả chip Apple Silicon M1/M2/M3/M4 lẫn Intel).
+   - Sửa toàn bộ lỗi tràn bộ nhớ và crash loop trên máy Mac (cả chip Apple Silicon M1/M2/M3/M4 lẫn Intel) và Windows.
    - Cơ chế Dynamic IL Transpiler tự động vượt qua các giới hạn kiểm tra cứng của `KianCommons` và game gốc.
 
 3. **Tương thích toàn diện với TM:PE (Traffic Manager):**
@@ -173,13 +176,20 @@ Khác biệt hoàn toàn so với các bản thử nghiệm cũ dễ gây sập 
 Đã kiểm thử và tương thích mượt mà với hệ sinh thái mod hiện đại:
 - **Harmony 2.2+** *(Bắt buộc cài đặt)*
 - **TM:PE (Traffic Manager: President Edition)**
+- **Impatient Commuters** *(Tự động mở rộng mảng trạm dừng lên 65K, zero-hook)*
 - **81 Tiles 2**
 - **Move It**
 - **Node Controller Renewal**
 - **Intersection Marking Tool (IMT)**
 - **Network Multitool**
 - **Adaptive Roads (ADR)**
-- **Network Skins**
+- **Network Skins 2**
+- **Network Anarchy**
+- **Picker & Find It 2**
+- **Advanced Road Tools**
+- **Improved Public Transport 2 & 3**
+- **Advanced Vehicle Options**
+- **More Vehicles Renew 2**
 
 ---
 

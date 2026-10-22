@@ -14193,7 +14193,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching NetInfo.InitializePrefab: " + ex);
                 }
 
-                // 2. Patch ShipDockAI.FindFerryPath (reconnects ferry docks/piers with extended 128m radius and dual Ship|Ferry check)
+                // 2. Patch ShipDockAI.FindFerryPath (reconnects ferry docks/piers with extended 128m radius, Ferry only)
                 try
                 {
                     MethodInfo findFerry = typeof(ShipDockAI).GetMethod("FindFerryPath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
@@ -14209,7 +14209,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ShipDockAI.FindFerryPath: " + ex);
                 }
 
-                // 3. Patch ShipDockAI.FindConnectionPath (extended 128m search for ship docks)
+                // 3. Patch ShipDockAI.FindConnectionPath (extended 128m search for ship docks, Ship only)
                 try
                 {
                     MethodInfo findConn = typeof(ShipDockAI).GetMethod("FindConnectionPath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
@@ -14225,37 +14225,10 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching ShipDockAI.FindConnectionPath: " + ex);
                 }
 
-                // 4. Patch TransportStationAI.GetTransportLineInfo (enables Harbors to be selected as transit stops)
-                try
-                {
-                    MethodInfo getTLInfo = typeof(TransportStationAI).GetMethod("GetTransportLineInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (getTLInfo != null)
-                    {
-                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(TransportStationAI_GetTransportLineInfo_Postfix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(getTLInfo, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportStationAI.GetTransportLineInfo for Harbor support.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TransportStationAI.GetTransportLineInfo: " + ex);
-                }
-
-                // 5. Patch TransportStationAI.GetSecondaryTransportLineInfo
-                try
-                {
-                    MethodInfo getSecTLInfo = typeof(TransportStationAI).GetMethod("GetSecondaryTransportLineInfo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (getSecTLInfo != null)
-                    {
-                        MethodInfo post = typeof(WaterTransportCompatibility).GetMethod(nameof(TransportStationAI_GetSecondaryTransportLineInfo_Postfix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(getSecTLInfo, postfix: new HarmonyMethod(post));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportStationAI.GetSecondaryTransportLineInfo for Harbor support.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching TransportStationAI.GetSecondaryTransportLineInfo: " + ex);
-                }
+                // ZERO HOOKS INTO TRAFFIC / TRANSIT SIMULATION (v5.0.2)
+                // In strict accordance with traffic preservation rules:
+                // No Harmony hooks into VehicleAI, ShipAI, CarAI, PathFind, or TransportStationAI.
+                // Traffic simulation and transit routing remain 100% native (both vanilla and TM:PE).
 
                 s_applied = true;
             }
@@ -14265,17 +14238,14 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static bool IsWaterNetwork(NetInfo info)
+        public static bool IsFerryNetwork(NetInfo info)
         {
             if (info == null) return false;
-            if (info.m_netAI is ShipPathAI) return true;
-            if (info.m_class != null && (info.m_class.m_layer == ItemClass.Layer.ShipPaths || info.m_class.m_layer == ItemClass.Layer.FerryPaths)) return true;
+            if (info.m_class != null && info.m_class.m_layer == ItemClass.Layer.FerryPaths) return true;
             if (info.name != null)
             {
                 string lower = info.name.ToLower();
-                if (lower.Contains("ship path") || lower.Contains("ferry path") || 
-                    lower.Contains("ship canal") || lower.Contains("ferry canal") ||
-                    lower.Contains("water path"))
+                if (lower.Contains("ferry") || lower.Contains("canal"))
                 {
                     return true;
                 }
@@ -14283,23 +14253,80 @@ namespace MoreNetworkCapacityRenew
             return false;
         }
 
+        public static bool IsShipPathNetwork(NetInfo info)
+        {
+            if (info == null) return false;
+            // Any ferry or canal network is strictly NOT a ship path
+            if (IsFerryNetwork(info)) return false;
+
+            if (info.m_class != null && info.m_class.m_layer == ItemClass.Layer.ShipPaths) return true;
+            if (info.m_netAI is ShipPathAI) return true;
+            if (info.name != null)
+            {
+                string lower = info.name.ToLower();
+                if (lower.Contains("ship path") || lower.Contains("ship connection") || lower == "ship")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool IsWaterNetwork(NetInfo info)
+        {
+            return IsFerryNetwork(info) || IsShipPathNetwork(info);
+        }
+
         public static void ConfigureWaterNetInfo(NetInfo info)
         {
-            if (info == null || !IsWaterNetwork(info)) return;
+            if (info == null) return;
 
-            info.m_vehicleTypes |= (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry);
-            info.m_availableIn = ItemClass.Availability.All;
-
-            if (info.m_lanes != null)
+            if (IsFerryNetwork(info))
             {
-                for (int j = 0; j < info.m_lanes.Length; j++)
+                // FERRY PATHS & CANALS:
+                // STRICTLY Ferry ONLY. NEVER allow VehicleType.Ship on ferry paths or canals!
+                // Large ships have massive momentum, low turning rate, and large length (150-200m).
+                // Allowing them onto narrow ferry paths with sharp curves causes glitchy navigation,
+                // drifting through shorelines/piers, or becoming permanently stuck.
+                info.m_vehicleTypes &= ~VehicleInfo.VehicleType.Ship;
+                info.m_vehicleTypes |= VehicleInfo.VehicleType.Ferry;
+                info.m_availableIn = ItemClass.Availability.All;
+
+                if (info.m_lanes != null)
                 {
-                    var lane = info.m_lanes[j];
-                    if (lane == null) continue;
-                    if (lane.m_laneType == NetInfo.LaneType.Vehicle || 
-                        (lane.m_vehicleType & (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry)) != 0)
+                    for (int j = 0; j < info.m_lanes.Length; j++)
                     {
-                        lane.m_vehicleType |= (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry);
+                        var lane = info.m_lanes[j];
+                        if (lane == null) continue;
+                        if (lane.m_laneType == NetInfo.LaneType.Vehicle || 
+                            (lane.m_vehicleType & (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry)) != 0)
+                        {
+                            lane.m_vehicleType &= ~VehicleInfo.VehicleType.Ship;
+                            lane.m_vehicleType |= VehicleInfo.VehicleType.Ferry;
+                        }
+                    }
+                }
+            }
+            else if (IsShipPathNetwork(info))
+            {
+                // SHIP PATHS (Open water & sea routes):
+                // Support both Ship (large cargo/cruise ships) AND Ferry (passenger ferry transit lines).
+                // This allows ferry lines to navigate open water across bays and oceans,
+                // while ensuring large ships remain strictly in open water lanes.
+                info.m_vehicleTypes |= (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry);
+                info.m_availableIn = ItemClass.Availability.All;
+
+                if (info.m_lanes != null)
+                {
+                    for (int j = 0; j < info.m_lanes.Length; j++)
+                    {
+                        var lane = info.m_lanes[j];
+                        if (lane == null) continue;
+                        if (lane.m_laneType == NetInfo.LaneType.Vehicle || 
+                            (lane.m_vehicleType & (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry)) != 0)
+                        {
+                            lane.m_vehicleType |= (VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry);
+                        }
                     }
                 }
             }
@@ -14310,17 +14337,24 @@ namespace MoreNetworkCapacityRenew
             try
             {
                 int count = PrefabCollection<NetInfo>.LoadedCount();
-                int waterCount = 0;
+                int shipCount = 0;
+                int ferryCount = 0;
                 for (uint i = 0; i < count; i++)
                 {
                     NetInfo info = PrefabCollection<NetInfo>.GetLoaded(i);
-                    if (info != null && IsWaterNetwork(info))
+                    if (info == null) continue;
+                    if (IsShipPathNetwork(info))
                     {
                         ConfigureWaterNetInfo(info);
-                        waterCount++;
+                        shipCount++;
+                    }
+                    else if (IsFerryNetwork(info))
+                    {
+                        ConfigureWaterNetInfo(info);
+                        ferryCount++;
                     }
                 }
-                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] WaterTransportCompatibility: Synchronized {0} water transport network prefabs.", waterCount));
+                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] WaterTransportCompatibility: Synchronized {0} ship paths (dual Ship|Ferry) and {1} ferry paths (strictly Ferry only).", shipCount, ferryCount));
             }
             catch (Exception ex)
             {
@@ -14343,10 +14377,39 @@ namespace MoreNetworkCapacityRenew
                     NetInfo info = nm.m_nodes.m_buffer[i].Info;
                     if (info == null || !(info.m_netAI is ShipDockAI dockAI)) continue;
 
-                    if (nm.m_nodes.m_buffer[i].m_lane == 0)
+                    bool shouldUpdate = (nm.m_nodes.m_buffer[i].m_lane == 0);
+                    if (!shouldUpdate)
                     {
+                        uint laneID = nm.m_nodes.m_buffer[i].m_lane;
+                        if (laneID < nm.m_lanes.m_buffer.Length)
+                        {
+                            ushort segId = nm.m_lanes.m_buffer[laneID].m_segment;
+                            if (segId != 0 && segId < nm.m_segments.m_buffer.Length)
+                            {
+                                var segInfo = nm.m_segments.m_buffer[segId].Info;
+                                if (segInfo != null)
+                                {
+                                    bool isFerryDock = (info.name != null && info.name.ToLower().Contains("ferry")) ||
+                                                       (dockAI.m_transportInfo != null && dockAI.m_transportInfo.m_vehicleType == VehicleInfo.VehicleType.Ferry);
+                                    if (!isFerryDock)
+                                    {
+                                        // Large ship harbor (Cargo Harbor, Cruise Harbor):
+                                        // Must NOT be connected to a Ferry-only path or canal!
+                                        if (IsFerryNetwork(segInfo) || (segInfo.m_vehicleTypes & VehicleInfo.VehicleType.Ship) == 0)
+                                        {
+                                            shouldUpdate = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (shouldUpdate)
+                    {
+                        uint oldLane = nm.m_nodes.m_buffer[i].m_lane;
                         dockAI.UpdateLaneConnection(i, ref nm.m_nodes.m_buffer[i]);
-                        if (nm.m_nodes.m_buffer[i].m_lane != 0)
+                        if (nm.m_nodes.m_buffer[i].m_lane != oldLane)
                         {
                             reconnected++;
                         }
@@ -14386,11 +14449,12 @@ namespace MoreNetworkCapacityRenew
                     PathUnit.Position posB;
                     float distA, distB;
 
+                    // Ferry docks: search strictly for VehicleType.Ferry
                     if (PathManager.FindPathPosition(
                         position,
                         ItemClass.Service.PublicTransport,
                         NetInfo.LaneType.Vehicle,
-                        VehicleInfo.VehicleType.Ferry | VehicleInfo.VehicleType.Ship,
+                        VehicleInfo.VehicleType.Ferry,
                         VehicleInfo.VehicleCategory.All,
                         false,
                         true,
@@ -14421,11 +14485,12 @@ namespace MoreNetworkCapacityRenew
                     PathUnit.Position posB;
                     float distA, distB;
 
+                    // Large Ship docks (Harbor, Cargo Harbor): search strictly for VehicleType.Ship on legitimate Ship Paths
                     if (PathManager.FindPathPosition(
                         position,
                         ItemClass.Service.PublicTransport,
                         NetInfo.LaneType.Vehicle,
-                        VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry,
+                        VehicleInfo.VehicleType.Ship,
                         VehicleInfo.VehicleCategory.All,
                         false,
                         true,
@@ -14437,9 +14502,17 @@ namespace MoreNetworkCapacityRenew
                         out distA,
                         out distB))
                     {
-                        laneID = PathManager.GetLaneID(posA);
-                        offset = posA.m_offset;
-                        __result = true;
+                        NetManager nm = Singleton<NetManager>.instance;
+                        if (nm != null && posA.m_segment < nm.m_segments.m_buffer.Length)
+                        {
+                            var segInfo = nm.m_segments.m_buffer[posA.m_segment].Info;
+                            if (segInfo != null && !IsFerryNetwork(segInfo))
+                            {
+                                laneID = PathManager.GetLaneID(posA);
+                                offset = posA.m_offset;
+                                __result = true;
+                            }
+                        }
                     }
                 }
                 catch { }
@@ -14471,38 +14544,6 @@ namespace MoreNetworkCapacityRenew
             }
             catch { }
             return s_cachedFerryInfo;
-        }
-
-        public static void TransportStationAI_GetTransportLineInfo_Postfix(TransportStationAI __instance, ref TransportInfo __result)
-        {
-            if (__result == null && __instance is HarborAI)
-            {
-                try
-                {
-                    TransportInfo waterInfo = GetWaterTransportInfo();
-                    if (waterInfo != null)
-                    {
-                        __result = waterInfo;
-                    }
-                }
-                catch { }
-            }
-        }
-
-        public static void TransportStationAI_GetSecondaryTransportLineInfo_Postfix(TransportStationAI __instance, ref TransportInfo __result)
-        {
-            if (__result == null && __instance is HarborAI)
-            {
-                try
-                {
-                    TransportInfo waterInfo = GetWaterTransportInfo();
-                    if (waterInfo != null)
-                    {
-                        __result = waterInfo;
-                    }
-                }
-                catch { }
-            }
         }
     }
 }

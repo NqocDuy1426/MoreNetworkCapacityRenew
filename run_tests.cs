@@ -1047,23 +1047,26 @@ class TestSuite
             bool hasWaterClass = renewCode.Contains("public static class WaterTransportCompatibility");
             Assert(hasWaterClass, "WaterTransportCompatibility class defined for water transit and Ship Path support");
 
-            // 23.2 Water network synchronization and lane configuration
+            // 23.2 Water network segregation: Ship Paths get dual types, Ferry Paths strictly Ferry only
             bool hasConfigureWater = renewCode.Contains("ConfigureWaterNetInfo") &&
                                      renewCode.Contains("SynchronizeWaterTransportNetworks") &&
+                                     renewCode.Contains("IsShipPathNetwork") &&
+                                     renewCode.Contains("IsFerryNetwork") &&
                                      renewCode.Contains("VehicleInfo.VehicleType.Ship | VehicleInfo.VehicleType.Ferry");
-            Assert(hasConfigureWater, "SynchronizeWaterTransportNetworks dynamically configures dual Ship & Ferry vehicle types on water networks");
+            Assert(hasConfigureWater, "SynchronizeWaterTransportNetworks segregates Ship Paths (dual types) and Ferry Paths (strictly Ferry only)");
 
-            // 23.3 ShipDockAI FindFerryPath & FindConnectionPath postfixes with 128m radius
+            // 23.3 ShipDockAI FindFerryPath & FindConnectionPath postfixes with 128m radius and strict type separation
             bool hasShipDockPostfixes = renewCode.Contains("ShipDockAI_FindFerryPath_Postfix") &&
                                         renewCode.Contains("ShipDockAI_FindConnectionPath_Postfix") &&
                                         renewCode.Contains("128f");
-            Assert(hasShipDockPostfixes, "ShipDockAI path postfixes expand connection radius to 128m with dual Ship & Ferry fallback");
+            Assert(hasShipDockPostfixes, "ShipDockAI path postfixes expand connection radius to 128m with strict Ship / Ferry type separation");
 
-            // 23.4 HarborAI TransportLineInfo fallback enables passenger line stops
-            bool hasHarborFallback = renewCode.Contains("TransportStationAI_GetTransportLineInfo_Postfix") &&
-                                     renewCode.Contains("HarborAI") &&
-                                     renewCode.Contains("GetWaterTransportInfo");
-            Assert(hasHarborFallback, "TransportStationAI GetTransportLineInfo postfix enables Harbors to serve as transit stops");
+            // 23.4 Zero hooks into traffic simulation (vanilla and TM:PE native)
+            bool zeroTrafficHooks = !renewCode.Contains("harmony.Patch(typeof(ShipAI)") &&
+                                    !renewCode.Contains("harmony.Patch(typeof(VehicleAI)") &&
+                                    !renewCode.Contains("harmony.Patch(typeof(PathFind)") &&
+                                    !renewCode.Contains("TransportStationAI_GetTransportLineInfo_Postfix");
+            Assert(zeroTrafficHooks, "Zero Harmony hooks into traffic simulation / vehicle AI / transit lines (both vanilla & TM:PE native)");
 
             // 23.5 Level load integration and dock reconnection
             bool hasLevelLoadIntegration = renewCode.Contains("WaterTransportCompatibility.SynchronizeWaterTransportNetworks()") &&
@@ -1073,7 +1076,7 @@ class TestSuite
 
             // 23.6 NetInfo.InitializePrefab postfix guarantees newly loaded water networks are compatible
             bool hasPrefabPostfix = renewCode.Contains("NetInfo_InitializePrefab_Postfix");
-            Assert(hasPrefabPostfix, "NetInfo.InitializePrefab postfix guarantees newly instantiated water paths get dual vehicle types");
+            Assert(hasPrefabPostfix, "NetInfo.InitializePrefab postfix guarantees newly instantiated water paths get configured");
 
             // 23.7 WaterTransportCompatibility uses only Assembly-CSharp types with zero TM:PE hooks
             bool waterNoTmpe = !renewCode.Contains("WaterTransportCompatibility error") ||

@@ -17,9 +17,11 @@
 [list]
     [*] Fixed background-thread [i]QuitApplication()[/i] call during save completion, delegating safely to the Main Thread via [i]ThreadHelper.dispatcher.Dispatch[/i]. Completely eliminates off-thread Unity UI [i]NullReferenceException[/i] in Adaptive Roads and rendering engines.
 [/list]
-[*] [b]Water Transport & Ship Path Line Fix (from v4.3.47):[/b]
+[*] [b]Water Transport & Ship Navigation Segregation (v5.0.2 Hotfix):[/b]
 [list]
-    [*] Enabled boat/ferry passenger line creation over Ship Paths with dual [b]Ship | Ferry[/b] vehicle types, 128m dock search fallback, and passenger Harbor stops.
+    [*] [b]Clean Route Segregation:[/b] Large ocean ships (cargo and cruise ships) are strictly confined to open-water Ship Paths ([i]Layer.ShipPaths[/i]). Ferry paths, canals, and marina loops are strictly Ferry-only, permanently preventing large ships from entering shallow, narrow ferry routes or getting stuck on tight curves.
+    [*] [b]Harbor & Dock Reconnection:[/b] Harbors now connect exclusively to legitimate Ship Paths with zero false snapping to ferry routes.
+    [*] [b]Zero Traffic Hooks:[/b] 100% native traffic simulation (strictly zero hooks into vehicle AI, pathfinding, or TM:PE traffic rules).
 [/list]
 [*] [b]Impatient Commuters Compatibility (v5.0.1 Hotfix):[/b]
 [list]

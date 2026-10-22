@@ -2502,10 +2502,132 @@ namespace MoreNetworkCapacityRenew
                         UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Expanded TrafficLightSimulationManager.TrafficLightSimulations: {0} -> {1}", oldLen, targetSize));
                     }
                 }
+
+                SanitizeAndRepairTrafficLightSimulations(tmpe, false);
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureTrafficLightSimulationCapacity error: " + ex);
+            }
+        }
+
+        public static void SanitizeAndRepairTrafficLightSimulations(Assembly tmpe, bool cleanupEmptyOnLoad = false)
+        {
+            if (tmpe == null) return;
+            try
+            {
+                Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
+                if (tlsmType == null) return;
+                object tlsm = GetManagerInstance(tlsmType);
+                if (tlsm == null) return;
+
+                FieldInfo fSims = tlsmType.GetField("<TrafficLightSimulations>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                               ?? tlsmType.GetField("TrafficLightSimulations", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                Array sims = fSims != null ? fSims.GetValue(tlsm) as Array : null;
+                if (sims == null) return;
+
+                Type tlsType = tmpe.GetType("TrafficManager.TrafficLight.Impl.TrafficLightSimulation");
+                if (tlsType == null) return;
+                FieldInfo fType = tlsType.GetField("type", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                FieldInfo fTimedLight = tlsType.GetField("timedLight", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (fType == null || fTimedLight == null) return;
+
+                MethodInfo mRemove = tlsmType.GetMethod("RemoveNodeFromSimulation", new Type[] { typeof(ushort) });
+                Type stepType = tmpe.GetType("TrafficManager.TrafficLight.Impl.TimedTrafficLightsStep");
+                Type stepListType = stepType != null ? typeof(List<>).MakeGenericType(stepType) : null;
+                Type endType = tmpe.GetType("TrafficManager.API.Traffic.ISegmentEndId");
+                Type setType = endType != null ? typeof(HashSet<>).MakeGenericType(endType) : null;
+
+                int healedCount = 0;
+                int cleanedCount = 0;
+
+                for (int i = 0; i < sims.Length; i++)
+                {
+                    object sim = sims.GetValue(i);
+                    if (sim == null) continue;
+
+                    int typeInt = Convert.ToInt32(fType.GetValue(sim));
+                    if (typeInt == 2) // TrafficLightSimulationType.Timed
+                    {
+                        object tl = fTimedLight.GetValue(sim);
+                        if (tl == null)
+                        {
+                            fType.SetValue(sim, Enum.ToObject(fType.FieldType, 0));
+                            sims.SetValue(sim, i);
+                            if (mRemove != null)
+                            {
+                                try { mRemove.Invoke(tlsm, new object[] { (ushort)i }); } catch { }
+                            }
+                            cleanedCount++;
+                            continue;
+                        }
+
+                        FieldInfo fSteps = tl.GetType().GetField("Steps", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        IList stepsList = fSteps != null ? fSteps.GetValue(tl) as IList : null;
+
+                        PropertyInfo pGroup = tl.GetType().GetProperty("NodeGroup");
+                        IList groupList = pGroup != null ? pGroup.GetValue(tl, null) as IList : null;
+
+                        if (cleanupEmptyOnLoad && (stepsList == null || stepsList.Count == 0))
+                        {
+                            fType.SetValue(sim, Enum.ToObject(fType.FieldType, 0));
+                            fTimedLight.SetValue(sim, null);
+                            sims.SetValue(sim, i);
+                            if (mRemove != null)
+                            {
+                                try { mRemove.Invoke(tlsm, new object[] { (ushort)i }); } catch { }
+                            }
+                            cleanedCount++;
+                            continue;
+                        }
+
+                        if (stepsList == null)
+                        {
+                            if (stepListType != null && fSteps != null)
+                            {
+                                IList newSteps = (IList)Activator.CreateInstance(stepListType);
+                                fSteps.SetValue(tl, newSteps);
+                                healedCount++;
+                            }
+                        }
+
+                        if (groupList == null || groupList.Count == 0)
+                        {
+                            List<ushort> newGroup = new List<ushort> { (ushort)i };
+                            if (pGroup != null && pGroup.CanWrite)
+                            {
+                                pGroup.SetValue(tl, newGroup, null);
+                            }
+                            else
+                            {
+                                FieldInfo fGroup = tl.GetType().GetField("<NodeGroup>k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                                if (fGroup != null) fGroup.SetValue(tl, newGroup);
+                            }
+                            healedCount++;
+                        }
+
+                        FieldInfo fEnds = tl.GetType().GetField("segmentEndIds", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fEnds != null && fEnds.GetValue(tl) == null && setType != null)
+                        {
+                            fEnds.SetValue(tl, Activator.CreateInstance(setType));
+                        }
+
+                        FieldInfo fLock = tl.GetType().GetField("rotateLock_", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fLock != null && fLock.GetValue(tl) == null)
+                        {
+                            fLock.SetValue(tl, new object());
+                        }
+                    }
+                }
+
+                if (healedCount > 0 || cleanedCount > 0)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SanitizeAndRepairTrafficLightSimulations: healed {0} corrupted timed lights, cleaned {1} orphaned simulations.", healedCount, cleanedCount));
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SanitizeAndRepairTrafficLightSimulations error: " + ex);
             }
         }
 
@@ -3365,6 +3487,8 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                SanitizeAndRepairTrafficLightSimulations(tmpe, false);
+
                 FieldInfo f = toolType.GetField("currentTimedNodeIds", BindingFlags.NonPublic | BindingFlags.Instance);
                 if (f == null) return;
                 HashSet<ushort> set = f.GetValue(tool) as HashSet<ushort>;
@@ -3545,6 +3669,12 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                Assembly tmpe = GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    SanitizeAndRepairTrafficLightSimulations(tmpe, false);
+                }
+
                 FieldInfo fCache = toolType.GetField("<CachedVisibleNodeIds>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
                 object cacheObj = fCache != null ? fCache.GetValue(tool) : null;
                 if (cacheObj == null) return;
@@ -4146,6 +4276,8 @@ namespace MoreNetworkCapacityRenew
 
                     if (tlsm != null)
                     {
+                        SanitizeAndRepairTrafficLightSimulations(tmpe, false);
+
                         Type ttlCfgType = tmpe.GetType("TrafficManager.Configuration+TimedTrafficLights");
                         Type stepCfgType = tmpe.GetType("TrafficManager.Configuration+TimedTrafficLightsStep");
                         Type cslCfgType = tmpe.GetType("TrafficManager.Configuration+CustomSegmentLights");
@@ -4168,133 +4300,144 @@ namespace MoreNetworkCapacityRenew
                             object[] hasArgs = new object[1];
                             for (int n = 0; n < 65536 && n < sims.Length; n++)
                             {
-                                hasArgs[0] = (ushort)n;
-                                bool has = (bool)mHasTimed.Invoke(tlsm, hasArgs);
-                                if (!has) continue;
-
-                                object sim = sims.GetValue(n);
-                                if (sim == null) continue;
-
-                                object timedLight = fTimedLight != null ? fTimedLight.GetValue(sim) : null;
-                                if (timedLight == null) continue;
-
-                                ushort masterNodeId = Convert.ToUInt16(timedLight.GetType().GetProperty("NodeId").GetValue(timedLight, null));
-                                if (masterNodeId != (ushort)n)
+                                try
                                 {
-                                    // Not the master node of this group, skip to avoid duplicate serialization
-                                    continue;
-                                }
+                                    hasArgs[0] = (ushort)n;
+                                    bool has = (bool)mHasTimed.Invoke(tlsm, hasArgs);
+                                    if (!has) continue;
 
-                                PropertyInfo pGroup = timedLight.GetType().GetProperty("NodeGroup");
-                                IEnumerable groupEnum = pGroup != null ? pGroup.GetValue(timedLight, null) as IEnumerable : null;
-                                List<ushort> groupList = new List<ushort>();
-                                if (groupEnum != null)
-                                {
-                                    foreach (var gId in groupEnum) groupList.Add(Convert.ToUInt16(gId));
-                                }
-                                if (groupList.Count == 0) groupList.Add((ushort)n);
+                                    object sim = sims.GetValue(n);
+                                    if (sim == null) continue;
 
-                                object ttlObj = Activator.CreateInstance(ttlCfgType);
-                                ttlCfgType.GetField("nodeId").SetValue(ttlObj, (ushort)masterNodeId);
-                                ttlCfgType.GetField("nodeGroup").SetValue(ttlObj, groupList);
+                                    object timedLight = fTimedLight != null ? fTimedLight.GetValue(sim) : null;
+                                    if (timedLight == null) continue;
 
-                                MethodInfo mIsStarted = timedLight.GetType().GetMethod("IsStarted", Type.EmptyTypes);
-                                bool isStarted = mIsStarted != null && (bool)mIsStarted.Invoke(timedLight, null);
-                                ttlCfgType.GetField("started").SetValue(ttlObj, isStarted);
-
-                                PropertyInfo pCurStep = timedLight.GetType().GetProperty("CurrentStep");
-                                int curStep = pCurStep != null ? (int)pCurStep.GetValue(timedLight, null) : 0;
-                                ttlCfgType.GetField("currentStep").SetValue(ttlObj, curStep);
-
-                                Type stepListType = typeof(List<>).MakeGenericType(stepCfgType);
-                                IList stepList = (IList)Activator.CreateInstance(stepListType);
-                                ttlCfgType.GetField("timedSteps").SetValue(ttlObj, stepList);
-
-                                MethodInfo mNumSteps = timedLight.GetType().GetMethod("NumSteps", Type.EmptyTypes);
-                                MethodInfo mGetStep = timedLight.GetType().GetMethod("GetStep", new Type[] { typeof(int) });
-                                int numSteps = mNumSteps != null ? (int)mNumSteps.Invoke(timedLight, null) : 0;
-
-                                for (int stepIdx = 0; stepIdx < numSteps; stepIdx++)
-                                {
-                                    object step = mGetStep.Invoke(timedLight, new object[] { stepIdx });
-                                    if (step == null) continue;
-
-                                    object stepObj = Activator.CreateInstance(stepCfgType);
-                                    stepCfgType.GetField("minTime").SetValue(stepObj, Convert.ToInt32(step.GetType().GetProperty("MinTime").GetValue(step, null)));
-                                    stepCfgType.GetField("maxTime").SetValue(stepObj, Convert.ToInt32(step.GetType().GetProperty("MaxTime").GetValue(step, null)));
-                                    stepCfgType.GetField("changeMetric").SetValue(stepObj, Convert.ToInt32(step.GetType().GetProperty("ChangeMetric").GetValue(step, null)));
-                                    stepCfgType.GetField("waitFlowBalance").SetValue(stepObj, Convert.ToSingle(step.GetType().GetProperty("WaitFlowBalance").GetValue(step, null)));
-
-                                    Type cslDictType = typeof(Dictionary<,>).MakeGenericType(typeof(ushort), cslCfgType);
-                                    IDictionary cslDict = (IDictionary)Activator.CreateInstance(cslDictType);
-                                    stepCfgType.GetField("segmentLights").SetValue(stepObj, cslDict);
-
-                                    PropertyInfo pCsl = step.GetType().GetProperty("CustomSegmentLights");
-                                    IEnumerable cslEnum = pCsl != null ? pCsl.GetValue(step, null) as IEnumerable : null;
-                                    if (cslEnum != null)
+                                    ushort masterNodeId = Convert.ToUInt16(timedLight.GetType().GetProperty("NodeId").GetValue(timedLight, null));
+                                    if (masterNodeId != (ushort)n)
                                     {
-                                        foreach (var cslItem in cslEnum)
-                                        {
-                                            PropertyInfo pVal = cslItem.GetType().GetProperty("Value");
-                                            object csl = pVal != null ? pVal.GetValue(cslItem, null) : cslItem;
-                                            if (csl == null) continue;
-
-                                            ushort cslNodeId = Convert.ToUInt16(csl.GetType().GetProperty("NodeId").GetValue(csl, null));
-                                            ushort cslSegId = Convert.ToUInt16(csl.GetType().GetProperty("SegmentId").GetValue(csl, null));
-
-                                            object cslObj = Activator.CreateInstance(cslCfgType);
-                                            cslCfgType.GetField("nodeId").SetValue(cslObj, (ushort)cslNodeId);
-                                            cslCfgType.GetField("segmentId").SetValue(cslObj, (ushort)cslSegId);
-                                            cslCfgType.GetField("manualPedestrianMode").SetValue(cslObj, Convert.ToBoolean(csl.GetType().GetProperty("ManualPedestrianMode").GetValue(csl, null)));
-
-                                            object pedState = csl.GetType().GetProperty("PedestrianLightState").GetValue(csl, null);
-                                            cslCfgType.GetField("pedestrianLightState").SetValue(cslObj, pedState);
-
-                                            FieldInfo fCustomLights = cslCfgType.GetField("customLights");
-                                            IDictionary lightDict = (IDictionary)Activator.CreateInstance(fCustomLights.FieldType);
-                                            cslCfgType.GetField("customLights").SetValue(cslObj, lightDict);
-
-                                            Type extVehType = fCustomLights.FieldType.GetGenericArguments()[0];
-
-                                            PropertyInfo pLights = csl.GetType().GetProperty("CustomLights");
-                                            IEnumerable lightsEnum = pLights != null ? pLights.GetValue(csl, null) as IEnumerable : null;
-                                            if (lightsEnum != null)
-                                            {
-                                                foreach (var lightEntry in lightsEnum)
-                                                {
-                                                    object key = lightEntry.GetType().GetProperty("Key").GetValue(lightEntry, null);
-                                                    object light = lightEntry.GetType().GetProperty("Value").GetValue(lightEntry, null);
-                                                    if (light == null) continue;
-
-                                                    int mode = Convert.ToInt32(light.GetType().GetProperty("CurrentMode").GetValue(light, null));
-                                                    object leftLight = light.GetType().GetProperty("LightLeft").GetValue(light, null);
-                                                    object mainLight = light.GetType().GetProperty("LightMain").GetValue(light, null);
-                                                    object rightLight = light.GetType().GetProperty("LightRight").GetValue(light, null);
-
-                                                    object lightObj = Activator.CreateInstance(cslLightCfgType);
-                                                    cslLightCfgType.GetField("nodeId").SetValue(lightObj, (ushort)cslNodeId);
-                                                    cslLightCfgType.GetField("segmentId").SetValue(lightObj, (ushort)cslSegId);
-                                                    cslLightCfgType.GetField("currentMode").SetValue(lightObj, mode);
-                                                    cslLightCfgType.GetField("leftLight").SetValue(lightObj, leftLight);
-                                                    cslLightCfgType.GetField("mainLight").SetValue(lightObj, mainLight);
-                                                    cslLightCfgType.GetField("rightLight").SetValue(lightObj, rightLight);
-
-                                                    object keyObj = Enum.ToObject(extVehType, Convert.ToInt32(key));
-                                                    lightDict.Add(keyObj, lightObj);
-                                                }
-                                            }
-
-                                            if (!cslDict.Contains(cslSegId))
-                                            {
-                                                cslDict.Add(cslSegId, cslObj);
-                                            }
-                                        }
+                                        // Not the master node of this group, skip to avoid duplicate serialization
+                                        continue;
                                     }
 
-                                    stepList.Add(stepObj);
-                                }
+                                    FieldInfo fSteps = timedLight.GetType().GetField("Steps", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                                    IList stepsList = fSteps != null ? fSteps.GetValue(timedLight) as IList : null;
+                                    if (stepsList == null) continue;
 
-                                ttlList.Add(ttlObj);
+                                    PropertyInfo pGroup = timedLight.GetType().GetProperty("NodeGroup");
+                                    IEnumerable groupEnum = pGroup != null ? pGroup.GetValue(timedLight, null) as IEnumerable : null;
+                                    List<ushort> groupList = new List<ushort>();
+                                    if (groupEnum != null)
+                                    {
+                                        foreach (var gId in groupEnum) groupList.Add(Convert.ToUInt16(gId));
+                                    }
+                                    if (groupList.Count == 0) groupList.Add((ushort)n);
+
+                                    object ttlObj = Activator.CreateInstance(ttlCfgType);
+                                    ttlCfgType.GetField("nodeId").SetValue(ttlObj, (ushort)masterNodeId);
+                                    ttlCfgType.GetField("nodeGroup").SetValue(ttlObj, groupList);
+
+                                    MethodInfo mIsStarted = timedLight.GetType().GetMethod("IsStarted", Type.EmptyTypes);
+                                    bool isStarted = mIsStarted != null && (bool)mIsStarted.Invoke(timedLight, null);
+                                    ttlCfgType.GetField("started").SetValue(ttlObj, isStarted);
+
+                                    PropertyInfo pCurStep = timedLight.GetType().GetProperty("CurrentStep");
+                                    int curStep = pCurStep != null ? (int)pCurStep.GetValue(timedLight, null) : 0;
+                                    ttlCfgType.GetField("currentStep").SetValue(ttlObj, curStep);
+
+                                    Type stepListType = typeof(List<>).MakeGenericType(stepCfgType);
+                                    IList stepList = (IList)Activator.CreateInstance(stepListType);
+                                    ttlCfgType.GetField("timedSteps").SetValue(ttlObj, stepList);
+
+                                    MethodInfo mNumSteps = timedLight.GetType().GetMethod("NumSteps", Type.EmptyTypes);
+                                    MethodInfo mGetStep = timedLight.GetType().GetMethod("GetStep", new Type[] { typeof(int) });
+                                    int numSteps = mNumSteps != null ? (int)mNumSteps.Invoke(timedLight, null) : 0;
+
+                                    for (int stepIdx = 0; stepIdx < numSteps; stepIdx++)
+                                    {
+                                        object step = mGetStep.Invoke(timedLight, new object[] { stepIdx });
+                                        if (step == null) continue;
+
+                                        object stepObj = Activator.CreateInstance(stepCfgType);
+                                        stepCfgType.GetField("minTime").SetValue(stepObj, Convert.ToInt32(step.GetType().GetProperty("MinTime").GetValue(step, null)));
+                                        stepCfgType.GetField("maxTime").SetValue(stepObj, Convert.ToInt32(step.GetType().GetProperty("MaxTime").GetValue(step, null)));
+                                        stepCfgType.GetField("changeMetric").SetValue(stepObj, Convert.ToInt32(step.GetType().GetProperty("ChangeMetric").GetValue(step, null)));
+                                        stepCfgType.GetField("waitFlowBalance").SetValue(stepObj, Convert.ToSingle(step.GetType().GetProperty("WaitFlowBalance").GetValue(step, null)));
+
+                                        Type cslDictType = typeof(Dictionary<,>).MakeGenericType(typeof(ushort), cslCfgType);
+                                        IDictionary cslDict = (IDictionary)Activator.CreateInstance(cslDictType);
+                                        stepCfgType.GetField("segmentLights").SetValue(stepObj, cslDict);
+
+                                        PropertyInfo pCsl = step.GetType().GetProperty("CustomSegmentLights");
+                                        IEnumerable cslEnum = pCsl != null ? pCsl.GetValue(step, null) as IEnumerable : null;
+                                        if (cslEnum != null)
+                                        {
+                                            foreach (var cslItem in cslEnum)
+                                            {
+                                                PropertyInfo pVal = cslItem.GetType().GetProperty("Value");
+                                                object csl = pVal != null ? pVal.GetValue(cslItem, null) : cslItem;
+                                                if (csl == null) continue;
+
+                                                ushort cslNodeId = Convert.ToUInt16(csl.GetType().GetProperty("NodeId").GetValue(csl, null));
+                                                ushort cslSegId = Convert.ToUInt16(csl.GetType().GetProperty("SegmentId").GetValue(csl, null));
+
+                                                object cslObj = Activator.CreateInstance(cslCfgType);
+                                                cslCfgType.GetField("nodeId").SetValue(cslObj, (ushort)cslNodeId);
+                                                cslCfgType.GetField("segmentId").SetValue(cslObj, (ushort)cslSegId);
+                                                cslCfgType.GetField("manualPedestrianMode").SetValue(cslObj, Convert.ToBoolean(csl.GetType().GetProperty("ManualPedestrianMode").GetValue(csl, null)));
+
+                                                object pedState = csl.GetType().GetProperty("PedestrianLightState").GetValue(csl, null);
+                                                cslCfgType.GetField("pedestrianLightState").SetValue(cslObj, pedState);
+
+                                                FieldInfo fCustomLights = cslCfgType.GetField("customLights");
+                                                IDictionary lightDict = (IDictionary)Activator.CreateInstance(fCustomLights.FieldType);
+                                                cslCfgType.GetField("customLights").SetValue(cslObj, lightDict);
+
+                                                Type extVehType = fCustomLights.FieldType.GetGenericArguments()[0];
+
+                                                PropertyInfo pLights = csl.GetType().GetProperty("CustomLights");
+                                                IEnumerable lightsEnum = pLights != null ? pLights.GetValue(csl, null) as IEnumerable : null;
+                                                if (lightsEnum != null)
+                                                {
+                                                    foreach (var lightEntry in lightsEnum)
+                                                    {
+                                                        object key = lightEntry.GetType().GetProperty("Key").GetValue(lightEntry, null);
+                                                        object light = lightEntry.GetType().GetProperty("Value").GetValue(lightEntry, null);
+                                                        if (light == null) continue;
+
+                                                        int mode = Convert.ToInt32(light.GetType().GetProperty("CurrentMode").GetValue(light, null));
+                                                        object leftLight = light.GetType().GetProperty("LightLeft").GetValue(light, null);
+                                                        object mainLight = light.GetType().GetProperty("LightMain").GetValue(light, null);
+                                                        object rightLight = light.GetType().GetProperty("LightRight").GetValue(light, null);
+
+                                                        object lightObj = Activator.CreateInstance(cslLightCfgType);
+                                                        cslLightCfgType.GetField("nodeId").SetValue(lightObj, (ushort)cslNodeId);
+                                                        cslLightCfgType.GetField("segmentId").SetValue(lightObj, (ushort)cslSegId);
+                                                        cslLightCfgType.GetField("currentMode").SetValue(lightObj, mode);
+                                                        cslLightCfgType.GetField("leftLight").SetValue(lightObj, leftLight);
+                                                        cslLightCfgType.GetField("mainLight").SetValue(lightObj, mainLight);
+                                                        cslLightCfgType.GetField("rightLight").SetValue(lightObj, rightLight);
+
+                                                        object keyObj = Enum.ToObject(extVehType, Convert.ToInt32(key));
+                                                        lightDict.Add(keyObj, lightObj);
+                                                    }
+                                                }
+
+                                                if (!cslDict.Contains(cslSegId))
+                                                {
+                                                    cslDict.Add(cslSegId, cslObj);
+                                                }
+                                            }
+                                        }
+
+                                        stepList.Add(stepObj);
+                                    }
+
+                                    ttlList.Add(ttlObj);
+                                }
+                                catch (Exception exNode)
+                                {
+                                    UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] SerializeHighIdTMPEData node {0} error: {1}", n, exNode.Message));
+                                }
                             }
 
                             if (ttlList.Count > 0)
@@ -4444,6 +4587,7 @@ namespace MoreNetworkCapacityRenew
                                         {
                                             ttlCount = ttlList.Count;
                                             mLoad.Invoke(tlsm, new object[] { ttlList });
+                                            SanitizeAndRepairTrafficLightSimulations(tmpe, cleanupEmptyOnLoad: false);
                                         }
                                     }
                                 }
@@ -4680,6 +4824,9 @@ namespace MoreNetworkCapacityRenew
                                                            ?? tlsmType.GetField("TrafficLightSimulations", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                                             Array sims = fSims != null ? fSims.GetValue(tlsm) as Array : null;
 
+                                            MethodInfo mRemoveNode = tlsmType.GetMethod("RemoveNodeFromSimulation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null)
+                                                                  ?? tlsmType.GetMethod("RemoveNodeFromSimulation", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(uint) }, null);
+
                                             if (sims != null)
                                             {
                                                 Type tlsType = tmpe.GetType("TrafficManager.TrafficLight.Impl.TrafficLightSimulation");
@@ -4704,6 +4851,11 @@ namespace MoreNetworkCapacityRenew
                                                     {
                                                         if (cleanNodeId < sims.Length)
                                                         {
+                                                            if (mRemoveNode != null)
+                                                            {
+                                                                try { mRemoveNode.Invoke(tlsm, new object[] { (ushort)cleanNodeId }); } catch { }
+                                                            }
+
                                                             object sim = sims.GetValue((int)cleanNodeId);
                                                             if (sim != null)
                                                             {
@@ -4721,6 +4873,7 @@ namespace MoreNetworkCapacityRenew
                                                                 {
                                                                     fType.SetValue(sim, Enum.ToObject(fType.FieldType, 0));
                                                                 }
+                                                                sims.SetValue(sim, (int)cleanNodeId);
                                                             }
                                                         }
                                                     }
@@ -4728,6 +4881,7 @@ namespace MoreNetworkCapacityRenew
                                             }
 
                                             mLoad.Invoke(tlsm, new object[] { ttlList });
+                                            SanitizeAndRepairTrafficLightSimulations(tmpe, cleanupEmptyOnLoad: false);
                                             ttlCount = ttlList.Count;
                                         }
                                     }
@@ -5701,6 +5855,7 @@ namespace MoreNetworkCapacityRenew
                 {
                     TMPECompatibility.EnsureTrafficLightSimulationCapacity(tmpe);
                     TMPECompatibility.EnsureCustomSegmentLightsCapacity(tmpe);
+                    TMPECompatibility.SanitizeAndRepairTrafficLightSimulations(tmpe, true);
                 }
             }
             catch (Exception ex)
@@ -12145,6 +12300,12 @@ namespace MoreNetworkCapacityRenew
             try { SanitizeProps(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeProps error: " + ex); }
             try { SanitizeTrees(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeTrees error: " + ex); }
             try { SanitizeCitizenInstances(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SanitizeCitizenInstances error: " + ex); }
+            try
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null) TMPECompatibility.SanitizeAndRepairTrafficLightSimulations(tmpe, false);
+            }
+            catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave TMPE sanitization error: " + ex); }
         }
 
         private static void ClampAgeData(ref DistrictAgeData data, ref int sanitized)

@@ -902,6 +902,22 @@ class TestSuite
                                  renewCode.Contains("foreach (ushort gn in nGroup)") &&
                                  renewCode.Contains("mDestroy.Invoke(tl, null);");
             Assert(hasGroupClean, "Timed Traffic Light restoration cleans up all nodes in nodeGroup before reload");
+
+            // 20.8 Timed Traffic Light restoration writes back modified struct to TrafficLightSimulations array
+            bool hasStructWriteback = renewCode.Contains("sims.SetValue(sim, (int)cleanNodeId);") &&
+                                      renewCode.Contains("mRemoveNode.Invoke(tlsm, new object[] { (ushort)cleanNodeId });");
+            Assert(hasStructWriteback, "Timed Traffic Light restoration properly writes back modified struct to array and clears simulation");
+
+            // 20.9 SanitizeAndRepairTrafficLightSimulations heals broken simulations and cleans zombie 0-step lights
+            bool hasSanitizer = renewCode.Contains("public static void SanitizeAndRepairTrafficLightSimulations(Assembly tmpe, bool cleanupEmptyOnLoad = false)") &&
+                                renewCode.Contains("cleanupEmptyOnLoad && (stepsList == null || stepsList.Count == 0)") &&
+                                renewCode.Contains("fLock.SetValue(tl, new object());");
+            Assert(hasSanitizer, "SanitizeAndRepairTrafficLightSimulations repairs corrupt timed lights and clears empty zombies");
+
+            // 20.10 PreSaveSanitization and subtools sanitize simulations
+            bool hasPreSaveSanitize = renewCode.Contains("TMPECompatibility.SanitizeAndRepairTrafficLightSimulations(tmpe, false);") &&
+                                      renewCode.Contains("SanitizeAndRepairTrafficLightSimulations(tmpe, cleanupEmptyOnLoad: false);");
+            Assert(hasPreSaveSanitize, "PreSaveSanitization, restore, and TM:PE subtools execute simulation armor");
         }
         catch (Exception ex)
         {

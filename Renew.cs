@@ -1078,7 +1078,7 @@ namespace MoreNetworkCapacityRenew
     // ============================================================================
     public class RenewMod : IUserMod
     {
-        public string Name => "More Network Capacity Renew v4.3.47 by NgocDuy";
+        public string Name => "More Network Capacity Renew v4.3.48 by NgocDuy";
         public string Description => "Expands network node and segment capacity to 64K with high simulation FPS, native TM:PE pathfinding, building simulation armor & Mac stability. Renewed by NgocDuy.";
 
         static RenewMod()
@@ -7149,7 +7149,6 @@ namespace MoreNetworkCapacityRenew
         }
     }
 
-    [HarmonyPatch(typeof(SavePanel), "OnSavingComplete", new Type[] { typeof(bool), typeof(bool) })]
     public static class SavePanelOnSavingCompletePatch
     {
         private static bool s_isApplied = false;
@@ -7190,12 +7189,19 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.LogError("[MoreNetworkCapacityRenew] SavePanel detected failed save simulation:\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException);
                     try
                     {
-                        var panel = ColossalFramework.UI.UIView.library.ShowModal<ExceptionPanel>("ExceptionPanel");
-                        if (panel != null)
+                        ColossalFramework.Threading.ThreadHelper.dispatcher.Dispatch(() =>
                         {
-                            string logPath = System.IO.Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "MNC_Save_Debug.log");
-                            panel.SetMessage("Game Save Failed", "Cities: Skylines was unable to save simulation data:\n\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException.Message + "\n\nPlease check MNC_Save_Debug.log and Player.log for full details.\nLog path: " + logPath, true);
-                        }
+                            try
+                            {
+                                var panel = ColossalFramework.UI.UIView.library.ShowModal<ExceptionPanel>("ExceptionPanel");
+                                if (panel != null)
+                                {
+                                    string logPath = System.IO.Path.Combine(ColossalFramework.IO.DataLocation.localApplicationData, "MNC_Save_Debug.log");
+                                    panel.SetMessage("Game Save Failed", "Cities: Skylines was unable to save simulation data:\n\n" + SaveSimulationDataSafetyPatch.LastSaveSimulationException.Message + "\n\nPlease check MNC_Save_Debug.log and Player.log for full details.\nLog path: " + logPath, true);
+                                }
+                            }
+                            catch { }
+                        });
                     }
                     catch { }
                 }
@@ -7203,31 +7209,22 @@ namespace MoreNetworkCapacityRenew
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] SavePanel.OnSavingComplete: errorOnSaving={0}, quitAfterSaving={1}", effectiveError, quitAfterSaving));
                 if (effectiveError)
                 {
-                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SavePanel reported errorOnSaving = true.");
-                    return true;
-                }
-
-                if (quitAfterSaving && !effectiveError)
-                {
-                    try
-                    {
-                        if (Singleton<LoadingManager>.exists)
-                        {
-                            Singleton<LoadingManager>.instance.QuitApplication();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] QuitApplication error: " + ex);
-                    }
+                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] SavePanel reported errorOnSaving = true. Quitting was cancelled to prevent data loss.");
                     return false;
                 }
+
+                // If save completed cleanly, let vanilla OnSavingComplete execute.
+                // Vanilla cleanly resets m_IsSaving = false and, if quitAfterSaving is true,
+                // safely dispatches QuitApplication() to the Main Thread via ThreadHelper.dispatcher.Dispatch().
+                // Calling QuitApplication() directly here on the background TaskWorker thread causes
+                // immediate off-thread level unloading and throws NullReferenceException in Unity UI/AdaptiveRoads!
+                return true;
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] SavePanelOnSavingComplete error: " + ex);
+                return true;
             }
-            return true;
         }
     }
 

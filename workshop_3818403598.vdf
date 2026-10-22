@@ -6,7 +6,20 @@
 	"previewfile"		"/Users/nqocduy/CS_MoreNetworkCapacity_Renew/preview-image.png"
 	"visibility"		"0"
 	"title"		"More Network Capacity Renew by NgocDuy"
-	"description"		"[h1]✨ WHAT'S NEW IN v4.3.47 (Water Transport & Ship Path Transit Line Fix) ✨[/h1]
+	"description"		"[h1]✨ WHAT'S NEW IN v4.3.48 (Thread-Safe Save & Quit / AdaptiveRoads Null Fix) ✨[/h1]
+[list]
+[*] [b]Fixed Save & Quit NullReferenceException / Modal Error Popup:[/b]
+[list]
+    [*] Fixed an issue in [i]SavePanel.OnSavingComplete[/i] where [i]LoadingManager.instance.QuitApplication()[/i] was executed directly on the background packaging thread ([i]TaskWorker[/i]). Calling [i]QuitApplication()[/i] off the main thread caused premature level unloading, triggering an off-thread Unity UI transform access inside [i]AdaptiveRoads.UI.Debug.PWSelector.Release()[/i] and popping up an in-game error modal with [i]System.NullReferenceException[/i].
+    [*] Clean saves now safely delegate quit handling to the Main Thread via [i]ThreadHelper.dispatcher.Dispatch[/i], ensuring 100% thread-safe level unloading, zero UI NREs, and seamless saving whether saving normally or quitting to desktop.
+    [*] Dispatched save error [i]ExceptionPanel[/i] dialogs strictly to the Main Thread to prevent any off-thread UI crashes during save errors.
+    [*] Deduplicated [i]SavePanel.OnSavingComplete[/i] Harmony hook to guarantee a single, clean patch point.
+[/list]
+[/list]
+
+[hr][/hr]
+
+[h1]✨ WHAT'S NEW IN v4.3.47 (Water Transport & Ship Path Transit Line Fix) ✨[/h1]
 [list]
 [*] [b]Fixed Inability to Create Boat/Ferry Lines on Ship Paths:[/b]
 [list]
@@ -122,6 +135,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v4.3.47 - Water Transport & Ship Path Line Fix: Fixed inability to create boat/ferry passenger lines over Ship Paths. Synchronized all water network prefabs to dual VehicleType support (Ship | Ferry) across all vehicle lanes; patched ShipDockAI.FindFerryPath and FindConnectionPath with 128m search fallback to guarantee dock-to-path snapping; enabled passenger Harbors (HarborAI) to host transit line stops; automatic dock reconnection on level load."
+	"changenote"		"v4.3.48 - Thread-Safe Save & Quit Fix: Fixed modal error popup with 'null' on Save & Quit caused by off-thread LoadingManager.instance.QuitApplication() call during packaging task completion. Clean saves now safely delegate quit handling to the Main Thread via ThreadHelper.dispatcher.Dispatch, completely eliminating off-thread Unity UI NullReferenceException in AdaptiveRoads and rendering engines."
 }
 

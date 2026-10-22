@@ -133,6 +133,10 @@ class TestSuite
             // 2.3 Verify Level Unloading packaging guard
             bool hasPackagingGuard = renewCode.Contains("m_PackageSaveTask") && renewCode.Contains("task.Wait()");
             Assert(hasPackagingGuard, "OnLevelUnloading guards against interrupted SavePanel.m_PackageSaveTask");
+
+            // 2.4 Verify SavePanelOnSavingCompletePatch does not call QuitApplication off-thread
+            bool noOffThreadQuit = !renewCode.Contains("Singleton<LoadingManager>.instance.QuitApplication();");
+            Assert(noOffThreadQuit, "SavePanelOnSavingCompletePatch does NOT execute QuitApplication off-thread (delegates to Main Thread)");
         }
         catch (Exception ex)
         {
@@ -487,9 +491,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 11.1 Check v4.3.47 version bump
-            bool hasV447 = renewCode.Contains("More Network Capacity Renew v4.3.47 by NgocDuy");
-            Assert(hasV447, "Version correctly bumped to v4.3.47 in RenewMod.Name");
+            // 11.1 Check v4.3.48 version bump
+            bool hasV448 = renewCode.Contains("More Network Capacity Renew v4.3.48 by NgocDuy");
+            Assert(hasV448, "Version correctly bumped to v4.3.48 in RenewMod.Name");
 
             // 11.2 Check AR_Deserialize_Prefix is implemented
             bool hasArDeserPre = renewCode.Contains("public static bool AR_Deserialize_Prefix(object s)");
@@ -972,9 +976,9 @@ class TestSuite
         {
             string renewCode = File.ReadAllText("Renew.cs");
 
-            // 22.1 Mod version bumped to v4.3.47
-            bool hasVersionBump = renewCode.Contains("v4.3.47");
-            Assert(hasVersionBump, "Mod version bumped to v4.3.47 in RenewMod.Name");
+            // 22.1 Mod version bumped to v4.3.48
+            bool hasVersionBump = renewCode.Contains("v4.3.48");
+            Assert(hasVersionBump, "Mod version bumped to v4.3.48 in RenewMod.Name");
 
             // 22.2 EnsureExpandedSave ensures metadata and patch state across all save systems
             bool hasEnsureExpandedSave = renewCode.Contains("EnsureExpandedSave") &&
@@ -1064,6 +1068,37 @@ class TestSuite
         catch (Exception ex)
         {
             Assert(false, "Test Group 23 exception", ex.ToString());
+        }
+
+        // ====================================================================
+        // TEST GROUP 24: Save & Quit Thread-Safe Dispatching & Off-Thread Crash Elimination (v4.3.48)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 24: Save & Quit Thread-Safe Dispatching (v4.3.48) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 24.1 No direct off-thread QuitApplication in SavePanelOnSavingCompletePatch
+            bool noOffThreadQuit = !renewCode.Contains("Singleton<LoadingManager>.instance.QuitApplication();");
+            Assert(noOffThreadQuit, "QuitApplication is NOT called directly off-thread on TaskWorker (prevents AdaptiveRoads NullReferenceException)");
+
+            // 24.2 OnSavingComplete returns true on clean saves to let vanilla Dispatch handle quit
+            bool yieldsToVanilla = renewCode.Contains("return true;") &&
+                                   renewCode.Contains("// If save completed cleanly, let vanilla OnSavingComplete execute.");
+            Assert(yieldsToVanilla, "Prefix yields to vanilla OnSavingComplete on clean saves to utilize ThreadHelper.dispatcher on Main Thread");
+
+            // 24.3 ExceptionPanel modal dialog dispatched to Main Thread via ThreadHelper.dispatcher
+            bool hasThreadSafeExceptionPanel = renewCode.Contains("ThreadHelper.dispatcher.Dispatch") &&
+                                               renewCode.Contains("ShowModal<ExceptionPanel>");
+            Assert(hasThreadSafeExceptionPanel, "Save error ExceptionPanel is safely dispatched to Main Thread via ThreadHelper.dispatcher");
+
+            // 24.4 No duplicate HarmonyPatch attribute on SavePanelOnSavingCompletePatch
+            bool noDuplicateAttr = !renewCode.Contains("[HarmonyPatch(typeof(SavePanel), \"OnSavingComplete\"");
+            Assert(noDuplicateAttr, "SavePanelOnSavingCompletePatch is not double-patched via PatchAll (single explicit patch point)");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 24 exception", ex.ToString());
         }
 
         // ====================================================================

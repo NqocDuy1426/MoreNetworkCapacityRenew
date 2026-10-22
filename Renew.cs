@@ -7892,6 +7892,7 @@ namespace MoreNetworkCapacityRenew
         private static object s_tmmInstance;
 
         private static bool s_initialized;
+        private static bool s_impatientCommutersChecked;
 
         public static void ResetStepper()
         {
@@ -7901,6 +7902,7 @@ namespace MoreNetworkCapacityRenew
             s_tmmStepDelegate = null;
             s_tmmInstance = null;
             s_initialized = false;
+            s_impatientCommutersChecked = false;
         }
 
         public static void Initialize()
@@ -8028,6 +8030,16 @@ namespace MoreNetworkCapacityRenew
                 TMPECompatibility.SynchronizeActiveTool();
             }
             catch { }
+        }
+
+        public override void OnBeforeSimulationTick()
+        {
+            base.OnBeforeSimulationTick();
+            if (!s_impatientCommutersChecked)
+            {
+                ThirdPartyCompatibility.EnsureImpatientCommutersBuffers("MNCTrafficLightStepper.OnBeforeSimulationTick");
+                s_impatientCommutersChecked = true;
+            }
         }
 
         public override void OnAfterSimulationFrame()
@@ -9172,8 +9184,6 @@ namespace MoreNetworkCapacityRenew
         private static bool _eightyOne2Patched = false;
         private static bool _morePathUnitsPatched = false;
         private static bool _transferManagerPatched = false;
-        private static bool _impatientCommutersPatched = false;
-        private static readonly List<WeakReference> _impatientLimiterInstances = new List<WeakReference>();
         private static HarmonyInstance _harmonyInstance = null;
 
         public static void Apply(HarmonyInstance harmony)
@@ -10109,9 +10119,6 @@ namespace MoreNetworkCapacityRenew
 
             // 6. Transfer Manager Extended (TransferManagerCE) path distance & 65K node safety hooks
             PatchTransferManager(harmony);
-
-            // 7. Impatient Commuters 65K node & segment compatibility hooks
-            PatchImpatientCommuters(harmony);
         }
 
         public static void EnsureEightyOne2Patched()
@@ -11539,120 +11546,21 @@ namespace MoreNetworkCapacityRenew
             return true;
         }
 
-        public static void EnsureImpatientCommutersPatched()
-        {
-            if (_impatientCommutersPatched) return;
-            try
-            {
-                var harmony = HarmonyInstance.Create("MoreNetworkCapacityRenew.ImpatientCommuters");
-                PatchImpatientCommuters(harmony);
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] EnsureImpatientCommutersPatched error: " + ex);
-            }
-        }
-
-        public static void PatchImpatientCommuters(HarmonyInstance harmony)
-        {
-            if (_impatientCommutersPatched || harmony == null) return;
-            try
-            {
-                Assembly targetAsm = null;
-                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    if (asm.GetName().Name == "ImpatientCommuters")
-                    {
-                        targetAsm = asm;
-                        break;
-                    }
-                }
-                if (targetAsm == null) return;
-
-                Type limiterType = targetAsm.GetType("ImpatientCommuters.CommuterImpatienceLimiter");
-                if (limiterType == null) return;
-
-                int patchedCount = 0;
-
-                // 1. Postfix on EnsureInitialized to expand arrays to 65536 and sync buffers
-                MethodInfo ensureInit = limiterType.GetMethod("EnsureInitialized", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (ensureInit != null)
-                {
-                    MethodInfo post = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_EnsureInitialized_Postfix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(ensureInit, postfix: new HarmonyMethod(post));
-                    patchedCount++;
-                }
-
-                // 2. Prefix on OnBeforeSimulationTick to guarantee 65536 arrays before tick runs
-                MethodInfo tickMethod = limiterType.GetMethod("OnBeforeSimulationTick", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (tickMethod != null)
-                {
-                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_OnBeforeSimulationTick_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(tickMethod, prefix: new HarmonyMethod(pre));
-                    patchedCount++;
-                }
-
-                // 3. Prefix on OnBeforeSimulationFrame to guarantee 65536 arrays before frame runs
-                MethodInfo frameMethod = limiterType.GetMethod("OnBeforeSimulationFrame", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (frameMethod != null)
-                {
-                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_OnBeforeSimulationFrame_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(frameMethod, prefix: new HarmonyMethod(pre));
-                    patchedCount++;
-                }
-
-                // 4. Prefix on ComputeNodeData to guard against out-of-range node IDs and ensure array bounds
-                MethodInfo computeNode = limiterType.GetMethod("ComputeNodeData", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, new Type[] { typeof(ushort) }, null);
-                if (computeNode != null)
-                {
-                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_ComputeNodeData_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(computeNode, prefix: new HarmonyMethod(pre));
-                    patchedCount++;
-                }
-
-                // 5. Prefix on GetStopNode to safely retrieve stop nodes with 100% bounds checking against expanded buffers
-                MethodInfo getStopNode = limiterType.GetMethod("GetStopNode", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (getStopNode != null)
-                {
-                    MethodInfo pre = typeof(ThirdPartyCompatibility).GetMethod(nameof(ImpatientCommuters_GetStopNode_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    harmony.Patch(getStopNode, prefix: new HarmonyMethod(pre));
-                    patchedCount++;
-                }
-
-                if (patchedCount > 0)
-                {
-                    _impatientCommutersPatched = true;
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully applied {0} Impatient Commuters 65K node expansion & safety patches!", patchedCount));
-                }
-            }
-            catch (Exception ex)
-            {
-                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PatchImpatientCommuters error: " + ex);
-            }
-        }
-
         public static void EnsureImpatientCommutersBuffers(string context)
         {
             try
             {
-                // Synchronize all tracked instances
-                lock (_impatientLimiterInstances)
+                Type limiterType = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    for (int i = _impatientLimiterInstances.Count - 1; i >= 0; i--)
+                    if (asm.GetName().Name == "ImpatientCommuters")
                     {
-                        object target = _impatientLimiterInstances[i].Target;
-                        if (target != null)
-                        {
-                            ExpandImpatientCommutersInstance(target);
-                        }
-                        else
-                        {
-                            _impatientLimiterInstances.RemoveAt(i);
-                        }
+                        limiterType = asm.GetType("ImpatientCommuters.CommuterImpatienceLimiter");
+                        break;
                     }
                 }
+                if (limiterType == null) return;
 
-                // Discover instances via SimulationManager.m_ThreadingWrapper
                 if (Singleton<SimulationManager>.instance != null)
                 {
                     var sm = Singleton<SimulationManager>.instance;
@@ -11665,11 +11573,12 @@ namespace MoreNetworkCapacityRenew
                             FieldInfo listField = tw.GetType().GetField("m_ThreadingExtensions", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                             if (listField != null && listField.GetValue(tw) is System.Collections.IList list)
                             {
-                                foreach (object ext in list)
+                                for (int i = 0; i < list.Count; i++)
                                 {
-                                    if (ext != null && ext.GetType().FullName == "ImpatientCommuters.CommuterImpatienceLimiter")
+                                    object ext = list[i];
+                                    if (ext != null && ext.GetType() == limiterType)
                                     {
-                                        ExpandImpatientCommutersInstance(ext);
+                                        ExpandImpatientCommutersInstance(ext, context);
                                     }
                                 }
                             }
@@ -11683,31 +11592,14 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static void ExpandImpatientCommutersInstance(object instance)
+        public static void ExpandImpatientCommutersInstance(object instance, string context = "")
         {
             if (instance == null) return;
             try
             {
-                // Register into tracked list if not already present
-                lock (_impatientLimiterInstances)
-                {
-                    bool exists = false;
-                    for (int i = 0; i < _impatientLimiterInstances.Count; i++)
-                    {
-                        if (object.ReferenceEquals(_impatientLimiterInstances[i].Target, instance))
-                        {
-                            exists = true;
-                            break;
-                        }
-                    }
-                    if (!exists)
-                    {
-                        _impatientLimiterInstances.Add(new WeakReference(instance));
-                    }
-                }
-
                 Type limiterType = instance.GetType();
                 const int targetCapacity = 65536;
+                bool resizedAny = false;
 
                 // 1. Expand node index arrays to 65536 (eliminates IndexOutOfRangeException for all ushort values 0..65535)
                 string[] ushortArrayFields = new string[] { "_passengerCount", "_capacityThreshold", "_vehicleCount", "_stopCount" };
@@ -11719,6 +11611,7 @@ namespace MoreNetworkCapacityRenew
                         ushort[] newArr = new ushort[targetCapacity];
                         Array.Copy(arr, newArr, arr.Length);
                         f.SetValue(instance, newArr);
+                        resizedAny = true;
                     }
                 }
 
@@ -11728,6 +11621,7 @@ namespace MoreNetworkCapacityRenew
                     bool[] newBArr = new bool[targetCapacity];
                     Array.Copy(bArr, newBArr, bArr.Length);
                     fBool.SetValue(instance, newBArr);
+                    resizedAny = true;
                 }
 
                 // 2. Synchronize game buffer references to active expanded buffers
@@ -11799,93 +11693,15 @@ namespace MoreNetworkCapacityRenew
                         fVeh.SetValue(instance, Singleton<VehicleManager>.instance.m_vehicles.m_buffer);
                     }
                 }
+
+                if (resizedAny)
+                {
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Successfully expanded Impatient Commuters node arrays to {0} without any hooks ({1})", targetCapacity, context));
+                }
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] ExpandImpatientCommutersInstance error: " + ex);
-            }
-        }
-
-        public static void ImpatientCommuters_EnsureInitialized_Postfix(object __instance)
-        {
-            ExpandImpatientCommutersInstance(__instance);
-        }
-
-        public static void ImpatientCommuters_OnBeforeSimulationTick_Prefix(object __instance)
-        {
-            ExpandImpatientCommutersInstance(__instance);
-        }
-
-        public static void ImpatientCommuters_OnBeforeSimulationFrame_Prefix(object __instance)
-        {
-            ExpandImpatientCommutersInstance(__instance);
-        }
-
-        public static bool ImpatientCommuters_ComputeNodeData_Prefix(object __instance, ushort nodeId)
-        {
-            if (nodeId == 0) return false;
-
-            if (Singleton<NetManager>.instance != null && Singleton<NetManager>.instance.m_nodes != null)
-            {
-                var nodeBuf = Singleton<NetManager>.instance.m_nodes.m_buffer;
-                if (nodeBuf != null && nodeId >= nodeBuf.Length)
-                {
-                    return false;
-                }
-            }
-
-            ExpandImpatientCommutersInstance(__instance);
-            return true;
-        }
-
-        public static bool ImpatientCommuters_GetStopNode_Prefix(object __instance, ref CitizenInstance inst, ref ushort __result)
-        {
-            try
-            {
-                uint path = inst.m_path;
-                if (path == 0)
-                {
-                    __result = 0;
-                    return false;
-                }
-
-                if (Singleton<PathManager>.instance == null || Singleton<PathManager>.instance.m_pathUnits == null)
-                {
-                    __result = 0;
-                    return false;
-                }
-
-                var pathBuffer = Singleton<PathManager>.instance.m_pathUnits.m_buffer;
-                if (pathBuffer == null || path >= pathBuffer.Length)
-                {
-                    __result = 0;
-                    return false;
-                }
-
-                PathUnit unit = pathBuffer[path];
-                PathUnit.Position pos = unit.GetPosition(inst.m_pathPositionIndex >> 1);
-                ushort segment = pos.m_segment;
-
-                if (segment == 0 || Singleton<NetManager>.instance == null || Singleton<NetManager>.instance.m_segments == null)
-                {
-                    __result = 0;
-                    return false;
-                }
-
-                var segBuffer = Singleton<NetManager>.instance.m_segments.m_buffer;
-                if (segBuffer == null || segment >= segBuffer.Length)
-                {
-                    __result = 0;
-                    return false;
-                }
-
-                __result = segBuffer[segment].m_startNode;
-                return false;
-            }
-            catch
-            {
-                __result = 0;
-                return false;
             }
         }
     }
@@ -12647,7 +12463,6 @@ namespace MoreNetworkCapacityRenew
         {
             try { ThirdPartyCompatibility.EnsureEightyOne2Patched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureEightyOne2 error: " + ex); }
             try { ThirdPartyCompatibility.EnsureMorePathUnitsPatched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureMorePathUnits error: " + ex); }
-            try { ThirdPartyCompatibility.EnsureImpatientCommutersPatched(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave EnsureImpatientCommuters error: " + ex); }
             try { ThirdPartyCompatibility.SynchronizeMorePathUnits("PreSaveSanitization"); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave MorePathUnits sync error: " + ex); }
             try { ThirdPartyCompatibility.EnsureImpatientCommutersBuffers("PreSaveSanitization"); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave ImpatientCommuters sync error: " + ex); }
             try { ArrayGuardian.ExpandAllArrays(); } catch (Exception ex) { UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] PreSave ArrayGuardian error: " + ex); }

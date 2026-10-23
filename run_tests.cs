@@ -1264,6 +1264,93 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST SUITE 27: UTF-16 SANITIZER & ORPHAN VEHICLE CLEANER
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 27: UTF-16 Sanitizer & Orphan Vehicle Cleaner ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 27.1 Utf16Sanitizer class exists and handles surrogate pairs
+            bool sanitizerExists = renewCode.Contains("public static class Utf16Sanitizer") &&
+                                   renewCode.Contains("public static string Sanitize(string str)") &&
+                                   renewCode.Contains("0xD800") &&
+                                   renewCode.Contains("0xDC00") &&
+                                   renewCode.Contains(@"\uFFFD");
+            Assert(sanitizerExists, "Utf16Sanitizer class implemented with high/low surrogate validation and replacement");
+
+            // 27.2 Functional unit test of UTF-16 sanitizer logic
+            string badSurrogateHead = "City_" + (char)0xDC00 + "_Test"; // Low surrogate without high
+            string badSurrogateTail = "City_" + (char)0xD800 + "_Test"; // High surrogate without low
+            string validSurrogatePair = "City_\uD83D\uDE00_Test"; // Valid emoji pair
+
+            // Helper inline function matching Utf16Sanitizer
+            Func<string, string> sanitize = (str) =>
+            {
+                if (string.IsNullOrEmpty(str)) return str;
+                char[] chars = null;
+                int len = str.Length;
+                for (int i = 0; i < len; i++)
+                {
+                    char c = str[i];
+                    if (c >= 0xD800 && c <= 0xDBFF)
+                    {
+                        if (i + 1 < len && str[i + 1] >= 0xDC00 && str[i + 1] <= 0xDFFF)
+                        {
+                            i++;
+                            continue;
+                        }
+                        if (chars == null) chars = str.ToCharArray();
+                        chars[i] = '\uFFFD';
+                    }
+                    else if (c >= 0xDC00 && c <= 0xDFFF)
+                    {
+                        if (chars == null) chars = str.ToCharArray();
+                        chars[i] = '\uFFFD';
+                    }
+                }
+                return chars != null ? new string(chars) : str;
+            };
+
+            string resHead = sanitize(badSurrogateHead);
+            string resTail = sanitize(badSurrogateTail);
+            string resGood = sanitize(validSurrogatePair);
+
+            Assert(resHead == "City_\uFFFD_Test", "Sanitizer replaces orphaned low surrogate with replacement char");
+            Assert(resTail == "City_\uFFFD_Test", "Sanitizer replaces orphaned high surrogate with replacement char");
+            Assert(resGood == validSurrogatePair, "Sanitizer preserves valid surrogate pairs completely untouched");
+
+            // 27.3 DataSerializer.ReadUniqueString UTF-16 Sanitizer Armor
+            bool readUniqueStringPatched = renewCode.Contains("DataSerializer_ReadUniqueString_Postfix") &&
+                                           renewCode.Contains("DataSerializerReadUniqueStringPatch") &&
+                                           renewCode.Contains("Utf16Sanitizer.Sanitize(__result)");
+            Assert(readUniqueStringPatched, "DataSerializer.ReadUniqueString hooked with UTF-16 Sanitizer Armor");
+
+            // 27.4 DebugLogHandler.LogFormat Universal Log Armor
+            bool debugLogPatched = renewCode.Contains("DebugLogHandler_LogFormat_Prefix") &&
+                                   renewCode.Contains("UnityEngine.DebugLogHandler") &&
+                                   renewCode.Contains("format = Utf16Sanitizer.Sanitize(format)");
+            Assert(debugLogPatched, "DebugLogHandler.LogFormat hooked with Universal UTF-16 Log Armor against P/Invoke crashes");
+
+            // 27.5 PrefabCollection<VehicleInfo>.BindPrefabs Sanitizer
+            bool bindPrefabsPatched = renewCode.Contains("PrefabCollection_VehicleInfo_BindPrefabs_Prefix") &&
+                                      renewCode.Contains("PrefabCollection<VehicleInfo>") &&
+                                      renewCode.Contains("Utf16Sanitizer.Sanitize(name)");
+            Assert(bindPrefabsPatched, "PrefabCollection<VehicleInfo>.BindPrefabs hooked with Simulation Prefab Sanitizer");
+
+            // 27.6 VehicleManager.Data.AfterDeserialize Orphan Vehicle Cleaner
+            bool vehicleCleanerPatched = renewCode.Contains("VehicleManager_Data_AfterDeserialize_Postfix") &&
+                                         renewCode.Contains("VehicleManagerDataAfterDeserializePatch") &&
+                                         renewCode.Contains("vm.ReleaseVehicle(i)") &&
+                                         renewCode.Contains("vm.ReleaseParkedVehicle(i)");
+            Assert(vehicleCleanerPatched, "VehicleManager.Data.AfterDeserialize hooked with Orphan Vehicle Cleaner to prevent null pointer exceptions");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 27 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

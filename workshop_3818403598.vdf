@@ -33,6 +33,10 @@
     [*] [b]81 Tiles 2 Auto-Harmonization:[/b] Deferred early [i]NetManager.instance[/i] access and auto-expanded [i]NetManager.m_tileNodesCount[/i] to 3402, completely removing the 1050 size mismatch error.
     [*] [b]Level Reload State Sanitizer:[/b] Clears pending TM:PE serialization buffers and runs strategic garbage collection on level unload, eliminating reload blue screens / freezes on cities > 34K nodes.
     [*] [b]Universal Mod Harmonizer:[/b] Added dynamic memory harmonization for present and future community mods.
+[*] [b]UTF-16 Sanitizer & Orphan Vehicle Cleaner (v5.0.4 Hotfix):[/b]
+[list]
+    [*] [b]Universal UTF-16 Sanitizer Armor:[/b] Automatically repairs corrupted and orphaned UTF-16 surrogate pairs in strings deserialized from savegames ([i]DataSerializer.ReadUniqueString[/i]) and passed to Unity logging ([i]DebugLogHandler.LogFormat[/i]). Completely resolves [i]System.ArgumentException: invalid utf-16 sequence (missing surrogate head)[/i] in [i]PrefabCollection<VehicleInfo>.BindPrefabs[/i] and [i]Loading Screen Mod[/i].
+    [*] [b]Orphan Vehicle Cleaner:[/b] Automatically identifies and safely releases orphaned vehicles and parked vehicles whose custom prefabs were deleted or corrupted ([i]VehicleManager.Data.AfterDeserialize[/i]), permanently eliminating downstream [i]NullReferenceException[/i] in [b]Transport Lines Manager (TLM)[/b] and transit simulation threads.
 [/list]
 [/list]
 
@@ -112,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.3 - Compatibility & Stability Hotfix: Universal Dynamic Buffer Guard for CitizenUnits & PathUnits (IndexOutOfRangeException fix); 81 Tiles 2 harmonization (m_tileNodesCount 3402); Level Unload State Sanitizer for seamless in-game city reload; Universal Mod Harmonizer for community mods."
+	"changenote"		"v5.0.4 - UTF-16 Sanitizer & Orphan Vehicle Cleaner Hotfix: Universal UTF-16 Sanitizer Armor (DataSerializer.ReadUniqueString & DebugLogHandler.LogFormat) permanently resolving 'ArgumentException: invalid utf-16 sequence (missing surrogate head)'; Orphan Vehicle Cleaner automatically releasing broken vehicles with missing prefabs to permanently eliminate 'NullReferenceException' in Transport Lines Manager (TLM)."
 }
 

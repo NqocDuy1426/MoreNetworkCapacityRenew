@@ -803,6 +803,12 @@ class TestSuite
                                       renewCode.Contains("SafeDeserializeInvestments") &&
                                       renewCode.Contains("ResetAllInvestments");
             Assert(hasInvestDesShield, "EconomyManager.Data.Deserialize protected against corrupt investment deserialization aborting city simulation load");
+
+            // 18.8 MessageManager.Data.Deserialize shield (MessageProtection)
+            bool hasMessageShield = renewCode.Contains("MessageProtection.Apply(harmony);") &&
+                                    renewCode.Contains("MessageManager_Data_Deserialize_Prefix") &&
+                                    renewCode.Contains("new Queue<MessageBase>()");
+            Assert(hasMessageShield, "MessageManager.Data.Deserialize protected against null message queue / ArgumentNullException");
         }
         catch (Exception ex)
         {

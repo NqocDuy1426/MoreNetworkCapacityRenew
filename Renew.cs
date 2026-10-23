@@ -7490,6 +7490,16 @@ namespace MoreNetworkCapacityRenew
 
                 try
                 {
+                    // Message / Chirper protection (prevents ArgumentNullException on null message queue)
+                    MessageProtection.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] MessageProtection error: " + ex);
+                }
+
+                try
+                {
                     // Traffic Light Synchronization and Deadlock Prevention (Vanilla & TM:PE Default Lights for nodes 1..65535)
                     TrafficLightPatches.Apply(harmony);
                 }
@@ -14795,6 +14805,202 @@ namespace MoreNetworkCapacityRenew
                 yield return instruction;
             }
             UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Injected SafeDeserializeInvestments into EconomyManager.Data.Deserialize ({0} sites).", count));
+        }
+    }
+
+    // ========================================================================
+    // MESSAGE & CHIRPER PROTECTION (v5.0)
+    // Armor against ArgumentNullException: Argument cannot be null.
+    // when deserializing null message queue or empty Chirper data in MessageManager.Data.Deserialize
+    // ========================================================================
+    public static class MessageProtection
+    {
+        private static FieldInfo s_fMessageQueue;
+        private static FieldInfo s_fRecentMessages;
+        private static FieldInfo s_fRecentMessageIndex;
+        private static FieldInfo s_fMessageData;
+        private static FieldInfo s_fLastRandomMessageFrame;
+        private static FieldInfo s_fRandomMessageTimers;
+        private static bool s_fieldsCached = false;
+
+        public static void Apply(HarmonyInstance harmony)
+        {
+            try
+            {
+                Type mmType = typeof(MessageManager);
+                Type mmDataType = mmType.GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                MethodInfo des = mmDataType?.GetMethod("Deserialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (des != null)
+                {
+                    MethodInfo pre = typeof(MessageProtection).GetMethod(nameof(MessageManager_Data_Deserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(des, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched MessageManager.Data.Deserialize with null-safe armor.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] MessageProtection.Apply error: " + ex);
+            }
+        }
+
+        private static void CacheFields()
+        {
+            if (s_fieldsCached) return;
+            s_fieldsCached = true;
+            try
+            {
+                Type mmType = typeof(MessageManager);
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+                s_fMessageQueue = mmType.GetField("m_messageQueue", flags);
+                s_fRecentMessages = mmType.GetField("m_recentMessages", flags);
+                s_fRecentMessageIndex = mmType.GetField("m_recentMessageIndex", flags);
+                s_fMessageData = mmType.GetField("m_messageData", flags);
+                s_fLastRandomMessageFrame = mmType.GetField("m_lastRandomMessageFrame", flags);
+                s_fRandomMessageTimers = mmType.GetField("m_randomMessageTimers", flags);
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] MessageProtection.CacheFields error: " + ex);
+            }
+        }
+
+        public static bool MessageManager_Data_Deserialize_Prefix(object __instance, ColossalFramework.IO.DataSerializer s)
+        {
+            LoadingProfiler profiler = Singleton<LoadingManager>.instance.m_loadingProfilerSimulation;
+            if (profiler != null)
+            {
+                profiler.BeginDeserialize(s, "MessageManager");
+            }
+
+            MessageManager mm = Singleton<MessageManager>.instance;
+            CacheFields();
+
+            try
+            {
+                if (mm != null)
+                {
+                    // 1. Read message queue safely (handles null array cleanly)
+                    MessageBase[] queueArr = s.ReadObjectArray<MessageBase>();
+                    Queue<MessageBase> queue = (queueArr != null)
+                        ? new Queue<MessageBase>(queueArr)
+                        : new Queue<MessageBase>();
+                    if (s_fMessageQueue != null) s_fMessageQueue.SetValue(mm, queue);
+
+                    // 2. Read recent messages safely (handles null cleanly)
+                    MessageBase[] recent = s.ReadObjectArray<MessageBase>();
+                    if (recent == null) recent = new MessageBase[16];
+                    if (s_fRecentMessages != null) s_fRecentMessages.SetValue(mm, recent);
+
+                    // 3. Recent message index
+                    int recentIndex = 0;
+                    if (s.version >= 85)
+                    {
+                        recentIndex = s.ReadInt16();
+                    }
+                    if (s.version < 149)
+                    {
+                        for (int i = 0; i < recent.Length; i++)
+                        {
+                            recent[i] = null;
+                        }
+                        recentIndex = 0;
+                    }
+                    if (s_fRecentMessageIndex != null) s_fRecentMessageIndex.SetValue(mm, recentIndex);
+
+                    // 4. Message data dictionary (handles null keys cleanly)
+                    Dictionary<string, MessageManager.MessageData> dict = (s_fMessageData != null ? s_fMessageData.GetValue(mm) as Dictionary<string, MessageManager.MessageData> : null);
+                    if (dict == null)
+                    {
+                        dict = new Dictionary<string, MessageManager.MessageData>();
+                        if (s_fMessageData != null) s_fMessageData.SetValue(mm, dict);
+                    }
+                    else
+                    {
+                        dict.Clear();
+                    }
+
+                    if (s.version >= 89)
+                    {
+                        uint count = s.ReadUInt24();
+                        for (uint i = 0; i < count; i++)
+                        {
+                            string text = s.ReadUniqueString();
+                            MessageManager.MessageData data = default(MessageManager.MessageData);
+                            data.m_lastCreateFrame = s.ReadUInt32();
+                            if (s.version >= 149 && !string.IsNullOrEmpty(text))
+                            {
+                                dict[text] = data;
+                            }
+                        }
+                    }
+
+                    // 5. Random message timers
+                    byte[] timers = (s_fRandomMessageTimers != null ? s_fRandomMessageTimers.GetValue(mm) as byte[] : null);
+                    if (timers == null || timers.Length != 27)
+                    {
+                        timers = new byte[27];
+                        if (s_fRandomMessageTimers != null) s_fRandomMessageTimers.SetValue(mm, timers);
+                    }
+
+                    uint lastRandomFrame = 0;
+                    if (s.version >= 155)
+                    {
+                        lastRandomFrame = s.ReadUInt32();
+                        int timerCount = s.ReadInt16();
+                        for (int j = 0; j < timerCount; j++)
+                        {
+                            byte b = (byte)s.ReadUInt8();
+                            if (j < timers.Length)
+                            {
+                                timers[j] = b;
+                            }
+                        }
+                        for (int k = timerCount; k < 27; k++)
+                        {
+                            if (k < timers.Length)
+                            {
+                                timers[k] = 0;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int l = 0; l < 27; l++)
+                        {
+                            timers[l] = 0;
+                        }
+                    }
+                    if (s_fLastRandomMessageFrame != null) s_fLastRandomMessageFrame.SetValue(mm, lastRandomFrame);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Recovered from corrupted MessageManager data: " + ex);
+                if (mm != null)
+                {
+                    try
+                    {
+                        if (s_fMessageQueue != null && s_fMessageQueue.GetValue(mm) == null)
+                            s_fMessageQueue.SetValue(mm, new Queue<MessageBase>());
+                        if (s_fRecentMessages != null && s_fRecentMessages.GetValue(mm) == null)
+                            s_fRecentMessages.SetValue(mm, new MessageBase[16]);
+                        if (s_fMessageData != null && s_fMessageData.GetValue(mm) == null)
+                            s_fMessageData.SetValue(mm, new Dictionary<string, MessageManager.MessageData>());
+                        if (s_fRandomMessageTimers != null && s_fRandomMessageTimers.GetValue(mm) == null)
+                            s_fRandomMessageTimers.SetValue(mm, new byte[27]);
+                    }
+                    catch {}
+                }
+            }
+            finally
+            {
+                if (profiler != null)
+                {
+                    profiler.EndDeserialize(s, "MessageManager");
+                }
+            }
+
+            return false; // Skip buggy vanilla Deserialize
         }
     }
 

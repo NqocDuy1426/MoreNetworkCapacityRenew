@@ -13585,7 +13585,13 @@ namespace MoreNetworkCapacityRenew
                                 while (vHead != 0 && vHead < vm.m_vehicles.m_buffer.Length && ++vCount < vm.m_vehicles.m_buffer.Length)
                                 {
                                     ushort nextV = vm.m_vehicles.m_buffer[vHead].m_nextLineVehicle;
-                                    try { vm.ReleaseVehicle(vHead); } catch { }
+                                    // In-memory neutralization without calling ReleaseVehicle (prevents cross-thread deadlock)
+                                    vm.m_vehicles.m_buffer[vHead].m_flags = 0;
+                                    vm.m_vehicles.m_buffer[vHead].m_infoIndex = 0;
+                                    vm.m_vehicles.m_buffer[vHead].m_leadingVehicle = 0;
+                                    vm.m_vehicles.m_buffer[vHead].m_trailingVehicle = 0;
+                                    vm.m_vehicles.m_buffer[vHead].m_nextLineVehicle = 0;
+                                    vm.m_vehicles.m_buffer[vHead].m_transportLine = 0;
                                     vHead = nextV;
                                 }
                             }
@@ -14334,16 +14340,31 @@ namespace MoreNetworkCapacityRenew
                 int neutralizedVehicles = 0;
                 int neutralizedParked = 0;
 
-                for (ushort i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
+                int prefabCount = PrefabCollection<VehicleInfo>.PrefabCount();
+                bool[] validPrefabs = new bool[prefabCount];
+                for (int p = 0; p < prefabCount; p++)
+                {
+                    try
+                    {
+                        validPrefabs[p] = (PrefabCollection<VehicleInfo>.GetPrefab((uint)p) != null);
+                    }
+                    catch
+                    {
+                        validPrefabs[p] = false;
+                    }
+                }
+
+                int vLen = vm.m_vehicles.m_buffer.Length;
+                for (int i = 1; i < vLen; i++)
                 {
                     if (vm.m_vehicles.m_buffer[i].m_flags != 0)
                     {
-                        VehicleInfo info = null;
-                        try { info = vm.m_vehicles.m_buffer[i].Info; } catch {}
-                        if (info == null)
+                        ushort infoIndex = vm.m_vehicles.m_buffer[i].m_infoIndex;
+                        if (infoIndex == 0 || infoIndex >= prefabCount || !validPrefabs[infoIndex])
                         {
-                            // Safely neutralize orphan vehicle in-place WITHOUT cross-thread dispatch or locks
+                            // Safely neutralize orphan vehicle in-place WITHOUT cross-thread dispatch, locks, or overflow
                             vm.m_vehicles.m_buffer[i].m_flags = 0;
+                            vm.m_vehicles.m_buffer[i].m_flags2 = 0;
                             vm.m_vehicles.m_buffer[i].m_infoIndex = 0;
                             vm.m_vehicles.m_buffer[i].m_leadingVehicle = 0;
                             vm.m_vehicles.m_buffer[i].m_trailingVehicle = 0;
@@ -14363,13 +14384,13 @@ namespace MoreNetworkCapacityRenew
 
                 if (vm.m_parkedVehicles != null && vm.m_parkedVehicles.m_buffer != null)
                 {
-                    for (ushort i = 1; i < vm.m_parkedVehicles.m_buffer.Length; i++)
+                    int pLen = vm.m_parkedVehicles.m_buffer.Length;
+                    for (int i = 1; i < pLen; i++)
                     {
                         if (vm.m_parkedVehicles.m_buffer[i].m_flags != 0)
                         {
-                            VehicleInfo info = null;
-                            try { info = vm.m_parkedVehicles.m_buffer[i].Info; } catch {}
-                            if (info == null)
+                            ushort infoIndex = vm.m_parkedVehicles.m_buffer[i].m_infoIndex;
+                            if (infoIndex == 0 || infoIndex >= prefabCount || !validPrefabs[infoIndex])
                             {
                                 vm.m_parkedVehicles.m_buffer[i].m_flags = 0;
                                 vm.m_parkedVehicles.m_buffer[i].m_infoIndex = 0;
@@ -15544,7 +15565,7 @@ namespace MoreNetworkCapacityRenew
 
                 int reconnected = 0;
                 int bufferLen = nm.m_nodes.m_buffer.Length;
-                for (ushort i = 0; i < bufferLen; i++)
+                for (int i = 0; i < bufferLen; i++)
                 {
                     if ((nm.m_nodes.m_buffer[i].m_flags & NetNode.Flags.Created) == 0) continue;
                     NetInfo info = nm.m_nodes.m_buffer[i].Info;
@@ -15581,7 +15602,7 @@ namespace MoreNetworkCapacityRenew
                     if (shouldUpdate)
                     {
                         uint oldLane = nm.m_nodes.m_buffer[i].m_lane;
-                        dockAI.UpdateLaneConnection(i, ref nm.m_nodes.m_buffer[i]);
+                        dockAI.UpdateLaneConnection((ushort)i, ref nm.m_nodes.m_buffer[i]);
                         if (nm.m_nodes.m_buffer[i].m_lane != oldLane)
                         {
                             reconnected++;

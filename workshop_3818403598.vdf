@@ -116,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.8 - Smooth Traffic Flow & Green Light Restoration: Fixed traffic light double-buffer state getter desync where Green state was erroneously overridden with Red, resolving the 1-second vehicle pause/stutter; normalized phase cycling in TrafficLightSimulationStep protecting active green flow; automatically expanded TM:PE VehicleRestrictionsManager buffer capacity on high-ID segments with zero TM:PE hooks."
+	"changenote"		"v5.0.9 - Traffic Flow & Vehicle Freeze Armor: Normalized double-buffer bank queries for nodes >= 32,768 in RoadBaseAI.GetTrafficLightState and GetBollardState, permanently resolving vehicle freeze at intersections and 'Hoang mang' (Confused) vehicle states; added auto-recovery sweeper for stalled/confused vehicles; restored authentic traffic light bulb shader emission colors for vanilla and TM:PE; added crash-proof null text armor for UITextField and UILabel across all vehicle and transit info panels."
 }
 

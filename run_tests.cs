@@ -1402,6 +1402,55 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 29: Vehicle Freeze, Confused Recovery & Traffic Light Rendering Armor (v5.0.7)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 29: Vehicle Freeze, Confused Recovery & Traffic Light Rendering Armor (v5.0.7) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 29.1 Bank Normalization for High Nodes (nodeID >= 32768) in GetTrafficLightState
+            bool hasBankNorm5 = renewCode.Contains("if (nodeID >= 32768 && !s_inTrafficLightSimulationStep)") &&
+                                renewCode.Contains("frame += 256u;");
+            Assert(hasBankNorm5, "GetTrafficLightState un-inverts double-buffer bank for high nodes (nodeID >= 32768) preventing false permanent red stops");
+
+            // 29.2 ThreadStatic simulation step flag prevents desync during TrafficLightSimulationStep
+            bool hasThreadStaticFlag = renewCode.Contains("[ThreadStatic]") &&
+                                       renewCode.Contains("public static bool s_inTrafficLightSimulationStep;");
+            Assert(hasThreadStaticFlag, "s_inTrafficLightSimulationStep is ThreadStatic, protecting simulation step lookbacks against thread race conditions");
+
+            // 29.3 Bollard State Normalization for High Nodes (nodeID >= 32768)
+            bool hasBollardNorm = renewCode.Contains("GetBollardState5_Prefix") &&
+                                  renewCode.Contains("GetBollardState7_Prefix") &&
+                                  renewCode.Contains("SetBollardState_Prefix") &&
+                                  renewCode.Contains("Patched RoadBaseAI.GetBollardState");
+            Assert(hasBollardNorm, "GetBollardState and SetBollardState normalize double-buffer banks on nodes >= 32768, preventing vehicles freezing at bollards");
+
+            // 29.4 UITextField and UILabel null string armor against NRE
+            bool hasUITextArmor = renewCode.Contains("class UIExceptionPatches") &&
+                                  renewCode.Contains("UITextField") &&
+                                  renewCode.Contains("UILabel") &&
+                                  renewCode.Contains("SetText_Prefix(ref string value)") &&
+                                  renewCode.Contains("value = string.Empty;");
+            Assert(hasUITextArmor, "UITextField.set_text and UILabel.set_text hooked with null string armor, preventing NRE when opening vehicle/bus panels");
+
+            // 29.5 Confused ("Hoang mang") vehicle auto-recovery in MNCTrafficLightStepper
+            bool hasConfusedSweep = renewCode.Contains("vm.m_vehicles.m_buffer[v].m_targetBuilding == 0 && vm.m_vehicles.m_buffer[v].m_blockCounter >= 100") &&
+                                    renewCode.Contains("vm.ReleaseVehicle((ushort)v);");
+            Assert(hasConfusedSweep, "MNCTrafficLightStepper sweeps and auto-releases vehicles stuck in Confused (Hoang mang) state");
+
+            // 29.6 Authentic Traffic Light Visual Rendering matches vanilla shader logic
+            bool authenticVisualPreserved = renewCode.Contains("GetTrafficLightNodeState_Prefix") &&
+                                            renewCode.Contains("case RoadBaseAI.TrafficLightState.Red:") &&
+                                            renewCode.Contains("color.g = 0f;");
+            Assert(authenticVisualPreserved, "RoadBaseAI.GetTrafficLightNodeState matches authentic vanilla shader logic without yellow-on-red bug");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 29 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

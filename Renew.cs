@@ -7546,6 +7546,16 @@ namespace MoreNetworkCapacityRenew
 
                 try
                 {
+                    // UI Exception Armor (prevents NRE in VehicleWorldInfoPanel when vehicle names are null)
+                    UIExceptionPatches.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] UIExceptionPatches error: " + ex);
+                }
+
+                try
+                {
                     // Water Transport Compatibility (allows boat/ferry line creation on Ship Paths & connects Ferry/Ship Docks)
                     WaterTransportCompatibility.Apply(harmony);
                 }
@@ -8287,6 +8297,31 @@ namespace MoreNetworkCapacityRenew
                 }
                 catch { }
             }
+
+            // 5. Sweep and recover confused ("Hoang mang") or deadlocked vehicles (64 vehicles per frame)
+            try
+            {
+                var vm = Singleton<VehicleManager>.instance;
+                if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
+                {
+                    int vStart = (int)frame256 * 64;
+                    int vEnd = Math.Min(vStart + 64, vm.m_vehicles.m_buffer.Length);
+                    for (int v = vStart; v < vEnd; v++)
+                    {
+                        var flags = vm.m_vehicles.m_buffer[v].m_flags;
+                        if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) == (Vehicle.Flags.Created | Vehicle.Flags.Spawned) &&
+                            (flags & (Vehicle.Flags.WaitingPath | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
+                        {
+                            if (vm.m_vehicles.m_buffer[v].m_blockCounter >= 180 ||
+                                (vm.m_vehicles.m_buffer[v].m_targetBuilding == 0 && vm.m_vehicles.m_buffer[v].m_blockCounter >= 100))
+                            {
+                                vm.ReleaseVehicle((ushort)v);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
         }
     }
 
@@ -8383,7 +8418,40 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched RoadBaseAI.TrafficLightSimulationStep (robust deadlock-free cycling)");
                 }
 
-                // 5. RoadBaseAI.GetTrafficLightNodeState: clean visual rendering on all nodes
+                // 5. RoadBaseAI.GetBollardState (5-param overload) for nodes >= 32768
+                MethodInfo getBollard5 = typeof(RoadBaseAI).GetMethod("GetBollardState", BindingFlags.Public | BindingFlags.Static, null, new Type[] {
+                    typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(uint), typeof(RoadBaseAI.TrafficLightState).MakeByRefType(), typeof(RoadBaseAI.TrafficLightState).MakeByRefType()
+                }, null);
+                if (getBollard5 != null)
+                {
+                    MethodInfo pre = typeof(TrafficLightPatches).GetMethod(nameof(GetBollardState5_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(getBollard5, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched RoadBaseAI.GetBollardState (5-param overload)");
+                }
+
+                // 6. RoadBaseAI.GetBollardState (7-param overload) for nodes >= 32768
+                MethodInfo getBollard7 = typeof(RoadBaseAI).GetMethod("GetBollardState", BindingFlags.Public | BindingFlags.Static, null, new Type[] {
+                    typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(uint), typeof(RoadBaseAI.TrafficLightState).MakeByRefType(), typeof(RoadBaseAI.TrafficLightState).MakeByRefType(), typeof(bool).MakeByRefType(), typeof(bool).MakeByRefType()
+                }, null);
+                if (getBollard7 != null)
+                {
+                    MethodInfo pre = typeof(TrafficLightPatches).GetMethod(nameof(GetBollardState7_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(getBollard7, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched RoadBaseAI.GetBollardState (7-param overload)");
+                }
+
+                // 7. RoadBaseAI.SetBollardState for nodes >= 32768
+                MethodInfo setBollard = typeof(RoadBaseAI).GetMethod("SetBollardState", BindingFlags.Public | BindingFlags.Static, null, new Type[] {
+                    typeof(ushort), typeof(NetSegment).MakeByRefType(), typeof(uint), typeof(RoadBaseAI.TrafficLightState), typeof(RoadBaseAI.TrafficLightState), typeof(bool), typeof(bool)
+                }, null);
+                if (setBollard != null)
+                {
+                    MethodInfo pre = typeof(TrafficLightPatches).GetMethod(nameof(SetBollardState_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(setBollard, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched RoadBaseAI.SetBollardState");
+                }
+
+                // 8. RoadBaseAI.GetTrafficLightNodeState: authentic visual rendering across all nodes
                 MethodInfo nodeStateM = typeof(RoadBaseAI).GetMethod(
                     "GetTrafficLightNodeState",
                     BindingFlags.Public | BindingFlags.Static,
@@ -8410,32 +8478,59 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        [ThreadStatic]
+        public static bool s_inTrafficLightSimulationStep;
+
         public static bool SetTrafficLightState_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, RoadBaseAI.TrafficLightState vehicleLightState, RoadBaseAI.TrafficLightState pedestrianLightState, bool vehicles, bool pedestrians)
         {
             int encoded = ((int)pedestrianLightState << 2) | (int)vehicleLightState;
-            if (segmentData.m_startNode == nodeID)
+            if (((frame >> 8) & 1) == 0)
             {
-                segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & ~15) | encoded;
-                segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & ~15) | encoded;
-                if (vehicles) segmentData.m_flags |= NetSegment.Flags.TrafficStart;
-                else segmentData.m_flags &= ~NetSegment.Flags.TrafficStart;
-                if (pedestrians) segmentData.m_flags |= NetSegment.Flags.CrossingStart;
-                else segmentData.m_flags &= ~NetSegment.Flags.CrossingStart;
+                if (segmentData.m_startNode == nodeID)
+                {
+                    segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & ~15) | encoded;
+                    if (vehicles) segmentData.m_flags |= NetSegment.Flags.TrafficStart;
+                    else segmentData.m_flags &= ~NetSegment.Flags.TrafficStart;
+                    if (pedestrians) segmentData.m_flags |= NetSegment.Flags.CrossingStart;
+                    else segmentData.m_flags &= ~NetSegment.Flags.CrossingStart;
+                }
+                else
+                {
+                    segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & ~240) | (encoded << 4);
+                    if (vehicles) segmentData.m_flags |= NetSegment.Flags.TrafficEnd;
+                    else segmentData.m_flags &= ~NetSegment.Flags.TrafficEnd;
+                    if (pedestrians) segmentData.m_flags |= NetSegment.Flags.CrossingEnd;
+                    else segmentData.m_flags &= ~NetSegment.Flags.CrossingEnd;
+                }
             }
             else
             {
-                segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & ~240) | (encoded << 4);
-                segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & ~240) | (encoded << 4);
-                if (vehicles) segmentData.m_flags |= NetSegment.Flags.TrafficEnd;
-                else segmentData.m_flags &= ~NetSegment.Flags.TrafficEnd;
-                if (pedestrians) segmentData.m_flags |= NetSegment.Flags.CrossingEnd;
-                else segmentData.m_flags &= ~NetSegment.Flags.CrossingEnd;
+                if (segmentData.m_startNode == nodeID)
+                {
+                    segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & ~15) | encoded;
+                    if (vehicles) segmentData.m_flags |= NetSegment.Flags.TrafficStart;
+                    else segmentData.m_flags &= ~NetSegment.Flags.TrafficStart;
+                    if (pedestrians) segmentData.m_flags |= NetSegment.Flags.CrossingStart;
+                    else segmentData.m_flags &= ~NetSegment.Flags.CrossingStart;
+                }
+                else
+                {
+                    segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & ~240) | (encoded << 4);
+                    if (vehicles) segmentData.m_flags |= NetSegment.Flags.TrafficEnd;
+                    else segmentData.m_flags &= ~NetSegment.Flags.TrafficEnd;
+                    if (pedestrians) segmentData.m_flags |= NetSegment.Flags.CrossingEnd;
+                    else segmentData.m_flags &= ~NetSegment.Flags.CrossingEnd;
+                }
             }
             return false;
         }
 
         public static bool GetTrafficLightState5_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, out RoadBaseAI.TrafficLightState vehicleLightState, out RoadBaseAI.TrafficLightState pedestrianLightState)
         {
+            if (nodeID >= 32768 && !s_inTrafficLightSimulationStep)
+            {
+                frame += 256u;
+            }
             int state = ((frame >> 8) & 1) == 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
             if (segmentData.m_startNode == nodeID)
             {
@@ -8452,6 +8547,10 @@ namespace MoreNetworkCapacityRenew
 
         public static bool GetTrafficLightState7_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, out RoadBaseAI.TrafficLightState vehicleLightState, out RoadBaseAI.TrafficLightState pedestrianLightState, out bool vehicles, out bool pedestrians)
         {
+            if (nodeID >= 32768 && !s_inTrafficLightSimulationStep)
+            {
+                frame += 256u;
+            }
             int state = ((frame >> 8) & 1) == 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
             if (segmentData.m_startNode == nodeID)
             {
@@ -8472,318 +8571,422 @@ namespace MoreNetworkCapacityRenew
 
         public static bool TrafficLightSimulationStep_Prefix(ushort nodeID, ref NetNode data)
         {
-            // If TM:PE timed light is running, let TM:PE's prefix and simulation handle it natively
-            if (MNCTrafficLightStepper.IsTMPETimedLightRunning(nodeID))
+            s_inTrafficLightSimulationStep = true;
+            try
             {
-                return true;
-            }
-
-            NetManager nm = Singleton<NetManager>.instance;
-            SimulationManager sm = Singleton<SimulationManager>.instance;
-            if (nm == null || sm == null) return true;
-
-            uint currentFrameIndex = sm.m_currentFrameIndex;
-            int clock = data.m_maxWaitTime & 3;
-            int step = (data.m_maxWaitTime >> 2) & 7;
-            int pedStep = data.m_maxWaitTime >> 5;
-
-            int currentGreenWithVehicles = -1;
-            int currentGreen = -1;
-            int firstRedWithVehicles = -1;
-            int firstPedWithPedestrians = -1;
-            int selectedRed = -1;
-            int selectedPed = -1;
-
-            int incomingMask = 0;
-            int outgoingMask = 0;
-            int redCount = 0;
-            int incomingCount = 0;
-            int pedCount = 0;
-
-            int firstIncomingRed = -1;
-            int nextIncomingRed = -1;
-
-            for (int i = 0; i < 8; i++)
-            {
-                ushort segId = data.GetSegment(i);
-                if (segId == 0) continue;
-
-                int forwardLanes = 0;
-                int backwardLanes = 0;
-                nm.m_segments.m_buffer[segId].CountLanes(segId, NetInfo.LaneType.Vehicle | NetInfo.LaneType.TransportVehicle, VehicleInfo.VehicleType.Car | VehicleInfo.VehicleType.Tram, VehicleInfo.VehicleCategory.All, ref forwardLanes, ref backwardLanes);
-
-                bool isStartNode = (nm.m_segments.m_buffer[segId].m_startNode == nodeID);
-                bool canEnter = isStartNode ? (backwardLanes > 0) : (forwardLanes > 0);
-                bool canLeave = isStartNode ? (forwardLanes > 0) : (backwardLanes > 0);
-
-                if (canEnter) incomingMask |= (1 << i);
-                if (canLeave)
+                // If TM:PE timed light is running, let TM:PE's prefix and simulation handle it natively
+                if (MNCTrafficLightStepper.IsTMPETimedLightRunning(nodeID))
                 {
-                    outgoingMask |= (1 << i);
-                    incomingCount++;
+                    return true;
                 }
 
-                RoadBaseAI.TrafficLightState vehState;
-                RoadBaseAI.TrafficLightState pedState;
-                bool vehicles;
-                bool pedestrians;
-                RoadBaseAI.GetTrafficLightState(nodeID, ref nm.m_segments.m_buffer[segId], currentFrameIndex - 256u, out vehState, out pedState, out vehicles, out pedestrians);
+                NetManager nm = Singleton<NetManager>.instance;
+                SimulationManager sm = Singleton<SimulationManager>.instance;
+                if (nm == null || sm == null) return true;
 
-                if ((pedState & RoadBaseAI.TrafficLightState.Red) != 0)
+                uint currentFrameIndex = sm.m_currentFrameIndex;
+                int clock = data.m_maxWaitTime & 3;
+                int step = (data.m_maxWaitTime >> 2) & 7;
+                int pedStep = data.m_maxWaitTime >> 5;
+
+                int currentGreenWithVehicles = -1;
+                int currentGreen = -1;
+                int firstRedWithVehicles = -1;
+                int firstPedWithPedestrians = -1;
+                int selectedRed = -1;
+                int selectedPed = -1;
+
+                int incomingMask = 0;
+                int outgoingMask = 0;
+                int redCount = 0;
+                int incomingCount = 0;
+                int pedCount = 0;
+
+                int firstIncomingRed = -1;
+                int nextIncomingRed = -1;
+
+                for (int i = 0; i < 8; i++)
                 {
-                    if (pedestrians)
+                    ushort segId = data.GetSegment(i);
+                    if (segId == 0) continue;
+
+                    int forwardLanes = 0;
+                    int backwardLanes = 0;
+                    nm.m_segments.m_buffer[segId].CountLanes(segId, NetInfo.LaneType.Vehicle | NetInfo.LaneType.TransportVehicle, VehicleInfo.VehicleType.Car | VehicleInfo.VehicleType.Tram, VehicleInfo.VehicleCategory.All, ref forwardLanes, ref backwardLanes);
+
+                    bool isStartNode = (nm.m_segments.m_buffer[segId].m_startNode == nodeID);
+                    bool canEnter = isStartNode ? (backwardLanes > 0) : (forwardLanes > 0);
+                    bool canLeave = isStartNode ? (forwardLanes > 0) : (backwardLanes > 0);
+
+                    if (canEnter) incomingMask |= (1 << i);
+                    if (canLeave)
                     {
-                        if (firstPedWithPedestrians == -1) firstPedWithPedestrians = i;
-                        if (selectedPed == -1 && pedCount >= pedStep) selectedPed = i;
+                        outgoingMask |= (1 << i);
+                        incomingCount++;
                     }
-                    pedCount++;
+
+                    RoadBaseAI.TrafficLightState vehState;
+                    RoadBaseAI.TrafficLightState pedState;
+                    bool vehicles;
+                    bool pedestrians;
+                    RoadBaseAI.GetTrafficLightState(nodeID, ref nm.m_segments.m_buffer[segId], currentFrameIndex - 256u, out vehState, out pedState, out vehicles, out pedestrians);
+
+                    if ((pedState & RoadBaseAI.TrafficLightState.Red) != 0)
+                    {
+                        if (pedestrians)
+                        {
+                            if (firstPedWithPedestrians == -1) firstPedWithPedestrians = i;
+                            if (selectedPed == -1 && pedCount >= pedStep) selectedPed = i;
+                        }
+                        pedCount++;
+                    }
+
+                    if (canEnter)
+                    {
+                        if ((vehState & RoadBaseAI.TrafficLightState.Red) == 0)
+                        {
+                            currentGreen = i;
+                            if (vehicles) currentGreenWithVehicles = i;
+                        }
+                        else
+                        {
+                            if (firstIncomingRed == -1) firstIncomingRed = i;
+                            if (nextIncomingRed == -1 && redCount >= step) nextIncomingRed = i;
+
+                            if (vehicles)
+                            {
+                                if (firstRedWithVehicles == -1) firstRedWithVehicles = i;
+                                if (selectedRed == -1 && redCount >= step) selectedRed = i;
+                            }
+                            redCount++;
+                        }
+                    }
                 }
 
-                if (canEnter)
+                if (selectedRed == -1) selectedRed = firstRedWithVehicles;
+                if (selectedPed == -1) selectedPed = firstPedWithPedestrians;
+                if (nextIncomingRed == -1) nextIncomingRed = firstIncomingRed;
+
+                // Robust cycling decision:
+                bool changePhase = false;
+                if (currentGreen != -1)
                 {
-                    if ((vehState & RoadBaseAI.TrafficLightState.Red) == 0)
+                    if (selectedRed != -1)
                     {
-                        currentGreen = i;
-                        if (vehicles) currentGreenWithVehicles = i;
+                        // Demand detected on red: give active green vehicles at least 2 steps (clock <= 1) before switching
+                        if (currentGreenWithVehicles != -1 && clock <= 1)
+                        {
+                            clock++;
+                        }
+                        else
+                        {
+                            changePhase = true;
+                        }
+                    }
+                    else if (clock >= 3)
+                    {
+                        // Automatic cycle timeout (~16-20s): force cycle to next incoming red phase
+                        if (nextIncomingRed != -1)
+                        {
+                            selectedRed = nextIncomingRed;
+                            changePhase = true;
+                        }
+                        else
+                        {
+                            clock = 0;
+                        }
                     }
                     else
-                    {
-                        if (firstIncomingRed == -1) firstIncomingRed = i;
-                        if (nextIncomingRed == -1 && redCount >= step) nextIncomingRed = i;
-
-                        if (vehicles)
-                        {
-                            if (firstRedWithVehicles == -1) firstRedWithVehicles = i;
-                            if (selectedRed == -1 && redCount >= step) selectedRed = i;
-                        }
-                        redCount++;
-                    }
-                }
-            }
-
-            if (selectedRed == -1) selectedRed = firstRedWithVehicles;
-            if (selectedPed == -1) selectedPed = firstPedWithPedestrians;
-            if (nextIncomingRed == -1) nextIncomingRed = firstIncomingRed;
-
-            // Robust cycling decision:
-            bool changePhase = false;
-            if (currentGreen != -1)
-            {
-                if (selectedRed != -1)
-                {
-                    // Demand detected on red: give active green vehicles at least 2 steps (clock <= 1) before switching
-                    if (currentGreenWithVehicles != -1 && clock <= 1)
                     {
                         clock++;
                     }
-                    else
-                    {
-                        changePhase = true;
-                    }
-                }
-                else if (clock >= 3)
-                {
-                    // Automatic cycle timeout (~16-20s): force cycle to next incoming red phase
-                    if (nextIncomingRed != -1)
-                    {
-                        selectedRed = nextIncomingRed;
-                        changePhase = true;
-                    }
-                    else
-                    {
-                        clock = 0;
-                    }
                 }
                 else
                 {
-                    clock++;
+                    // No green currently (startup / all red) -> assign green to first available red
+                    if (selectedRed == -1) selectedRed = nextIncomingRed;
+                    changePhase = true;
                 }
-            }
-            else
-            {
-                // No green currently (startup / all red) -> assign green to first available red
-                if (selectedRed == -1) selectedRed = nextIncomingRed;
-                changePhase = true;
-            }
 
-            if (!changePhase)
-            {
-                selectedRed = -1;
-                selectedPed = -1;
-            }
-
-            if (selectedPed != -1 && selectedRed != -1 && (sm.m_randomizer.Int32(3) == 0))
-            {
-                selectedPed = -1;
-            }
-
-            if (selectedRed != -1)
-            {
-                currentGreen = selectedRed;
-            }
-
-            if (selectedPed == currentGreen)
-            {
-                selectedPed = -1;
-            }
-
-            Vector3 currentGreenDir = Vector3.zero;
-            if (selectedPed != -1)
-            {
-                ushort pedSeg = data.GetSegment(selectedPed);
-                if (pedSeg != 0)
+                if (!changePhase)
                 {
-                    currentGreenDir = nm.m_segments.m_buffer[pedSeg].GetDirection(nodeID);
-                    if (currentGreen != -1)
+                    selectedRed = -1;
+                    selectedPed = -1;
+                }
+
+                if (selectedPed != -1 && selectedRed != -1 && (sm.m_randomizer.Int32(3) == 0))
+                {
+                    selectedPed = -1;
+                }
+
+                if (selectedRed != -1)
+                {
+                    currentGreen = selectedRed;
+                }
+
+                if (selectedPed == currentGreen)
+                {
+                    selectedPed = -1;
+                }
+
+                Vector3 currentGreenDir = Vector3.zero;
+                if (selectedPed != -1)
+                {
+                    ushort pedSeg = data.GetSegment(selectedPed);
+                    if (pedSeg != 0)
                     {
-                        ushort greenSeg = data.GetSegment(currentGreen);
-                        if (greenSeg != 0)
+                        currentGreenDir = nm.m_segments.m_buffer[pedSeg].GetDirection(nodeID);
+                        if (currentGreen != -1)
                         {
-                            Vector3 greenDir = nm.m_segments.m_buffer[greenSeg].GetDirection(nodeID);
-                            if (greenDir.x * currentGreenDir.x + greenDir.z * currentGreenDir.z < -0.5f)
+                            ushort greenSeg = data.GetSegment(currentGreen);
+                            if (greenSeg != 0)
                             {
-                                currentGreen = -1;
+                                Vector3 greenDir = nm.m_segments.m_buffer[greenSeg].GetDirection(nodeID);
+                                if (greenDir.x * currentGreenDir.x + greenDir.z * currentGreenDir.z < -0.5f)
+                                {
+                                    currentGreen = -1;
+                                }
                             }
                         }
-                    }
-                    if (currentGreen == -1)
-                    {
-                        for (int j = 0; j < 8; j++)
+                        if (currentGreen == -1)
                         {
-                            if (j == selectedPed) continue;
-                            if ((incomingMask & (1 << j)) == 0) continue;
-                            ushort segId = data.GetSegment(j);
-                            if (segId == 0) continue;
-                            Vector3 dir = nm.m_segments.m_buffer[segId].GetDirection(nodeID);
-                            if (dir.x * currentGreenDir.x + dir.z * currentGreenDir.z >= -0.5f)
+                            for (int j = 0; j < 8; j++)
                             {
-                                currentGreen = j;
-                                break;
+                                if (j == selectedPed) continue;
+                                if ((incomingMask & (1 << j)) == 0) continue;
+                                ushort segId = data.GetSegment(j);
+                                if (segId == 0) continue;
+                                Vector3 dir = nm.m_segments.m_buffer[segId].GetDirection(nodeID);
+                                if (dir.x * currentGreenDir.x + dir.z * currentGreenDir.z >= -0.5f)
+                                {
+                                    currentGreen = j;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            int oppositeGreen = -1;
-            Vector3 dirGreen = Vector3.zero;
-            Vector3 dirOpposite = Vector3.zero;
+                int oppositeGreen = -1;
+                Vector3 dirGreen = Vector3.zero;
+                Vector3 dirOpposite = Vector3.zero;
 
-            if (currentGreen != -1)
-            {
-                ushort segGreen = data.GetSegment(currentGreen);
-                if (segGreen != 0)
+                if (currentGreen != -1)
                 {
-                    dirGreen = nm.m_segments.m_buffer[segGreen].GetDirection(nodeID);
-
-                    if ((incomingMask & outgoingMask & (1 << currentGreen)) != 0)
+                    ushort segGreen = data.GetSegment(currentGreen);
+                    if (segGreen != 0)
                     {
-                        for (int k = 0; k < 8; k++)
+                        dirGreen = nm.m_segments.m_buffer[segGreen].GetDirection(nodeID);
+
+                        if ((incomingMask & outgoingMask & (1 << currentGreen)) != 0)
                         {
-                            if (k == currentGreen || k == selectedPed) continue;
-                            if ((incomingMask & outgoingMask & (1 << k)) == 0) continue;
+                            for (int k = 0; k < 8; k++)
+                            {
+                                if (k == currentGreen || k == selectedPed) continue;
+                                if ((incomingMask & outgoingMask & (1 << k)) == 0) continue;
 
-                            ushort segK = data.GetSegment(k);
-                            if (segK == 0) continue;
+                                ushort segK = data.GetSegment(k);
+                                if (segK == 0) continue;
 
-                            dirOpposite = nm.m_segments.m_buffer[segK].GetDirection(nodeID);
-                            if (selectedPed != -1 && (dirOpposite.x * currentGreenDir.x + dirOpposite.z * currentGreenDir.z < -0.5f))
-                            {
-                                continue;
-                            }
-                            if (incomingCount == 2)
-                            {
-                                oppositeGreen = k;
-                                break;
-                            }
-                            if (dirOpposite.x * dirGreen.x + dirOpposite.z * dirGreen.z < -0.9396926f)
-                            {
-                                oppositeGreen = k;
-                                break;
+                                dirOpposite = nm.m_segments.m_buffer[segK].GetDirection(nodeID);
+                                if (selectedPed != -1 && (dirOpposite.x * currentGreenDir.x + dirOpposite.z * currentGreenDir.z < -0.5f))
+                                {
+                                    continue;
+                                }
+                                if (incomingCount == 2)
+                                {
+                                    oppositeGreen = k;
+                                    break;
+                                }
+                                if (dirOpposite.x * dirGreen.x + dirOpposite.z * dirGreen.z < -0.9396926f)
+                                {
+                                    oppositeGreen = k;
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            bool[] bollardsArray = new bool[8];
+                bool[] bollardsArray = new bool[8];
 
-            for (int s = 0; s < 8; s++)
-            {
-                ushort segId = data.GetSegment(s);
-                if (segId == 0) continue;
-
-                RoadBaseAI.TrafficLightState vehState;
-                RoadBaseAI.TrafficLightState pedState;
-                bool dummyPed;
-                RoadBaseAI.GetTrafficLightState(nodeID, ref nm.m_segments.m_buffer[segId], currentFrameIndex - 256u, out vehState, out pedState, out bollardsArray[s], out dummyPed);
-
-                vehState = (RoadBaseAI.TrafficLightState)((int)vehState & ~1);
-                pedState = (RoadBaseAI.TrafficLightState)((int)pedState & ~1);
-
-                if (s == currentGreen || s == oppositeGreen)
+                for (int s = 0; s < 8; s++)
                 {
-                    if ((vehState & RoadBaseAI.TrafficLightState.Red) != 0)
-                    {
-                        vehState = RoadBaseAI.TrafficLightState.RedToGreen;
-                        clock = 0;
-                        step++;
-                        if (step >= redCount) step = 0;
-                    }
+                    ushort segId = data.GetSegment(s);
+                    if (segId == 0) continue;
 
-                    if ((pedState & RoadBaseAI.TrafficLightState.Red) == 0)
-                    {
-                        pedState = RoadBaseAI.TrafficLightState.GreenToRed;
-                    }
-                }
-                else
-                {
-                    if ((vehState & RoadBaseAI.TrafficLightState.Red) == 0)
-                    {
-                        vehState = RoadBaseAI.TrafficLightState.GreenToRed;
-                    }
+                    RoadBaseAI.TrafficLightState vehState;
+                    RoadBaseAI.TrafficLightState pedState;
+                    bool dummyPed;
+                    RoadBaseAI.GetTrafficLightState(nodeID, ref nm.m_segments.m_buffer[segId], currentFrameIndex - 256u, out vehState, out pedState, out bollardsArray[s], out dummyPed);
 
-                    Vector3 segDir = nm.m_segments.m_buffer[segId].GetDirection(nodeID);
-                    bool pedCrossingAllowed = false;
+                    vehState = (RoadBaseAI.TrafficLightState)((int)vehState & ~1);
+                    pedState = (RoadBaseAI.TrafficLightState)((int)pedState & ~1);
 
-                    if ((outgoingMask & (1 << s)) != 0 && s != selectedPed)
+                    if (s == currentGreen || s == oppositeGreen)
                     {
-                        if (currentGreen == -1 || (segDir.x * dirGreen.x + segDir.z * dirGreen.z >= -0.5f))
+                        if ((vehState & RoadBaseAI.TrafficLightState.Red) != 0)
                         {
-                            if (oppositeGreen == -1 || (segDir.x * dirOpposite.x + dirOpposite.z * dirOpposite.z >= -0.5f))
-                            {
-                                pedCrossingAllowed = true;
-                            }
+                            vehState = RoadBaseAI.TrafficLightState.RedToGreen;
+                            clock = 0;
+                            step++;
+                            if (step >= redCount) step = 0;
                         }
-                    }
-
-                    if (pedCrossingAllowed)
-                    {
-                        if ((pedState & RoadBaseAI.TrafficLightState.Red) != 0)
+                        else
                         {
-                            pedState = RoadBaseAI.TrafficLightState.RedToGreen;
-                            pedStep++;
-                            if (pedStep >= pedCount) pedStep = 0;
+                            vehState = RoadBaseAI.TrafficLightState.Green;
                         }
-                    }
-                    else
-                    {
+
                         if ((pedState & RoadBaseAI.TrafficLightState.Red) == 0)
                         {
                             pedState = RoadBaseAI.TrafficLightState.GreenToRed;
                         }
                     }
+                    else
+                    {
+                        if ((vehState & RoadBaseAI.TrafficLightState.Red) == 0)
+                        {
+                            vehState = RoadBaseAI.TrafficLightState.GreenToRed;
+                        }
+                        else
+                        {
+                            vehState = RoadBaseAI.TrafficLightState.Red;
+                        }
+
+                        Vector3 segDir = nm.m_segments.m_buffer[segId].GetDirection(nodeID);
+                        bool pedCrossingAllowed = false;
+
+                        if ((outgoingMask & (1 << s)) != 0 && s != selectedPed)
+                        {
+                            if (currentGreen == -1 || (segDir.x * dirGreen.x + segDir.z * dirGreen.z >= -0.5f))
+                            {
+                                if (oppositeGreen == -1 || (segDir.x * dirOpposite.x + segDir.z * dirOpposite.z >= -0.5f))
+                                {
+                                    pedCrossingAllowed = true;
+                                }
+                            }
+                        }
+
+                        if (pedCrossingAllowed)
+                        {
+                            if ((pedState & RoadBaseAI.TrafficLightState.Red) != 0)
+                            {
+                                pedState = RoadBaseAI.TrafficLightState.RedToGreen;
+                                pedStep++;
+                                if (pedStep >= pedCount) pedStep = 0;
+                            }
+                            else
+                            {
+                                pedState = RoadBaseAI.TrafficLightState.Green;
+                            }
+                        }
+                        else
+                        {
+                            if ((pedState & RoadBaseAI.TrafficLightState.Red) == 0)
+                            {
+                                pedState = RoadBaseAI.TrafficLightState.GreenToRed;
+                            }
+                            else
+                            {
+                                pedState = RoadBaseAI.TrafficLightState.Red;
+                            }
+                        }
+                    }
+
+                    RoadBaseAI.SetTrafficLightState(nodeID, ref nm.m_segments.m_buffer[segId], currentFrameIndex, vehState, pedState, false, false);
                 }
 
-                RoadBaseAI.SetTrafficLightState(nodeID, ref nm.m_segments.m_buffer[segId], currentFrameIndex, vehState, pedState, false, false);
-            }
+                if ((data.flags & NetNode.FlagsLong.PedestrianBollards) != 0)
+                {
+                    PedestrianZoneRoadAI.BollardsSimulationStep(nodeID, ref data, bollardsArray);
+                }
 
-            if ((data.flags & NetNode.FlagsLong.PedestrianBollards) != 0)
+                data.m_maxWaitTime = (byte)((pedStep << 5) | (step << 2) | (clock & 3));
+                return false;
+            }
+            finally
             {
-                PedestrianZoneRoadAI.BollardsSimulationStep(nodeID, ref data, bollardsArray);
+                s_inTrafficLightSimulationStep = false;
             }
+        }
 
-            data.m_maxWaitTime = (byte)((pedStep << 5) | (step << 2) | (clock & 3));
+        public static bool GetBollardState5_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, out RoadBaseAI.TrafficLightState enterState, out RoadBaseAI.TrafficLightState exitState)
+        {
+            if (nodeID >= 32768)
+            {
+                frame += 256u;
+            }
+            int state = ((frame >> 8) & 1) == 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
+            if (segmentData.m_startNode == nodeID)
+            {
+                state = (state >> 8) & 15;
+            }
+            else
+            {
+                state = (state >> 12) & 15;
+            }
+            enterState = (RoadBaseAI.TrafficLightState)(state & 3);
+            exitState = (RoadBaseAI.TrafficLightState)(state >> 2);
+            return false;
+        }
+
+        public static bool GetBollardState7_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, out RoadBaseAI.TrafficLightState enterState, out RoadBaseAI.TrafficLightState exitState, out bool enter, out bool exit)
+        {
+            if (nodeID >= 32768)
+            {
+                frame += 256u;
+            }
+            int state = ((frame >> 8) & 1) == 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
+            if (segmentData.m_startNode == nodeID)
+            {
+                state = (state >> 8) & 15;
+                enter = (segmentData.m_flags2 & (NetSegment.Flags2)2) != 0;
+                exit = (segmentData.m_flags2 & (NetSegment.Flags2)8) != 0;
+            }
+            else
+            {
+                state = (state >> 12) & 15;
+                enter = (segmentData.m_flags2 & (NetSegment.Flags2)4) != 0;
+                exit = (segmentData.m_flags2 & (NetSegment.Flags2)16) != 0;
+            }
+            enterState = (RoadBaseAI.TrafficLightState)(state & 3);
+            exitState = (RoadBaseAI.TrafficLightState)(state >> 2);
+            return false;
+        }
+
+        public static bool SetBollardState_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, RoadBaseAI.TrafficLightState enterState, RoadBaseAI.TrafficLightState exitState, bool enter, bool exit)
+        {
+            int encoded = ((int)exitState << 2) | (int)enterState;
+            if (segmentData.m_startNode == nodeID)
+            {
+                if (((frame >> 8) & 1) == 0)
+                {
+                    segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & -3841) | (encoded << 8);
+                }
+                else
+                {
+                    segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & -3841) | (encoded << 8);
+                }
+                if (enter) segmentData.m_flags2 |= (NetSegment.Flags2)2;
+                else segmentData.m_flags2 &= ~(NetSegment.Flags2)2;
+                if (exit) segmentData.m_flags2 |= (NetSegment.Flags2)8;
+                else segmentData.m_flags2 &= ~(NetSegment.Flags2)8;
+            }
+            else
+            {
+                if (((frame >> 8) & 1) == 0)
+                {
+                    segmentData.m_trafficLightState0 = (segmentData.m_trafficLightState0 & -61441) | (encoded << 12);
+                }
+                else
+                {
+                    segmentData.m_trafficLightState1 = (segmentData.m_trafficLightState1 & -61441) | (encoded << 12);
+                }
+                if (enter) segmentData.m_flags2 |= (NetSegment.Flags2)4;
+                else segmentData.m_flags2 &= ~(NetSegment.Flags2)4;
+                if (exit) segmentData.m_flags2 |= (NetSegment.Flags2)16;
+                else segmentData.m_flags2 &= ~(NetSegment.Flags2)16;
+            }
             return false;
         }
 
@@ -8806,39 +9009,32 @@ namespace MoreNetworkCapacityRenew
             switch (vehState)
             {
                 case RoadBaseAI.TrafficLightState.Green:
-                    color.r = 0f;
                     color.g = 1f;
                     break;
                 case RoadBaseAI.TrafficLightState.RedToGreen:
                     if (subFrame < 45u)
                     {
-                        color.r = 0f;
                         color.g = 0f;
                     }
                     else if (subFrame < 60u)
                     {
                         color.r = 1f;
-                        color.g = 0f;
                     }
                     else
                     {
-                        color.r = 1f;
                         color.g = 1f;
                     }
                     break;
                 case RoadBaseAI.TrafficLightState.Red:
-                    color.r = 0f;
                     color.g = 0f;
                     break;
                 case RoadBaseAI.TrafficLightState.GreenToRed:
                     if (subFrame < 45u)
                     {
                         color.r = 1f;
-                        color.g = 0f;
                     }
                     else
                     {
-                        color.r = 0f;
                         color.g = 0f;
                     }
                     break;
@@ -8865,7 +9061,7 @@ namespace MoreNetworkCapacityRenew
                 case RoadBaseAI.TrafficLightState.GreenToRed:
                     if (subFrame < 45u)
                     {
-                        color.b = ((subFrame / 8u) & 1u) == 1u ? 1f : 0f;
+                        color.b = (((subFrame / 8u) & 1u) == 1u) ? 1f : 0f;
                     }
                     else
                     {
@@ -8875,6 +9071,47 @@ namespace MoreNetworkCapacityRenew
             }
 
             return false;
+        }
+    }
+
+    // ============================================================================
+    // UI EXCEPTION ARMOR (PREVENTS NRE IN VehicleWorldInfoPanel ON NULL STRINGS)
+    // ============================================================================
+    public static class UIExceptionPatches
+    {
+        public static void Apply(HarmonyInstance harmony)
+        {
+            if (harmony == null) return;
+            try
+            {
+                MethodInfo setTxt = typeof(ColossalFramework.UI.UITextField).GetProperty("text", BindingFlags.Public | BindingFlags.Instance)?.GetSetMethod();
+                if (setTxt != null)
+                {
+                    MethodInfo pre = typeof(UIExceptionPatches).GetMethod(nameof(SetText_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(setTxt, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched UITextField.set_text (null string armor)");
+                }
+
+                MethodInfo setLbl = typeof(ColossalFramework.UI.UILabel).GetProperty("text", BindingFlags.Public | BindingFlags.Instance)?.GetSetMethod();
+                if (setLbl != null)
+                {
+                    MethodInfo pre = typeof(UIExceptionPatches).GetMethod(nameof(SetText_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(setLbl, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched UILabel.set_text (null string armor)");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] UIExceptionPatches.Apply error: " + ex);
+            }
+        }
+
+        public static void SetText_Prefix(ref string value)
+        {
+            if (value == null)
+            {
+                value = string.Empty;
+            }
         }
     }
 

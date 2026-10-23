@@ -1338,12 +1338,12 @@ class TestSuite
                                       renewCode.Contains("Utf16Sanitizer.Sanitize(name)");
             Assert(bindPrefabsPatched, "PrefabCollection<VehicleInfo>.BindPrefabs hooked with Simulation Prefab Sanitizer");
 
-            // 27.6 VehicleManager.Data.AfterDeserialize Orphan Vehicle Cleaner
+            // 27.6 VehicleManager.Data.AfterDeserialize Deadlock-Free Orphan Vehicle Neutralizer
             bool vehicleCleanerPatched = renewCode.Contains("VehicleManager_Data_AfterDeserialize_Postfix") &&
                                          renewCode.Contains("VehicleManagerDataAfterDeserializePatch") &&
-                                         renewCode.Contains("vm.ReleaseVehicle(i)") &&
-                                         renewCode.Contains("vm.ReleaseParkedVehicle(i)");
-            Assert(vehicleCleanerPatched, "VehicleManager.Data.AfterDeserialize hooked with Orphan Vehicle Cleaner to prevent null pointer exceptions");
+                                         renewCode.Contains("vm.m_vehicles.m_buffer[i].m_flags = 0") &&
+                                         renewCode.Contains("vm.m_parkedVehicles.m_buffer[i].m_flags = 0");
+            Assert(vehicleCleanerPatched, "VehicleManager.Data.AfterDeserialize hooked with Deadlock-Free Orphan Vehicle Neutralizer to prevent null pointer exceptions and cross-thread deadlocks");
         }
         catch (Exception ex)
         {

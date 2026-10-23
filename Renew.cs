@@ -12339,23 +12339,6 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DataSerializer.ReadSharedType: " + ex);
                 }
 
-                // 3h. Patch DataSerializer.ReadUniqueString (UTF-16 Sanitizer Armor against broken surrogate sequences)
-                try
-                {
-                    Type dsType = typeof(ColossalFramework.IO.DataSerializer);
-                    MethodInfo rus = dsType.GetMethod("ReadUniqueString", BindingFlags.Public | BindingFlags.Instance);
-                    MethodInfo post = typeof(TransportLineCompatibility).GetMethod(nameof(DataSerializer_ReadUniqueString_Postfix), BindingFlags.Public | BindingFlags.Static);
-                    if (rus != null && post != null)
-                    {
-                        harmony.Patch(rus, postfix: new HarmonyMethod(post) { prioritiy = Harmony.Priority.First });
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DataSerializer.ReadUniqueString with UTF-16 Sanitizer Armor (Priority.First).");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DataSerializer.ReadUniqueString: " + ex);
-                }
-
                 // 3i. Patch DebugLogHandler.LogFormat (Universal UTF-16 Log Armor against P/Invoke ArgumentException crashes)
                 try
                 {
@@ -12376,24 +12359,7 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DebugLogHandler.LogFormat: " + ex);
                 }
 
-                // 3j. Patch PrefabCollection<VehicleInfo>.BindPrefabs (Simulation Prefab Sanitizer)
-                try
-                {
-                    Type vehicleCollection = typeof(PrefabCollection<VehicleInfo>);
-                    MethodInfo bindPrefabs = vehicleCollection.GetMethod("BindPrefabs", BindingFlags.Public | BindingFlags.Static);
-                    MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(PrefabCollection_VehicleInfo_BindPrefabs_Prefix), BindingFlags.Public | BindingFlags.Static);
-                    if (bindPrefabs != null && pre != null)
-                    {
-                        harmony.Patch(bindPrefabs, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PrefabCollection<VehicleInfo>.BindPrefabs with Simulation Prefab Sanitizer.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching PrefabCollection<VehicleInfo>.BindPrefabs: " + ex);
-                }
-
-                // 3k. Patch VehicleManager.Data.AfterDeserialize (Orphan/Broken Vehicle Cleaner)
+                // 3k. Patch VehicleManager.Data.AfterDeserialize (Deadlock-Free Orphan/Broken Vehicle Neutralizer)
                 try
                 {
                     Type vmDataType = typeof(VehicleManager).GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
@@ -12404,7 +12370,7 @@ namespace MoreNetworkCapacityRenew
                         if (vmAfterDes != null && post != null)
                         {
                             harmony.Patch(vmAfterDes, postfix: new HarmonyMethod(post));
-                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched VehicleManager.Data.AfterDeserialize with Orphan Vehicle Cleaner.");
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched VehicleManager.Data.AfterDeserialize with Deadlock-Free Orphan Vehicle Neutralizer.");
                         }
                     }
                 }
@@ -14292,15 +14258,33 @@ namespace MoreNetworkCapacityRenew
                 VehicleManager vm = Singleton<VehicleManager>.instance;
                 if (vm == null || vm.m_vehicles == null || vm.m_vehicles.m_buffer == null) return;
 
-                int releasedVehicles = 0;
-                int releasedParked = 0;
+                int neutralizedVehicles = 0;
+                int neutralizedParked = 0;
 
                 for (ushort i = 1; i < vm.m_vehicles.m_buffer.Length; i++)
                 {
-                    if (vm.m_vehicles.m_buffer[i].m_flags != 0 && vm.m_vehicles.m_buffer[i].Info == null)
+                    if (vm.m_vehicles.m_buffer[i].m_flags != 0)
                     {
-                        vm.ReleaseVehicle(i);
-                        releasedVehicles++;
+                        VehicleInfo info = null;
+                        try { info = vm.m_vehicles.m_buffer[i].Info; } catch {}
+                        if (info == null)
+                        {
+                            // Safely neutralize orphan vehicle in-place WITHOUT cross-thread dispatch or locks
+                            vm.m_vehicles.m_buffer[i].m_flags = 0;
+                            vm.m_vehicles.m_buffer[i].m_infoIndex = 0;
+                            vm.m_vehicles.m_buffer[i].m_leadingVehicle = 0;
+                            vm.m_vehicles.m_buffer[i].m_trailingVehicle = 0;
+                            vm.m_vehicles.m_buffer[i].m_cargoParent = 0;
+                            vm.m_vehicles.m_buffer[i].m_firstCargo = 0;
+                            vm.m_vehicles.m_buffer[i].m_nextCargo = 0;
+                            vm.m_vehicles.m_buffer[i].m_nextGridVehicle = 0;
+                            vm.m_vehicles.m_buffer[i].m_path = 0;
+                            vm.m_vehicles.m_buffer[i].m_citizenUnits = 0;
+                            vm.m_vehicles.m_buffer[i].m_targetBuilding = 0;
+                            vm.m_vehicles.m_buffer[i].m_sourceBuilding = 0;
+                            vm.m_vehicles.m_buffer[i].m_transportLine = 0;
+                            neutralizedVehicles++;
+                        }
                     }
                 }
 
@@ -14308,17 +14292,25 @@ namespace MoreNetworkCapacityRenew
                 {
                     for (ushort i = 1; i < vm.m_parkedVehicles.m_buffer.Length; i++)
                     {
-                        if (vm.m_parkedVehicles.m_buffer[i].m_flags != 0 && vm.m_parkedVehicles.m_buffer[i].Info == null)
+                        if (vm.m_parkedVehicles.m_buffer[i].m_flags != 0)
                         {
-                            vm.ReleaseParkedVehicle(i);
-                            releasedParked++;
+                            VehicleInfo info = null;
+                            try { info = vm.m_parkedVehicles.m_buffer[i].Info; } catch {}
+                            if (info == null)
+                            {
+                                vm.m_parkedVehicles.m_buffer[i].m_flags = 0;
+                                vm.m_parkedVehicles.m_buffer[i].m_infoIndex = 0;
+                                vm.m_parkedVehicles.m_buffer[i].m_nextGridParked = 0;
+                                vm.m_parkedVehicles.m_buffer[i].m_ownerCitizen = 0;
+                                neutralizedParked++;
+                            }
                         }
                     }
                 }
 
-                if (releasedVehicles > 0 || releasedParked > 0)
+                if (neutralizedVehicles > 0 || neutralizedParked > 0)
                 {
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Orphan Vehicle Cleaner: Released {0} vehicles and {1} parked vehicles with missing/corrupt prefabs.", releasedVehicles, releasedParked));
+                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Orphan Vehicle Neutralizer: Safely cleared {0} vehicles and {1} parked vehicles with missing/corrupt prefabs (deadlock-free).", neutralizedVehicles, neutralizedParked));
                 }
             }
             catch (Exception ex)
@@ -15607,7 +15599,6 @@ namespace MoreNetworkCapacityRenew
         }
     }
 
-    [HarmonyPatch(typeof(ColossalFramework.IO.DataSerializer), "ReadUniqueString")]
     public static class DataSerializerReadUniqueStringPatch
     {
         public static void Postfix(ref string __result)
@@ -15616,7 +15607,6 @@ namespace MoreNetworkCapacityRenew
         }
     }
 
-    [HarmonyPatch(typeof(VehicleManager.Data), "AfterDeserialize")]
     public static class VehicleManagerDataAfterDeserializePatch
     {
         public static void Postfix()

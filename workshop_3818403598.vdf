@@ -116,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.4 - UTF-16 Sanitizer & Orphan Vehicle Cleaner Hotfix: Universal UTF-16 Sanitizer Armor (DataSerializer.ReadUniqueString & DebugLogHandler.LogFormat) permanently resolving 'ArgumentException: invalid utf-16 sequence (missing surrogate head)'; Orphan Vehicle Cleaner automatically releasing broken vehicles with missing prefabs to permanently eliminate 'NullReferenceException' in Transport Lines Manager (TLM)."
+	"changenote"		"v5.0.5 - Deadlock-Free Loading Screen & Orphan Vehicle Neutralizer Hotfix: Replaced cross-thread dispatcher calls in VehicleManager.Data.AfterDeserialize with instantaneous in-memory vehicle neutralization, permanently eliminating loading screen hangs at 29+ minutes; removed high-frequency string hook overhead."
 }
 

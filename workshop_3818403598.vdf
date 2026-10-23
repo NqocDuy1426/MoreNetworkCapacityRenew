@@ -116,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.6 - Corrupted Save Immunity & Universal Game Loading Armor: Added GameLoadingArmor defending against save corruption and mod crashes (UnlockManager scenario condition overflow guard, RadioPanel null station guard, MessageManager chirper bounds & recovery guard, TransportLinesManager missing prefab vehicle removal guard, and crash-proof native logging P/Invoke protection); 100% preservation of network limit logic and zero loading screen deadlocks."
+	"changenote"		"v5.0.7 - Zero-Deadlock Performance & Overflow Fix: Fixed ushort loop counter overflow in VehicleManager when MoreVehicles is installed (65,536-size buffers); pre-cached prefab lookup table for lock-free 0.2ms vehicle neutralization; neutralized invalid transit line vehicles in-memory without cross-thread ReleaseVehicle calls."
 }
 

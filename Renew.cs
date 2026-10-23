@@ -14512,6 +14512,25 @@ namespace MoreNetworkCapacityRenew
                     harmony.Patch(getMaintCost, prefix: new HarmonyMethod(pre));
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PlayerNetAI.GetMaintenanceCost with NaN/overflow safety.");
                 }
+
+                // 5. Investment deserialization shield: Protect against corrupted -1 ticks / ArgumentOutOfRangeException
+                MethodInfo desInvest = emType.GetMethod("DeserializeInvestments", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (desInvest != null)
+                {
+                    MethodInfo transpiler = typeof(EconomyProtection).GetMethod(nameof(DeserializeInvestments_Transpiler), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(desInvest, transpiler: new HarmonyMethod(transpiler));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched EconomyManager.DeserializeInvestments with SafeCreateDateTime armor.");
+                }
+
+                // 6. EconomyManager.Data.Deserialize shield: Catch any unexpected investment exception to prevent load failure
+                Type emDataType = emType.GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                MethodInfo dataDes = emDataType?.GetMethod("Deserialize", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (dataDes != null)
+                {
+                    MethodInfo transpiler = typeof(EconomyProtection).GetMethod(nameof(EconomyManager_Data_Deserialize_Transpiler), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(dataDes, transpiler: new HarmonyMethod(transpiler));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched EconomyManager.Data.Deserialize with SafeDeserializeInvestments armor.");
+                }
             }
             catch (Exception ex)
             {
@@ -14687,6 +14706,95 @@ namespace MoreNetworkCapacityRenew
                 }
             }
             return count;
+        }
+
+        /// <summary>
+        /// Armor against ArgumentOutOfRangeException: Value -1 is outside the valid range [0, 3155378975999999999]
+        /// when deserializing uninitialized or -1 ticks in EconomyManager investment dates.
+        /// </summary>
+        public static DateTime SafeCreateDateTime(long ticks)
+        {
+            if (ticks < 0L || ticks > 3155378975999999999L)
+            {
+                return DateTime.MinValue;
+            }
+            return new DateTime(ticks);
+        }
+
+        /// <summary>
+        /// Replaces newobj DateTime::.ctor(long) with SafeCreateDateTime(long) in EconomyManager.DeserializeInvestments.
+        /// </summary>
+        public static IEnumerable<CodeInstruction> DeserializeInvestments_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo safeMethod = typeof(EconomyProtection).GetMethod(nameof(SafeCreateDateTime), BindingFlags.Public | BindingFlags.Static);
+            int count = 0;
+            foreach (var instruction in instructions)
+            {
+                if (instruction.opcode == OpCodes.Newobj && instruction.operand is ConstructorInfo ci)
+                {
+                    if (ci.DeclaringType == typeof(DateTime))
+                    {
+                        var pars = ci.GetParameters();
+                        if (pars != null && pars.Length == 1 && pars[0].ParameterType == typeof(long))
+                        {
+                            instruction.opcode = OpCodes.Call;
+                            instruction.operand = safeMethod;
+                            count++;
+                        }
+                    }
+                }
+                yield return instruction;
+            }
+            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Injected SafeCreateDateTime into EconomyManager.DeserializeInvestments ({0} sites).", count));
+        }
+
+        /// <summary>
+        /// Safe wrapper around EconomyManager.DeserializeInvestments to guarantee simulation load never crashes on corrupt investments.
+        /// </summary>
+        public static void SafeDeserializeInvestments(EconomyManager em, ColossalFramework.IO.DataSerializer s)
+        {
+            try
+            {
+                if (em != null && s != null)
+                {
+                    em.DeserializeInvestments(s);
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Recovered from corrupted EconomyManager investment data: " + ex.Message);
+                try
+                {
+                    if (em != null)
+                    {
+                        em.ResetAllInvestments();
+                    }
+                }
+                catch {}
+            }
+        }
+
+        /// <summary>
+        /// Replaces callvirt EconomyManager::DeserializeInvestments with SafeDeserializeInvestments in EconomyManager.Data.Deserialize.
+        /// </summary>
+        public static IEnumerable<CodeInstruction> EconomyManager_Data_Deserialize_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo safeMethod = typeof(EconomyProtection).GetMethod(nameof(SafeDeserializeInvestments), BindingFlags.Public | BindingFlags.Static);
+            int count = 0;
+            foreach (var instruction in instructions)
+            {
+                if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt) && instruction.operand is MethodInfo mi)
+                {
+                    if (mi.Name == "DeserializeInvestments")
+                    {
+                        instruction.opcode = OpCodes.Call;
+                        instruction.operand = safeMethod;
+                        count++;
+                    }
+                }
+                yield return instruction;
+            }
+            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Injected SafeDeserializeInvestments into EconomyManager.Data.Deserialize ({0} sites).", count));
         }
     }
 

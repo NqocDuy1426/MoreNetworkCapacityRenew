@@ -791,6 +791,18 @@ class TestSuite
                                  renewCode.Contains("float.IsInfinity(startPos.x)") &&
                                  renewCode.Contains("calc > (long)int.MaxValue");
             Assert(hasTrackArmor, "PlayerNetAI.GetMaintenanceCost protected against NaN, Infinity, and 32-bit integer overflow");
+
+            // 18.6 EconomyManager investment date shield (SafeCreateDateTime)
+            bool hasInvestDateShield = renewCode.Contains("DeserializeInvestments_Transpiler") &&
+                                       renewCode.Contains("SafeCreateDateTime") &&
+                                       renewCode.Contains("DateTime.MinValue");
+            Assert(hasInvestDateShield, "EconomyManager.DeserializeInvestments protected against corrupted -1 ticks / ArgumentOutOfRangeException");
+
+            // 18.7 EconomyManager.Data.Deserialize shield (SafeDeserializeInvestments)
+            bool hasInvestDesShield = renewCode.Contains("EconomyManager_Data_Deserialize_Transpiler") &&
+                                      renewCode.Contains("SafeDeserializeInvestments") &&
+                                      renewCode.Contains("ResetAllInvestments");
+            Assert(hasInvestDesShield, "EconomyManager.Data.Deserialize protected against corrupt investment deserialization aborting city simulation load");
         }
         catch (Exception ex)
         {

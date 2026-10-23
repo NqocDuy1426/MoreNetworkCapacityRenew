@@ -959,14 +959,16 @@ class TestSuite
             // 21.2 Bank-agnostic state getter prefixes (prevents visual & AI desync)
             bool hasGetSync = renewCode.Contains("public static bool GetTrafficLightState5_Prefix(") &&
                               renewCode.Contains("public static bool GetTrafficLightState7_Prefix(") &&
-                              renewCode.Contains("vehicleLightState = (RoadBaseAI.TrafficLightState)(state & 3);");
-            Assert(hasGetSync, "GetTrafficLightState 5- and 7-parameter prefixes reliably read synchronized state regardless of frame index or bank toggle");
+                              renewCode.Contains("vehicleLightState = (RoadBaseAI.TrafficLightState)(state & 3);") &&
+                              !renewCode.Contains("if (state == 0)\n            {\n                state = segmentData.m_trafficLightState0 != 0");
+            Assert(hasGetSync, "GetTrafficLightState 5- and 7-parameter prefixes reliably read synchronized state without corrupting Green (0) into Red");
 
-            // 21.3 SimulationStep prefix with deadlock auto-cycling (clock >= 3)
+            // 21.3 SimulationStep prefix with deadlock auto-cycling (clock >= 3) and green flow protection
             bool hasSimStepDeadlockFix = renewCode.Contains("public static bool TrafficLightSimulationStep_Prefix(") &&
+                                         renewCode.Contains("if (currentGreenWithVehicles != -1 && clock <= 1)") &&
                                          renewCode.Contains("else if (clock >= 3)") &&
                                          renewCode.Contains("selectedRed = nextIncomingRed;");
-            Assert(hasSimStepDeadlockFix, "TrafficLightSimulationStep prefix enforces cycle timeout (clock >= 3), preventing perpetual red/green freeze even with zero waiting demand");
+            Assert(hasSimStepDeadlockFix, "TrafficLightSimulationStep prefix protects active green flow (clock <= 1) and enforces cycle timeout (clock >= 3), preventing 1-second pause cycles");
 
             // 21.4 TM:PE Timed Light pass-through with DynamicMethod (Zero Harmony hooks into TM:PE)
             bool hasTimedLightPassThrough = renewCode.Contains("if (MNCTrafficLightStepper.IsTMPETimedLightRunning(nodeID))") &&

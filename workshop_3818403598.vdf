@@ -116,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.7 - Zero-Deadlock Performance & Overflow Fix: Fixed ushort loop counter overflow in VehicleManager when MoreVehicles is installed (65,536-size buffers); pre-cached prefab lookup table for lock-free 0.2ms vehicle neutralization; neutralized invalid transit line vehicles in-memory without cross-thread ReleaseVehicle calls."
+	"changenote"		"v5.0.8 - Smooth Traffic Flow & Green Light Restoration: Fixed traffic light double-buffer state getter desync where Green state was erroneously overridden with Red, resolving the 1-second vehicle pause/stutter; normalized phase cycling in TrafficLightSimulationStep protecting active green flow; automatically expanded TM:PE VehicleRestrictionsManager buffer capacity on high-ID segments with zero TM:PE hooks."
 }
 

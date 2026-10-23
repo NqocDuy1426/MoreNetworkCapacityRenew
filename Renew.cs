@@ -7992,6 +7992,7 @@ namespace MoreNetworkCapacityRenew
 
         private static bool s_initialized;
         private static bool s_impatientCommutersChecked;
+        private static bool s_tmpeVRMChecked;
 
         public static void ResetStepper()
         {
@@ -8002,6 +8003,7 @@ namespace MoreNetworkCapacityRenew
             s_tmmInstance = null;
             s_initialized = false;
             s_impatientCommutersChecked = false;
+            s_tmpeVRMChecked = false;
         }
 
         public static void Initialize()
@@ -8011,6 +8013,12 @@ namespace MoreNetworkCapacityRenew
                 Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
                 if (tmpe != null)
                 {
+                    TMPECompatibility.EnsureVehicleRestrictionsCapacity(tmpe);
+                    TMPECompatibility.EnsureCustomSegmentLightsCapacity(tmpe);
+                    TMPECompatibility.EnsureTrafficPriorityCapacity(tmpe);
+                    TMPECompatibility.EnsureJunctionRestrictionsCapacity(tmpe);
+                    TMPECompatibility.EnsureParkingRestrictionsCapacity(MNCConstants.CORE_NET_CAPACITY);
+
                     Type tlsmType = tmpe.GetType("TrafficManager.Manager.Impl.TrafficLightSimulationManager");
                     if (tlsmType != null)
                     {
@@ -8138,6 +8146,15 @@ namespace MoreNetworkCapacityRenew
             {
                 ThirdPartyCompatibility.EnsureImpatientCommutersBuffers("MNCTrafficLightStepper.OnBeforeSimulationTick");
                 s_impatientCommutersChecked = true;
+            }
+            if (!s_tmpeVRMChecked)
+            {
+                Assembly tmpe = TMPECompatibility.GetTMPEAssembly();
+                if (tmpe != null)
+                {
+                    TMPECompatibility.EnsureVehicleRestrictionsCapacity(tmpe);
+                }
+                s_tmpeVRMChecked = true;
             }
         }
 
@@ -8420,10 +8437,6 @@ namespace MoreNetworkCapacityRenew
         public static bool GetTrafficLightState5_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, out RoadBaseAI.TrafficLightState vehicleLightState, out RoadBaseAI.TrafficLightState pedestrianLightState)
         {
             int state = ((frame >> 8) & 1) == 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
-            if (state == 0)
-            {
-                state = segmentData.m_trafficLightState0 != 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
-            }
             if (segmentData.m_startNode == nodeID)
             {
                 state &= 15;
@@ -8440,10 +8453,6 @@ namespace MoreNetworkCapacityRenew
         public static bool GetTrafficLightState7_Prefix(ushort nodeID, ref NetSegment segmentData, uint frame, out RoadBaseAI.TrafficLightState vehicleLightState, out RoadBaseAI.TrafficLightState pedestrianLightState, out bool vehicles, out bool pedestrians)
         {
             int state = ((frame >> 8) & 1) == 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
-            if (state == 0)
-            {
-                state = segmentData.m_trafficLightState0 != 0 ? segmentData.m_trafficLightState0 : segmentData.m_trafficLightState1;
-            }
             if (segmentData.m_startNode == nodeID)
             {
                 state &= 15;
@@ -8562,14 +8571,14 @@ namespace MoreNetworkCapacityRenew
             {
                 if (selectedRed != -1)
                 {
-                    // Demand detected on red: switch when minimum green has elapsed or green has no cars
-                    if (currentGreenWithVehicles == -1 || clock >= 1)
+                    // Demand detected on red: give active green vehicles at least 2 steps (clock <= 1) before switching
+                    if (currentGreenWithVehicles != -1 && clock <= 1)
                     {
-                        changePhase = true;
+                        clock++;
                     }
                     else
                     {
-                        clock++;
+                        changePhase = true;
                     }
                 }
                 else if (clock >= 3)
@@ -8584,11 +8593,6 @@ namespace MoreNetworkCapacityRenew
                     {
                         clock = 0;
                     }
-                }
-                else if (currentGreenWithVehicles == -1 && nextIncomingRed != -1 && clock >= 2)
-                {
-                    selectedRed = nextIncomingRed;
-                    changePhase = true;
                 }
                 else
                 {

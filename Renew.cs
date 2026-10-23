@@ -11836,23 +11836,57 @@ namespace MoreNetworkCapacityRenew
         public static bool IsIgnoredAssembly(string name)
         {
             if (string.IsNullOrEmpty(name)) return true;
-            return name.StartsWith("System") ||
-                   name.StartsWith("mscorlib") ||
-                   name.StartsWith("UnityEngine") ||
-                   name.StartsWith("ColossalManaged") ||
-                   name.StartsWith("Mono.") ||
-                   name.StartsWith("Harmony") ||
-                   name.StartsWith("0Harmony") ||
-                   name.StartsWith("CitiesHarmony") ||
-                   name.StartsWith("ICities") ||
-                   name.StartsWith("Assembly-CSharp") ||
-                   name == "MoreNodesSegments";
+            if (name.StartsWith("System") ||
+                name.StartsWith("mscorlib") ||
+                name.StartsWith("UnityEngine") ||
+                name.StartsWith("ColossalManaged") ||
+                name.StartsWith("Mono.") ||
+                name.StartsWith("Harmony") ||
+                name.StartsWith("0Harmony") ||
+                name.StartsWith("CitiesHarmony") ||
+                name.StartsWith("ICities") ||
+                name.StartsWith("Assembly-CSharp") ||
+                name == "MoreNodesSegments")
+            {
+                return true;
+            }
+
+            // Strictly ignore known UI, asset, search, graphics, camera, audio, tool mods to prevent touching asset/texture loaders
+            string lower = name.ToLowerInvariant();
+            return lower.Contains("findit") ||
+                   lower.Contains("picker") ||
+                   lower.Contains("search") ||
+                   lower.Contains("camera") ||
+                   lower.Contains("theme") ||
+                   lower.Contains("render") ||
+                   lower.Contains("relight") ||
+                   lower.Contains("lut") ||
+                   lower.Contains("font") ||
+                   lower.Contains("ui") ||
+                   lower.Contains("asset") ||
+                   lower.Contains("tree") ||
+                   lower.Contains("prop") ||
+                   lower.Contains("audio") ||
+                   lower.Contains("music") ||
+                   lower.Contains("sound") ||
+                   lower.Contains("fps") ||
+                   lower.Contains("loading") ||
+                   lower.Contains("chirp") ||
+                   lower.Contains("achievement") ||
+                   lower.Contains("unlock");
         }
 
         public static void HarmonizeActiveMods(string context)
         {
             try
             {
+                // CRITICAL SAFETY SHIELD: Never inspect or touch other mods during Main Menu, Options panel, or before level is loaded!
+                if (!Singleton<NetManager>.exists || NetManager.instance == null ||
+                    !Singleton<LoadingManager>.exists || !LoadingManager.instance.m_loadingComplete)
+                {
+                    return;
+                }
+
                 Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
                 foreach (Assembly asm in assemblies)
                 {
@@ -11875,9 +11909,24 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        private static bool IsCandidateType(Type type)
+        {
+            if (type == null || type.IsInterface || type.IsEnum || type.IsValueType) return false;
+            string name = type.Name.ToLowerInvariant();
+            string ns = (type.Namespace ?? "").ToLowerInvariant();
+
+            return name.Contains("net") || name.Contains("node") || name.Contains("segment") ||
+                   name.Contains("lane") || name.Contains("road") || name.Contains("path") ||
+                   name.Contains("traffic") || name.Contains("tile") || name.Contains("transport") ||
+                   ns.Contains("net") || ns.Contains("road") || ns.Contains("traffic") || ns.Contains("path");
+        }
+
         public static int HarmonizeAssembly(Assembly asm, string context)
         {
             if (asm == null) return 0;
+            // Also ensure we are in level
+            if (!Singleton<NetManager>.exists || NetManager.instance == null) return 0;
+
             int resizedCount = 0;
             try
             {
@@ -11899,7 +11948,7 @@ namespace MoreNetworkCapacityRenew
 
                 foreach (Type type in types)
                 {
-                    if (type == null) continue;
+                    if (type == null || !IsCandidateType(type)) continue;
                     try
                     {
                         resizedCount += ScanAndHarmonizeType(type, null, context);
@@ -11927,6 +11976,9 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
+                // CRITICAL: Never trigger a type initializer (.cctor) reflectively!
+                if (type.TypeInitializer != null) return null;
+
                 string[] instanceFieldNames = new string[] { "instance", "Instance", "s_instance", "_instance", "RawInstance" };
                 foreach (string name in instanceFieldNames)
                 {
@@ -11955,6 +12007,9 @@ namespace MoreNetworkCapacityRenew
             int count = 0;
             try
             {
+                // CRITICAL: If type has a static constructor that hasn't run, DO NOT access static fields reflectively!
+                if (instance == null && type.TypeInitializer != null) return 0;
+
                 BindingFlags flags = instance == null
                     ? (BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                     : (BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);

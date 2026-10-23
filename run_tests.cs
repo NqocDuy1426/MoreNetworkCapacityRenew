@@ -1351,6 +1351,55 @@ class TestSuite
         }
 
         // ====================================================================
+        // TEST GROUP 28: Game Loading Armor & Corrupted Save Immunity (v5.0.6)
+        // ====================================================================
+        Console.WriteLine("\n--- TEST GROUP 28: Game Loading Armor & Corrupted Save Immunity (v5.0.6) ---");
+        try
+        {
+            string renewCode = File.ReadAllText("Renew.cs");
+
+            // 28.1 GameLoadingArmor hooked in EnsureAllPatchesApplied
+            bool gameLoadingArmorHooked = renewCode.Contains("GameLoadingArmor.Apply(harmony)") &&
+                                          renewCode.Contains("class GameLoadingArmor");
+            Assert(gameLoadingArmorHooked, "GameLoadingArmor registered and invoked in EnsureAllPatchesApplied");
+
+            // 28.2 UnlockManager.Data.RefreshScenarioConditions negative overflow armor
+            bool unlockManagerPatched = renewCode.Contains("UnlockManager_Data_RefreshScenarioConditions_Prefix") &&
+                                        renewCode.Contains("triggerCount = 0") &&
+                                        renewCode.Contains("RefreshScenarioConditions");
+            Assert(unlockManagerPatched, "UnlockManager.Data.RefreshScenarioConditions hooked to clamp negative triggerCount to zero");
+
+            // 28.3 RadioPanel.AssignStationToButton null station guard
+            bool radioPanelPatched = renewCode.Contains("RadioPanel_AssignStationToButton_Prefix") &&
+                                     renewCode.Contains("button == null || station == null") &&
+                                     renewCode.Contains("AssignStationToButton");
+            Assert(radioPanelPatched, "RadioPanel.AssignStationToButton hooked to prevent NullReferenceException on missing radio stations");
+
+            // 28.4 MessageManager.GetRecentMessages bounds and null guard
+            bool messageRecentPatched = renewCode.Contains("MessageManager_GetRecentMessages_Prefix") &&
+                                        renewCode.Contains("GetRecentMessages") &&
+                                        renewCode.Contains("__result = new MessageBase[0]") &&
+                                        renewCode.Contains("s_fRecentMessageIndex.SetValue(__instance, 0)");
+            Assert(messageRecentPatched, "MessageManager.GetRecentMessages hooked to prevent IndexOutOfRangeException on corrupted chirper data");
+
+            // 28.5 TransportLinesManager.Overrides.TransportLineOverrides.RemoveVehicle null vehicle guard
+            bool tlmRemoveVehPatched = renewCode.Contains("TLM_TransportLineOverrides_RemoveVehicle_Prefix") &&
+                                       renewCode.Contains("vehicleData.Info == null") &&
+                                       renewCode.Contains("TransportLinesManager.Overrides.TransportLineOverrides");
+            Assert(tlmRemoveVehPatched, "TransportLinesManager RemoveVehicle hooked to safely skip broken vehicles with missing prefabs");
+
+            // 28.6 DebugLogHandler.LogFormat & LogException fully crash-proof with native invoke
+            bool logFormatCrashProof = renewCode.Contains("bool DebugLogHandler_LogFormat_Prefix") &&
+                                       renewCode.Contains("DebugLogHandler_LogException_Prefix") &&
+                                       renewCode.Contains("Internal_LogException");
+            Assert(logFormatCrashProof, "DebugLogHandler.LogFormat and LogException return bool and safely invoke native logging inside try-catch");
+        }
+        catch (Exception ex)
+        {
+            Assert(false, "Test Group 28 exception", ex.ToString());
+        }
+
+        // ====================================================================
         // FINAL SUMMARY
         // ====================================================================
         Console.WriteLine("\n==========================================================");

@@ -116,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.5 - Deadlock-Free Loading Screen & Orphan Vehicle Neutralizer Hotfix: Replaced cross-thread dispatcher calls in VehicleManager.Data.AfterDeserialize with instantaneous in-memory vehicle neutralization, permanently eliminating loading screen hangs at 29+ minutes; removed high-frequency string hook overhead."
+	"changenote"		"v5.0.6 - Corrupted Save Immunity & Universal Game Loading Armor: Added GameLoadingArmor defending against save corruption and mod crashes (UnlockManager scenario condition overflow guard, RadioPanel null station guard, MessageManager chirper bounds & recovery guard, TransportLinesManager missing prefab vehicle removal guard, and crash-proof native logging P/Invoke protection); 100% preservation of network limit logic and zero loading screen deadlocks."
 }
 

@@ -7556,6 +7556,16 @@ namespace MoreNetworkCapacityRenew
 
                 try
                 {
+                    // Game Loading Armor (guards against corrupt saves: negative triggerCount, missing radio station, broken TLM vehicles)
+                    GameLoadingArmor.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] GameLoadingArmor error: " + ex);
+                }
+
+                try
+                {
                     // Patch KianCommons limits
                     int patchedCount = 0;
                     foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -12339,24 +12349,32 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DataSerializer.ReadSharedType: " + ex);
                 }
 
-                // 3i. Patch DebugLogHandler.LogFormat (Universal UTF-16 Log Armor against P/Invoke ArgumentException crashes)
+                // 3i. Patch DebugLogHandler.LogFormat & LogException (Universal UTF-16 Log Armor against P/Invoke ArgumentException crashes)
                 try
                 {
                     Type dlhType = typeof(UnityEngine.Debug).Assembly.GetType("UnityEngine.DebugLogHandler");
                     if (dlhType != null)
                     {
                         MethodInfo logFormat = dlhType.GetMethod("LogFormat", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(DebugLogHandler_LogFormat_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        if (logFormat != null && pre != null)
+                        MethodInfo preFormat = typeof(TransportLineCompatibility).GetMethod(nameof(DebugLogHandler_LogFormat_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        if (logFormat != null && preFormat != null)
                         {
-                            harmony.Patch(logFormat, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                            harmony.Patch(logFormat, prefix: new HarmonyMethod(preFormat) { prioritiy = Harmony.Priority.First });
                             UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DebugLogHandler.LogFormat with Universal UTF-16 Log Armor (Priority.First).");
+                        }
+
+                        MethodInfo logEx = dlhType.GetMethod("LogException", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        MethodInfo preEx = typeof(TransportLineCompatibility).GetMethod(nameof(DebugLogHandler_LogException_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        if (logEx != null && preEx != null)
+                        {
+                            harmony.Patch(logEx, prefix: new HarmonyMethod(preEx) { prioritiy = Harmony.Priority.First });
+                            UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched DebugLogHandler.LogException with Safe Log Armor (Priority.First).");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DebugLogHandler.LogFormat: " + ex);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching DebugLogHandler: " + ex);
                 }
 
                 // 3k. Patch VehicleManager.Data.AfterDeserialize (Deadlock-Free Orphan/Broken Vehicle Neutralizer)
@@ -14192,7 +14210,10 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
-        public static void DebugLogHandler_LogFormat_Prefix(ref string format, ref object[] args)
+        private static MethodInfo s_internalLogMethod;
+        private static MethodInfo s_internalLogExceptionMethod;
+
+        public static bool DebugLogHandler_LogFormat_Prefix(UnityEngine.LogType logType, UnityEngine.Object context, ref string format, ref object[] args)
         {
             try
             {
@@ -14207,8 +14228,60 @@ namespace MoreNetworkCapacityRenew
                         }
                     }
                 }
+
+                string text;
+                try
+                {
+                    text = (args != null && args.Length > 0) ? string.Format(format, args) : format;
+                }
+                catch
+                {
+                    text = format ?? string.Empty;
+                }
+                text = Utf16Sanitizer.Sanitize(text);
+
+                if (s_internalLogMethod == null)
+                {
+                    Type dlhType = typeof(UnityEngine.Debug).Assembly.GetType("UnityEngine.DebugLogHandler");
+                    s_internalLogMethod = dlhType?.GetMethod("Internal_Log", BindingFlags.Static | BindingFlags.NonPublic);
+                }
+
+                try
+                {
+                    s_internalLogMethod?.Invoke(null, new object[] { logType, text, context });
+                }
+                catch {}
+
+                return false;
             }
-            catch {}
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool DebugLogHandler_LogException_Prefix(Exception exception, UnityEngine.Object context)
+        {
+            try
+            {
+                if (s_internalLogExceptionMethod == null)
+                {
+                    Type dlhType = typeof(UnityEngine.Debug).Assembly.GetType("UnityEngine.DebugLogHandler");
+                    s_internalLogExceptionMethod = dlhType?.GetMethod("Internal_LogException", BindingFlags.Static | BindingFlags.NonPublic);
+                }
+
+                try
+                {
+                    s_internalLogExceptionMethod?.Invoke(null, new object[] { exception, context });
+                }
+                catch {}
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static void PrefabCollection_VehicleInfo_BindPrefabs_Prefix()
@@ -15047,10 +15120,52 @@ namespace MoreNetworkCapacityRenew
                     harmony.Patch(des, prefix: new HarmonyMethod(pre));
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched MessageManager.Data.Deserialize with null-safe armor.");
                 }
+
+                MethodInfo getRecent = mmType?.GetMethod("GetRecentMessages", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                MethodInfo getRecentPre = typeof(MessageProtection).GetMethod(nameof(MessageManager_GetRecentMessages_Prefix), BindingFlags.Public | BindingFlags.Static);
+                if (getRecent != null && getRecentPre != null)
+                {
+                    harmony.Patch(getRecent, prefix: new HarmonyMethod(getRecentPre) { prioritiy = Harmony.Priority.First });
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched MessageManager.GetRecentMessages with bounds guard.");
+                }
             }
             catch (Exception ex)
             {
                 UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] MessageProtection.Apply error: " + ex);
+            }
+        }
+
+        [HarmonyPriority(Priority.First)]
+        public static bool MessageManager_GetRecentMessages_Prefix(MessageManager __instance, ref MessageBase[] __result)
+        {
+            try
+            {
+                CacheFields();
+                if (__instance == null || s_fRecentMessages == null)
+                {
+                    __result = new MessageBase[0];
+                    return false;
+                }
+                MessageBase[] recent = s_fRecentMessages.GetValue(__instance) as MessageBase[];
+                if (recent == null || recent.Length == 0)
+                {
+                    __result = new MessageBase[0];
+                    return false;
+                }
+                if (s_fRecentMessageIndex != null)
+                {
+                    int idx = (int)s_fRecentMessageIndex.GetValue(__instance);
+                    if (idx < 0 || idx >= recent.Length)
+                    {
+                        s_fRecentMessageIndex.SetValue(__instance, 0);
+                    }
+                }
+                return true;
+            }
+            catch
+            {
+                __result = new MessageBase[0];
+                return false;
             }
         }
 
@@ -15114,6 +15229,10 @@ namespace MoreNetworkCapacityRenew
                         {
                             recent[i] = null;
                         }
+                        recentIndex = 0;
+                    }
+                    if (recentIndex < 0 || (recent != null && recentIndex >= recent.Length))
+                    {
                         recentIndex = 0;
                     }
                     if (s_fRecentMessageIndex != null) s_fRecentMessageIndex.SetValue(mm, recentIndex);
@@ -15195,6 +15314,8 @@ namespace MoreNetworkCapacityRenew
                             s_fMessageQueue.SetValue(mm, new Queue<MessageBase>());
                         if (s_fRecentMessages != null && s_fRecentMessages.GetValue(mm) == null)
                             s_fRecentMessages.SetValue(mm, new MessageBase[16]);
+                        if (s_fRecentMessageIndex != null)
+                            s_fRecentMessageIndex.SetValue(mm, 0);
                         if (s_fMessageData != null && s_fMessageData.GetValue(mm) == null)
                             s_fMessageData.SetValue(mm, new Dictionary<string, MessageManager.MessageData>());
                         if (s_fRandomMessageTimers != null && s_fRandomMessageTimers.GetValue(mm) == null)
@@ -15596,6 +15717,114 @@ namespace MoreNetworkCapacityRenew
             }
             catch { }
             return s_cachedFerryInfo;
+        }
+    }
+
+    // ============================================================================
+    // GAME LOADING ARMOR (Corrupted Save & Mod Loading Protection)
+    // ============================================================================
+    public static class GameLoadingArmor
+    {
+        public static void Apply(HarmonyInstance harmony)
+        {
+            // 1. UnlockManager.Data.RefreshScenarioConditions (prevents OverflowException on negative triggerCount)
+            try
+            {
+                Type umType = typeof(UnlockManager);
+                Type umDataType = umType.GetNestedType("Data", BindingFlags.Public | BindingFlags.NonPublic);
+                MethodInfo refreshMethod = umDataType?.GetMethod("RefreshScenarioConditions", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                MethodInfo refreshPre = typeof(GameLoadingArmor).GetMethod(nameof(UnlockManager_Data_RefreshScenarioConditions_Prefix), BindingFlags.Public | BindingFlags.Static);
+                if (refreshMethod != null && refreshPre != null)
+                {
+                    harmony.Patch(refreshMethod, prefix: new HarmonyMethod(refreshPre) { prioritiy = Harmony.Priority.First });
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched UnlockManager.Data.RefreshScenarioConditions with negative overflow armor.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] GameLoadingArmor: Error patching UnlockManager: " + ex);
+            }
+
+            // 2. RadioPanel.AssignStationToButton (prevents NullReferenceException on missing/null radio stations)
+            try
+            {
+                Type rpType = typeof(RadioPanel);
+                MethodInfo assignMethod = rpType?.GetMethod("AssignStationToButton", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                MethodInfo assignPre = typeof(GameLoadingArmor).GetMethod(nameof(RadioPanel_AssignStationToButton_Prefix), BindingFlags.Public | BindingFlags.Static);
+                if (assignMethod != null && assignPre != null)
+                {
+                    harmony.Patch(assignMethod, prefix: new HarmonyMethod(assignPre) { prioritiy = Harmony.Priority.First });
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched RadioPanel.AssignStationToButton with null station guard.");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] GameLoadingArmor: Error patching RadioPanel: " + ex);
+            }
+
+            // 3. TransportLinesManager.Overrides.TransportLineOverrides.RemoveVehicle (prevents NullReferenceException on vehicles with missing prefabs)
+            try
+            {
+                Type tlmOverrides = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "TransportLinesManager")
+                    {
+                        tlmOverrides = asm.GetType("TransportLinesManager.Overrides.TransportLineOverrides");
+                        break;
+                    }
+                }
+                if (tlmOverrides != null)
+                {
+                    MethodInfo removeVeh = tlmOverrides.GetMethod("RemoveVehicle", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    MethodInfo pre = typeof(GameLoadingArmor).GetMethod(nameof(TLM_TransportLineOverrides_RemoveVehicle_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    if (removeVeh != null && pre != null)
+                    {
+                        harmony.Patch(removeVeh, prefix: new HarmonyMethod(pre) { prioritiy = Harmony.Priority.First });
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched TransportLinesManager.Overrides.TransportLineOverrides.RemoveVehicle with null vehicle guard.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] GameLoadingArmor: Error patching TransportLinesManager: " + ex);
+            }
+        }
+
+        [HarmonyPriority(Priority.First)]
+        public static void UnlockManager_Data_RefreshScenarioConditions_Prefix(ref int triggerCount)
+        {
+            if (triggerCount < 0)
+            {
+                triggerCount = 0;
+            }
+        }
+
+        [HarmonyPriority(Priority.First)]
+        public static bool RadioPanel_AssignStationToButton_Prefix(ColossalFramework.UI.UIButton button, RadioChannelInfo station)
+        {
+            if (button == null || station == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        [HarmonyPriority(Priority.First)]
+        public static bool TLM_TransportLineOverrides_RemoveVehicle_Prefix(ushort lineID, ref Vehicle vehicleData)
+        {
+            try
+            {
+                if (vehicleData.Info == null)
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+            return true;
         }
     }
 

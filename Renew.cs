@@ -7016,7 +7016,7 @@ namespace MoreNetworkCapacityRenew
                                 return;
                             }
                         }
-                        else
+                        else if (vehicleData.m_blockCounter >= 100)
                         {
                             __result = true;
                             return;
@@ -7552,6 +7552,16 @@ namespace MoreNetworkCapacityRenew
                 catch (Exception ex)
                 {
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] UIExceptionPatches error: " + ex);
+                }
+
+                try
+                {
+                    // Vehicle Corridor Protection & Seamless Route Visualization (v5.0.8)
+                    VehicleCorridorProtection.Apply(harmony);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] VehicleCorridorProtection error: " + ex);
                 }
 
                 try
@@ -8298,30 +8308,157 @@ namespace MoreNetworkCapacityRenew
                 catch { }
             }
 
-            // 5. Sweep and recover confused ("Hoang mang") or deadlocked vehicles (64 vehicles per frame)
+            // 5. Sweep and recover confused ("Hoang mang") or deadlocked vehicles (256 vehicles per frame)
             try
             {
                 var vm = Singleton<VehicleManager>.instance;
                 if (vm != null && vm.m_vehicles != null && vm.m_vehicles.m_buffer != null)
                 {
-                    int vStart = (int)frame256 * 64;
-                    int vEnd = Math.Min(vStart + 64, vm.m_vehicles.m_buffer.Length);
+                    int vStart = (int)frame256 * 256;
+                    int vEnd = Math.Min(vStart + 256, vm.m_vehicles.m_buffer.Length);
                     for (int v = vStart; v < vEnd; v++)
                     {
                         var flags = vm.m_vehicles.m_buffer[v].m_flags;
                         if ((flags & (Vehicle.Flags.Created | Vehicle.Flags.Spawned)) == (Vehicle.Flags.Created | Vehicle.Flags.Spawned) &&
                             (flags & (Vehicle.Flags.WaitingPath | Vehicle.Flags.Parking | Vehicle.Flags.WaitingLoading)) == 0)
                         {
-                            if (vm.m_vehicles.m_buffer[v].m_blockCounter >= 180 ||
-                                (vm.m_vehicles.m_buffer[v].m_targetBuilding == 0 && vm.m_vehicles.m_buffer[v].m_blockCounter >= 100))
+                            ushort blockCount = vm.m_vehicles.m_buffer[v].m_blockCounter;
+                            if (blockCount >= 180 ||
+                                (vm.m_vehicles.m_buffer[v].m_targetBuilding == 0 && vm.m_vehicles.m_buffer[v].m_blockCounter >= 100) ||
+                                (blockCount >= 100 && vm.m_vehicles.m_buffer[v].GetLastFrameVelocity().sqrMagnitude < 0.001f))
                             {
                                 vm.ReleaseVehicle((ushort)v);
+                            }
+                            else if (blockCount >= 75 && vm.m_vehicles.m_buffer[v].GetLastFrameVelocity().sqrMagnitude < 0.001f)
+                            {
+                                vm.m_vehicles.m_buffer[v].m_targetPos0.w = 1.5f;
+                                vm.m_vehicles.m_buffer[v].m_targetPos1.w = 1.5f;
+                                vm.m_vehicles.m_buffer[v].m_targetPos2.w = 1.5f;
+                                vm.m_vehicles.m_buffer[v].m_targetPos3.w = 1.5f;
+                                TMPECompatibility.UnstickVehicle((ushort)v);
                             }
                         }
                     }
                 }
             }
             catch { }
+        }
+    }
+
+    // ============================================================================
+    // VEHICLE CORRIDOR PROTECTION & SEAMLESS ROUTE VISUALIZATION (v5.0.8)
+    // 1. PathUnit.GetPosition Prefix: Prevents m_modifiedIndex >= m_buildIndex desync
+    //    from invalidating paths and slamming vehicle brakes at modified/busy junctions.
+    // 2. PathVisualizer.AddPathsImpl Transpiler: Replaces segment.m_modifiedIndex with 0
+    //    so route lines in "Lộ trình Giao thông" never break or get truncated ("đứt quãng").
+    // ============================================================================
+    public static class VehicleCorridorProtection
+    {
+        public static void Apply(HarmonyInstance harmony)
+        {
+            if (harmony == null) return;
+            try
+            {
+                MethodInfo getPos = typeof(PathUnit).GetMethod(
+                    "GetPosition",
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(int), typeof(PathUnit.Position).MakeByRefType() },
+                    null);
+                if (getPos != null)
+                {
+                    MethodInfo pre = typeof(VehicleCorridorProtection).GetMethod(nameof(PathUnit_GetPosition_Prefix), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(getPos, prefix: new HarmonyMethod(pre));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathUnit.GetPosition (desync & congestion immunity)");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] VehicleCorridorProtection.Apply PathUnit error: " + ex);
+            }
+
+            try
+            {
+                MethodInfo addPathsImpl = typeof(PathVisualizer).GetMethod(
+                    "AddPathsImpl",
+                    BindingFlags.NonPublic | BindingFlags.Instance,
+                    null,
+                    new Type[] { typeof(int), typeof(int) },
+                    null);
+                if (addPathsImpl != null)
+                {
+                    MethodInfo transpiler = typeof(VehicleCorridorProtection).GetMethod(nameof(PathVisualizer_AddPathsImpl_Transpiler), BindingFlags.Public | BindingFlags.Static);
+                    harmony.Patch(addPathsImpl, transpiler: new HarmonyMethod(transpiler));
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched PathVisualizer.AddPathsImpl (seamless path visualization)");
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] VehicleCorridorProtection.Apply PathVisualizer error: " + ex);
+            }
+        }
+
+        public static bool PathUnit_GetPosition_Prefix(ref PathUnit __instance, int index, out PathUnit.Position position, ref bool __result)
+        {
+            switch (index)
+            {
+                case 0: position = __instance.m_position00; break;
+                case 1: position = __instance.m_position01; break;
+                case 2: position = __instance.m_position02; break;
+                case 3: position = __instance.m_position03; break;
+                case 4: position = __instance.m_position04; break;
+                case 5: position = __instance.m_position05; break;
+                case 6: position = __instance.m_position06; break;
+                case 7: position = __instance.m_position07; break;
+                case 8: position = __instance.m_position08; break;
+                case 9: position = __instance.m_position09; break;
+                case 10: position = __instance.m_position10; break;
+                case 11: position = __instance.m_position11; break;
+                default:
+                    position = default(PathUnit.Position);
+                    __result = false;
+                    return false;
+            }
+
+            ushort segId = position.m_segment;
+            if (segId == 0)
+            {
+                __result = false;
+                return false;
+            }
+
+            NetManager nm = Singleton<NetManager>.instance;
+            if (nm == null || nm.m_segments.m_buffer == null || segId >= nm.m_segments.m_buffer.Length)
+            {
+                __result = false;
+                return false;
+            }
+
+            var flags = nm.m_segments.m_buffer[segId].m_flags;
+            if ((flags & NetSegment.Flags.Created) == 0 || (flags & NetSegment.Flags.Deleted) != 0)
+            {
+                __result = false;
+                return false;
+            }
+
+            // Valid segment! Return true and skip vanilla modifiedIndex check
+            __result = true;
+            return false;
+        }
+
+        public static IEnumerable<CodeInstruction> PathVisualizer_AddPathsImpl_Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            FieldInfo modIdxField = typeof(NetSegment).GetField("m_modifiedIndex", BindingFlags.Public | BindingFlags.Instance);
+            foreach (var inst in instructions)
+            {
+                if (inst.opcode == OpCodes.Ldfld && inst.operand == modIdxField)
+                {
+                    yield return new CodeInstruction(OpCodes.Pop);
+                    yield return new CodeInstruction(OpCodes.Ldc_I4_0);
+                    continue;
+                }
+                yield return inst;
+            }
         }
     }
 

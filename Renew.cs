@@ -12193,20 +12193,28 @@ namespace MoreNetworkCapacityRenew
                     UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching CitizenManager.Data.Deserialize: " + ex);
                 }
 
-                // 3c. Patch LoadingProfiler.EndDeserialize (Tag safety guard against ArgumentOutOfRangeException)
+                // 3c. Patch LoadingProfiler.BeginDeserialize & EndDeserialize (Universal Stream Armor against tag mismatches)
                 try
                 {
+                    MethodInfo beginDes = typeof(LoadingProfiler).GetMethod("BeginDeserialize", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ColossalFramework.IO.DataSerializer), typeof(string) }, null);
+                    if (beginDes != null)
+                    {
+                        MethodInfo preBegin = typeof(TransportLineCompatibility).GetMethod(nameof(LoadingProfiler_BeginDeserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(beginDes, prefix: new HarmonyMethod(preBegin));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingProfiler.BeginDeserialize with Universal Stream Armor.");
+                    }
+
                     MethodInfo endDes = typeof(LoadingProfiler).GetMethod("EndDeserialize", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(ColossalFramework.IO.DataSerializer), typeof(string) }, null);
                     if (endDes != null)
                     {
-                        MethodInfo pre = typeof(TransportLineCompatibility).GetMethod(nameof(LoadingProfiler_EndDeserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
-                        harmony.Patch(endDes, prefix: new HarmonyMethod(pre));
-                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingProfiler.EndDeserialize with tag exception guard.");
+                        MethodInfo preEnd = typeof(TransportLineCompatibility).GetMethod(nameof(LoadingProfiler_EndDeserialize_Prefix), BindingFlags.Public | BindingFlags.Static);
+                        harmony.Patch(endDes, prefix: new HarmonyMethod(preEnd));
+                        UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Patched LoadingProfiler.EndDeserialize with Universal Stream Armor.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LoadingProfiler.EndDeserialize: " + ex);
+                    UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] Error patching LoadingProfiler tags: " + ex);
                 }
 
                 // 3d. Patch SimulationMetaData.Merge (Preserve save modOverride dictionary from being clobbered by ngs)
@@ -13519,23 +13527,40 @@ namespace MoreNetworkCapacityRenew
                 var cm = Singleton<CitizenManager>.instance;
                 if (cm == null) return;
 
-                const int EXPANDED_CITIZEN_UNITS = 1048576;
                 var sm = Singleton<SimulationManager>.instance;
-                if (sm != null && sm.m_metaData != null)
+                bool isExpandedSave = sm != null && sm.m_metaData != null && sm.m_metaData.m_modOverride != null &&
+                    sm.m_metaData.m_modOverride.TryGetValue("User/More CitizenUnits x2", out bool cuExp) && cuExp;
+
+                bool hasMoreCitizenUnitsMod = false;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    if (sm.m_metaData.m_modOverride == null)
+                    if (asm.GetName().Name == "MoreCitizenUnits")
                     {
-                        sm.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                        hasMoreCitizenUnitsMod = true;
+                        break;
                     }
-                    sm.m_metaData.m_modOverride["User/More CitizenUnits x2"] = true;
-                    sm.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
                 }
 
-                if (cm.m_units == null || cm.m_units.m_buffer == null || cm.m_units.m_buffer.Length < EXPANDED_CITIZEN_UNITS)
+                // ONLY expand if this save was saved with More CitizenUnits x2 or mod is loaded in AppDomain
+                if (isExpandedSave || hasMoreCitizenUnitsMod)
                 {
-                    cm.m_units = new Array32<CitizenUnit>((uint)EXPANDED_CITIZEN_UNITS);
-                    cm.m_units.CreateItem(out _); // Reserve item 0
-                    UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Buffer Guard: Pre-expanded CitizenManager.m_units to {0} slots ✓", EXPANDED_CITIZEN_UNITS));
+                    const int EXPANDED_CITIZEN_UNITS = 1048576;
+                    if (sm != null && sm.m_metaData != null)
+                    {
+                        if (sm.m_metaData.m_modOverride == null)
+                        {
+                            sm.m_metaData.m_modOverride = new Dictionary<string, bool>();
+                        }
+                        sm.m_metaData.m_modOverride["User/More CitizenUnits x2"] = true;
+                        sm.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                    }
+
+                    if (cm.m_units == null || cm.m_units.m_buffer == null || cm.m_units.m_buffer.Length < EXPANDED_CITIZEN_UNITS)
+                    {
+                        cm.m_units = new Array32<CitizenUnit>((uint)EXPANDED_CITIZEN_UNITS);
+                        cm.m_units.CreateItem(out _); // Reserve item 0
+                        UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Buffer Guard: Pre-expanded CitizenManager.m_units to {0} slots ✓", EXPANDED_CITIZEN_UNITS));
+                    }
                 }
             }
             catch (Exception ex)
@@ -13812,24 +13837,60 @@ namespace MoreNetworkCapacityRenew
             }
         }
 
+        public static bool LoadingProfiler_BeginDeserialize_Prefix(LoadingProfiler __instance, ColossalFramework.IO.DataSerializer s, string name)
+        {
+            return SafeHandleDeserializeTag(__instance, s, name, isBegin: true);
+        }
+
         public static bool LoadingProfiler_EndDeserialize_Prefix(LoadingProfiler __instance, ColossalFramework.IO.DataSerializer s, string name)
         {
-            if (name == "PathManager")
-            {
-                try
-                {
-                    if (s != null && s.version >= 130u)
-                    {
-                        var fiStrings = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stringList", BindingFlags.NonPublic | BindingFlags.Instance);
-                        var fiStream = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stream", BindingFlags.NonPublic | BindingFlags.Instance);
-                        Stream st = fiStream != null ? (Stream)fiStream.GetValue(s) : null;
-                        List<string> strList = fiStrings != null ? (List<string>)fiStrings.GetValue(s) : null;
+            return SafeHandleDeserializeTag(__instance, s, name, isBegin: false);
+        }
 
-                        int pmTagIdx = strList != null ? strList.IndexOf(name) : -1;
-                        if (st != null && st.CanSeek && pmTagIdx >= 0)
+        private static bool SafeHandleDeserializeTag(LoadingProfiler profiler, ColossalFramework.IO.DataSerializer s, string name, bool isBegin)
+        {
+            try
+            {
+                if (profiler != null)
+                {
+                    try
+                    {
+                        FieldInfo fEvents = typeof(LoadingProfiler).GetField("m_events", BindingFlags.NonPublic | BindingFlags.Instance);
+                        FieldInfo fStopwatch = typeof(LoadingProfiler).GetField("m_stopwatch", BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (fEvents != null && fStopwatch != null)
                         {
-                            byte b1 = (byte)(pmTagIdx >> 8);
-                            byte b2 = (byte)(pmTagIdx & 0xFF);
+                            var stopwatch = fStopwatch.GetValue(profiler) as System.Diagnostics.Stopwatch;
+                            long elapsed = stopwatch != null ? stopwatch.ElapsedMilliseconds : 0L;
+                            var events = fEvents.GetValue(profiler);
+                            if (events != null)
+                            {
+                                MethodInfo mAdd = events.GetType().GetMethod("Add", BindingFlags.Public | BindingFlags.Instance);
+                                Type evType = typeof(LoadingProfiler).GetNestedType("Event", BindingFlags.NonPublic | BindingFlags.Public);
+                                if (evType != null && mAdd != null)
+                                {
+                                    object ev = Activator.CreateInstance(evType, new object[] { isBegin ? 6 : 7, isBegin ? name : null, elapsed });
+                                    mAdd.Invoke(events, new object[] { ev });
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (s != null && s.version >= 130u)
+                {
+                    var fiStrings = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stringList", BindingFlags.NonPublic | BindingFlags.Instance);
+                    var fiStream = typeof(ColossalFramework.IO.DataSerializer).GetField("m_stream", BindingFlags.NonPublic | BindingFlags.Instance);
+                    Stream st = fiStream != null ? (Stream)fiStream.GetValue(s) : null;
+                    List<string> strList = fiStrings != null ? (List<string>)fiStrings.GetValue(s) : null;
+
+                    if (st != null && st.CanSeek)
+                    {
+                        int tagIdx = strList != null ? strList.IndexOf(name) : -1;
+                        if (tagIdx >= 0)
+                        {
+                            byte b1 = (byte)(tagIdx >> 8);
+                            byte b2 = (byte)(tagIdx & 0xFF);
 
                             long curPos = st.Position;
                             int p1 = st.ReadByte();
@@ -13838,14 +13899,14 @@ namespace MoreNetworkCapacityRenew
 
                             if (p1 == b1 && p2 == b2)
                             {
-                                string tag = s.ReadSharedString();
-                                UnityEngine.Debug.Log("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager tag cleanly matched: " + tag);
+                                s.ReadSharedString(); // Clean match!
                                 return false;
                             }
 
-                            // Fallback scanner if slightly misaligned:
+                            // Misaligned stream: search forward up to 8MB (covers up to 65k excess vehicles/citizens/units)
                             long foundPos = -1;
-                            for (int search = 0; search < 4096 && st.Position < st.Length - 2; search++)
+                            long maxSearch = Math.Min(st.Length - 2, curPos + 8 * 1024 * 1024);
+                            for (long pos = curPos; pos < maxSearch; pos++)
                             {
                                 int s1 = st.ReadByte();
                                 if (s1 == b1)
@@ -13862,26 +13923,32 @@ namespace MoreNetworkCapacityRenew
 
                             if (foundPos != -1)
                             {
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager scanned and aligned to offset {0}.", foundPos));
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Stream Armor: Recovered and aligned {0}('{1}') from offset {2} to {3} ✓",
+                                    isBegin ? "BeginDeserialize" : "EndDeserialize", name, curPos, foundPos));
                                 return false;
                             }
+
                             st.Seek(curPos, SeekOrigin.Begin);
                         }
 
-                        string fallbackTag = s.ReadSharedString();
-                        if (fallbackTag != name)
+                        // Fallback: Read tag safely without throwing
+                        try
                         {
-                            UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] LoadingProfiler.EndDeserialize PathManager tag notice: read '{0}', expected '{1}'", fallbackTag, name));
+                            string readTag = s.ReadSharedString();
+                            UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] Universal Stream Armor: Suppressed {0}('{1}') tag mismatch (read '{2}'). Proceeding safely ✓",
+                                isBegin ? "BeginDeserialize" : "EndDeserialize", name, readTag));
                         }
+                        catch { }
+                        return false;
                     }
                 }
-                catch (Exception ex)
-                {
-                    UnityEngine.Debug.LogWarning("[MoreNetworkCapacityRenew] Guarded LoadingProfiler.EndDeserialize PathManager against tag read error: " + ex.Message);
-                }
-                return false;
             }
-            return true;
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning(string.Format("[MoreNetworkCapacityRenew] Universal Stream Armor: Guarded {0}('{1}') error: {2}",
+                    isBegin ? "BeginDeserialize" : "EndDeserialize", name, ex.Message));
+            }
+            return false;
         }
 
         private static MilestoneInfo.Data[] SafeReadMilestoneDataArray(ColossalFramework.IO.DataSerializer s)

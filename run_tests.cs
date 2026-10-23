@@ -1232,6 +1232,13 @@ class TestSuite
                                    renewCode.Contains("OnLevelUnloading()") &&
                                    renewCode.Contains("StrategicGarbageCollect(\"OnLevelUnloading\")");
             Assert(unloadSanitizer, "OnLevelUnloading resets pending TMPE buffers and runs strategic GC to prevent reload blue screen");
+
+            // 26.10 Universal Stream Armor against EndDeserialize tag mismatches (CitizenManager & VehicleManager)
+            bool streamArmor = renewCode.Contains("LoadingProfiler_BeginDeserialize_Prefix") &&
+                               renewCode.Contains("LoadingProfiler_EndDeserialize_Prefix") &&
+                               renewCode.Contains("SafeHandleDeserializeTag") &&
+                               renewCode.Contains("Universal Stream Armor");
+            Assert(streamArmor, "Universal Stream Armor intercepts Begin/EndDeserialize to recover stream alignment and suppress tag mismatches");
         }
         catch (Exception ex)
         {

@@ -13903,7 +13903,6 @@ namespace MoreNetworkCapacityRenew
                             sm.m_metaData.m_modOverride = new Dictionary<string, bool>();
                         }
                         sm.m_metaData.m_modOverride["User/More CitizenUnits x2"] = true;
-                        sm.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
                     }
 
                     if (cm.m_units == null || cm.m_units.m_buffer == null || cm.m_units.m_buffer.Length < EXPANDED_CITIZEN_UNITS)
@@ -13946,7 +13945,6 @@ namespace MoreNetworkCapacityRenew
                         smInst.m_metaData.m_modOverride = new Dictionary<string, bool>();
                     }
                     smInst.m_metaData.m_modOverride["User/More PathUnits x2"] = true;
-                    smInst.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
                 }
 
                 // If MorePathUnits mod is present, let it run natively without interference!
@@ -14175,7 +14173,6 @@ namespace MoreNetworkCapacityRenew
                         smInst.m_metaData.m_modOverride = new Dictionary<string, bool>();
                     }
                     smInst.m_metaData.m_modOverride["User/More PathUnits x2"] = true;
-                    smInst.m_metaData.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
                 }
 
                 UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] PathManager.Data.Deserialize completed flawlessly: {0} units deserialized from save ({1} active), memory capacity {2}.", length, activeCount, buffer.Length));
@@ -14254,9 +14251,11 @@ namespace MoreNetworkCapacityRenew
                                 return false;
                             }
 
-                            // Misaligned stream: search forward up to 8MB (covers up to 65k excess vehicles/citizens/units)
+                            // Misaligned stream: search forward up to 2MB, requiring strong validation:
+                            // 1. Tag must match [b1, b2]
+                            // 2. If isBegin == false (EndDeserialize), next 2 bytes must point to a valid manager Begin tag in strList!
                             long foundPos = -1;
-                            long maxSearch = Math.Min(st.Length - 2, curPos + 8 * 1024 * 1024);
+                            long maxSearch = Math.Min(st.Length - 4, curPos + 2 * 1024 * 1024);
                             for (long pos = curPos; pos < maxSearch; pos++)
                             {
                                 int s1 = st.ReadByte();
@@ -14265,16 +14264,42 @@ namespace MoreNetworkCapacityRenew
                                     int s2 = st.ReadByte();
                                     if (s2 == b2)
                                     {
-                                        foundPos = st.Position;
-                                        break;
+                                        if (!isBegin)
+                                        {
+                                            // Verify next 2 bytes form a valid next manager Begin tag!
+                                            int n1 = st.ReadByte();
+                                            int n2 = st.ReadByte();
+                                            if (n1 >= 0 && n2 >= 0)
+                                            {
+                                                int nextIdx = (n1 << 8) | n2;
+                                                if (nextIdx >= 0 && nextIdx < strList.Count)
+                                                {
+                                                    string nextStr = strList[nextIdx];
+                                                    if (nextStr != null && (nextStr.EndsWith("Manager") || nextStr.Contains("Manager")))
+                                                    {
+                                                        foundPos = pos;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            st.Seek(pos + 1, SeekOrigin.Begin);
+                                            continue;
+                                        }
+                                        else
+                                        {
+                                            foundPos = pos;
+                                            break;
+                                        }
                                     }
-                                    st.Seek(-1, SeekOrigin.Current);
+                                    st.Seek(pos + 1, SeekOrigin.Begin);
                                 }
                             }
 
                             if (foundPos != -1)
                             {
-                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Stream Armor: Recovered and aligned {0}('{1}') from offset {2} to {3} ✓",
+                                st.Seek(foundPos, SeekOrigin.Begin);
+                                s.ReadSharedString(); // Cleanly consume the verified tag
+                                UnityEngine.Debug.Log(string.Format("[MoreNetworkCapacityRenew] Universal Stream Armor: Verified and aligned {0}('{1}') from offset {2} to {3} ✓",
                                     isBegin ? "BeginDeserialize" : "EndDeserialize", name, curPos, foundPos));
                                 return false;
                             }
@@ -14688,13 +14713,9 @@ namespace MoreNetworkCapacityRenew
         {
             try
             {
-                if (__instance != null)
+                if (__instance != null && __instance.m_modOverride == null)
                 {
-                    if (__instance.m_modOverride == null)
-                    {
-                        __instance.m_modOverride = new Dictionary<string, bool>();
-                    }
-                    __instance.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
+                    __instance.m_modOverride = new Dictionary<string, bool>();
                 }
                 ThirdPartyCompatibility.EnsureMorePathUnitsPatched();
                 ThirdPartyCompatibility.SynchronizeMorePathUnits("SimulationMetaData.Merge.Postfix");
@@ -14720,7 +14741,6 @@ namespace MoreNetworkCapacityRenew
                     {
                         ngs.m_modOverride["User/More PathUnits x2"] = true;
                     }
-                    ngs.m_modOverride["User/MoreNetworkCapacity/64K-v1"] = true;
                 }
             }
             catch (Exception ex)

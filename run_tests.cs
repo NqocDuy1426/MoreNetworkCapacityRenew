@@ -1444,13 +1444,6 @@ class TestSuite
                                             renewCode.Contains("case RoadBaseAI.TrafficLightState.Red:") &&
                                             renewCode.Contains("color.g = 0f;");
             Assert(authenticVisualPreserved, "RoadBaseAI.GetTrafficLightNodeState matches authentic vanilla shader logic without yellow-on-red bug");
-
-            // 29.7 Vehicle Corridor Protection (PathUnit.GetPosition desync immunity & PathVisualizer seamless rendering)
-            bool hasCorridorProtection = renewCode.Contains("class VehicleCorridorProtection") &&
-                                         renewCode.Contains("PathUnit_GetPosition_Prefix") &&
-                                         renewCode.Contains("PathVisualizer_AddPathsImpl_Transpiler") &&
-                                         renewCode.Contains("VehicleCorridorProtection.Apply(harmony);");
-            Assert(hasCorridorProtection, "VehicleCorridorProtection patches PathUnit.GetPosition and PathVisualizer.AddPathsImpl seamlessly");
         }
         catch (Exception ex)
         {

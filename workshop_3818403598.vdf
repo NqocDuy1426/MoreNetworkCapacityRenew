@@ -116,6 +116,6 @@ Tested and fully compatible with the standard modern modding ecosystem:
 
 [hr][/hr]
 [i]Developed with precision and care for the Cities: Skylines community by NgocDuy.[/i]"
-	"changenote"		"v5.0.10 - Vehicle Corridor Protection & Route Armor: Fixed PathUnit.GetPosition to prevent m_modifiedIndex desync from prematurely invalidating vehicle paths and slamming brakes at modified/busy junctions; transpiled PathVisualizer.AddPathsImpl to ensure route lines in 'Lộ trình Giao thông' never break or get truncated; expanded confused vehicle sweep to 256 vehicles/frame with proactive deadlock velocity unstick and auto-release."
+	"changenote"		"v5.0.9 - Traffic Flow & Vehicle Freeze Armor: Normalized double-buffer bank queries for nodes >= 32,768 in RoadBaseAI.GetTrafficLightState and GetBollardState, permanently resolving vehicle freeze at intersections and 'Hoang mang' (Confused) vehicle states; added auto-recovery sweeper for stalled/confused vehicles; restored authentic traffic light bulb shader emission colors for vanilla and TM:PE; added crash-proof null text armor for UITextField and UILabel across all vehicle and transit info panels."
 }
 
